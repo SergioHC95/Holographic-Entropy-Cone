@@ -1,7 +1,4 @@
-# Holographic Entropy Cone
-Database of extremal elements of the holographic entropy cone (HEC).
-
-## Intro ##
+# Holographic Entropy Cone (HEC) #
 
 The HEC is a family of polyhedral cones $H_n$ labelled by the number of parties $n \in \mathbb{N}$.  
 Each $H_n$ can be dually described by either its facet inequalities or its extreme rays.  
