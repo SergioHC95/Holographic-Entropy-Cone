@@ -25,3 +25,43 @@ Orbit counts:
 | 4   | 2 (2)          | 3 (2)        | complete   |
 | 5   | 8 (3)          | 19 (3)       | complete   |
 | 6   | 1877 (11)      | 4145 (19)    | incomplete |
+
+
+## Attribution ##
+
+If you find this data useful for your research, please consider citing the following papers.
+
+ * Complete description of $H_n$ for $n \leq 5$ from [arXiv:1903.09148](https://arxiv.org/abs/1903.09148):
+~~~bibtex
+  @article{n5hec,
+      author         = "Hern\'andez Cuenca, Sergio",
+      title          = "{The Holographic Entropy Cone for Five Regions}",
+      eprint         = "1903.09148",
+      archivePrefix  = "arXiv",
+      primaryClass   = "hep-th",
+      doi            = "10.1103/PhysRevD.100.026004",
+      journal        = "Phys. Rev. D",
+      volume         = "100",
+      number         = "2",
+      pages          = "026004",
+      year           = "2019",
+      note           = "Data available at \url{https://github.com/SergioHC95/Holographic-Entropy-Cone}"
+  }
+~~~
+
+
+ * Partial description of $H_n$ for $n=6$ from [arXiv:2309.06296](https://arxiv.org/abs/2309.06296):
+~~~bibtex
+  @article{n6hec,
+      author         = "Hern\'andez-Cuenca, Sergio and Hubeny, Veronika E. and Jia, Frederic",
+      title          = "{Holographic Entropy Inequalities and Multipartite Entanglement}",
+      eprint         = "2309.06296",
+      archivePrefix  = "arXiv",
+      primaryClass   = "hep-th",
+      reportNumber   = "MIT-CTP/5610",
+      month          = "9",
+      year           = "2023",
+      note           = "Data available at \url{https://github.com/SergioHC95/Holographic-Entropy-Cone}"
+  }
+~~~
+
