@@ -24,7 +24,7 @@ Orbit counts:
 | 3   | 2 (1)          | 2 (1)        | complete   |
 | 4   | 2 (2)          | 3 (2)        | complete   |
 | 5   | 8 (3)          | 19 (3)       | complete   |
-| 6   | 1876 (11)      | 4145 (19)    | incomplete |
+| 6   | 1875 (11)      | 4145 (19)    | incomplete |
 
 
 ## Attribution ##
