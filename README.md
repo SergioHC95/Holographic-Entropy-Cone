@@ -13,18 +13,143 @@ Each $H_n$ is invariant under the symmetric group of degree $n+1$.
 Files contain one representative element per symmetry orbit.  
 Elements of $H_n$ obtained as lifts from $H_k$ for $k < n$ are listed first.
 
+Data files live under `data/n=*/`:
+
+- `data/n=*/facets.json` contains facet-inequality orbit representatives.
+- `data/n=*/rays.json` contains extreme-ray orbit representatives.
+- `data/n=*/graphs.json` contains graph representatives for the listed rays.
+- `data/n=*/contractions.json` contains contraction-map certificates for the listed facets.
+
+Facets and rays are integer rows in cardinality-then-lexicographic subset order.
+Graphs are records with only `edges` and `weights`. Contractions are minimal
+records with only `lhs`, `rhs`, and `images`.
+
+
+## Python package ##
+
+The repository also contains a `hec` package under `src/hec/`. It keeps the
+fast core algorithms from the larger HEC6/HEC6CC workspaces:
+
+- `hec.contractions` searches and verifies contraction-map certificates for
+  inequalities.
+- `hec.rank` checks facet and extreme-ray rank from supporting orbit data.
+- `hec.checks` validates the official repository data with the same checks used
+  by the example scripts.
+- `hec.graphs` realizes entropy vectors by weighted graphs using the AHC MILP
+  graph finder and verifies graph representatives by min-cut. The graph finder
+  requires only the entropy vector and returns repository-format graphs with
+  integer weights, up to overall ray scale.
+- `hec.data` locates and reads official repository JSON data.
+- `hec.runs` manages timestamped output folders for generated graph and
+  contraction searches.
+- `hec.symmetry` provides permutation actions and symmetry-orbit filtering for
+  rays and inequalities.
+- `hec.coordinates`, `hec.bits`, and `hec.serialization` hold the
+  shared low-level machinery without a generic utilities bucket.
+
+Install into a Python environment created on the same operating system that will
+run the code. Do not reuse a `.venv` copied from another platform.
+
+On macOS or Linux, install with:
+
+```bash
+uv sync --locked --dev
+uv run python - <<'PY'
+from hec.contractions import find_contraction, check_contraction
+from hec.data import load_hec_data
+from hec.graphs import check_graph, find_graph
+from hec.contraction_solver import _SAT_BACKEND
+
+print(len(load_hec_data(6, "rays")))
+print(_SAT_BACKEND)
+
+certificate = find_contraction([1, 1, -1], 2)
+print(check_contraction([1, 1, -1], 2, certificate)["ok"])
+
+graph = find_graph([1, 1, 0])
+print(check_graph(graph["graph"], [1, 1, 0], graph["n"], primitive=True)["ok"])
+PY
+uv run ruff check .
+```
+
+The macOS/Linux contraction solver uses the direct Kissat C-symbol path exposed
+by PySAT. If that ABI is not present, import fails with an explicit solver
+installation error. The tracked Cython sources are built automatically in-place
+on first contraction-solver use when the compiled local extensions are absent.
+
+On Windows, install the locked Python dependencies first and run from an x64
+Visual C++ build environment, such as the "x64 Native Tools Command Prompt for
+VS", so the automatic extension build can find a compiler:
+
+```powershell
+uv sync --locked --dev
+$env:DISTUTILS_USE_SDK = "1"
+$env:MSSdk = "1"
+@'
+from hec.contractions import find_contraction, check_contraction
+from hec.contraction_solver import _SAT_BACKEND
+
+print(_SAT_BACKEND)
+certificate = find_contraction([1, 1, -1], 2)
+print(check_contraction([1, 1, -1], 2, certificate)["ok"])
+'@ | uv run python -
+uv run ruff check .
+```
+
+The contraction solver uses the same direct Kissat/Cython backend on every
+platform. Import fails if the installed PySAT build does not provide the
+required Kissat solver and raw Kissat C symbols.
+
+The graph finder uses SciPy's deterministic HiGHS MILP wrapper with presolve
+enabled and an early feasible-incumbent gap target. Returned incumbents are
+accepted only after the local linear/integrality validator confirms feasibility.
+
+Generation scripts use process workers. Contraction generation defaults to
+`max(1, os.cpu_count() - 1)` workers. Graph generation defaults to at most four
+workers unless `HEC_GRAPH_WORKERS` is set, because each MILP solve is already
+CPU-heavy. Rank verification uses Numba threads and defaults to at most 16
+workers unless `HEC_CHECK_WORKERS` is set. Set `HEC_WORKERS`,
+`HEC_GRAPH_WORKERS`, or `HEC_CHECK_WORKERS` to a positive integer to make a
+run's worker count explicit:
+
+```bash
+HEC_GRAPH_WORKERS=4 uv run python examples/find_ray_graphs.py
+HEC_WORKERS=8 uv run python examples/find_ineq_contractions.py
+HEC_CHECK_WORKERS=16 uv run python examples/check_ineq_facets.py
+```
+
+```powershell
+$env:HEC_GRAPH_WORKERS = "4"
+uv run python examples\find_ray_graphs.py
+$env:HEC_WORKERS = "8"
+uv run python examples\find_ineq_contractions.py
+$env:HEC_CHECK_WORKERS = "16"
+uv run python examples\check_ineq_facets.py
+Remove-Item Env:\HEC_GRAPH_WORKERS
+Remove-Item Env:\HEC_WORKERS
+Remove-Item Env:\HEC_CHECK_WORKERS
+```
 
 ## Summary ##
 
-Orbit counts:
-|  n  | facets (lifts) | rays (lifts) | status     |
-| :-: | :------------: | :----------: | :--------: |
-| 1   | 1 (0)          | 1 (0)        | complete   |
-| 2   | 1 (0)          | 1 (1)        | complete   |
-| 3   | 2 (1)          | 2 (1)        | complete   |
-| 4   | 2 (2)          | 3 (2)        | complete   |
-| 5   | 8 (3)          | 19 (3)       | complete   |
-| 6   | 1875 (11)      | 4145 (19)    | incomplete |
+Orbit-representative and distinct-image counts:
+|  n  | facet reps (lifts) | facet images | ray reps (lifts) | ray images | status     |
+| :-: | :----------------: | :-------------------: | :--------------: | :-----------------: | :--------: |
+| 1   | 1 (0)              | 1                     | 1 (0)            | 1                   | complete   |
+| 2   | 1 (0)              | 3                     | 1 (1)            | 3                   | complete   |
+| 3   | 2 (1)              | 7                     | 2 (1)            | 7                   | complete   |
+| 4   | 2 (2)              | 20                    | 3 (2)            | 20                  | complete   |
+| 5   | 8 (3)              | 372                   | 19 (3)           | 2,267               | complete   |
+| 6   | 1,875 (11)          | 8,655,773             | 4,146 (19)        | 15,399,916          | incomplete |
+
+Distinct image counts sum the actual $S_{n+1}$ orbit sizes of the listed
+representatives, so repeated images from stabilizer symmetries are counted once.
+
+Latest generation timing stats:
+| generated data | records | mean | median | max | sum |
+| :------------- | ------: | ---: | -----: | --: | -----------------: |
+| contractions   | 1,889   | 0.248 s | 0.164 s | 1.823 s | 468.519 s |
+| graphs         | 4,172   | 14.551 s | 5.696 s | 1328.874 s | 60705.174 s |
 
 
 ## Attribution ##
