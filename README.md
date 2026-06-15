@@ -139,7 +139,7 @@ Orbit-representative and distinct-image counts:
 | 3   | 2 (1)              | 7                     | 2 (1)            | 7                   | complete   |
 | 4   | 2 (2)              | 20                    | 3 (2)            | 20                  | complete   |
 | 5   | 8 (3)              | 372                   | 19 (3)           | 2,267               | complete   |
-| 6   | 1,875 (11)          | 8,655,773             | 4,146 (19)        | 15,399,916          | incomplete |
+| 6   | 1,875 (11)          | 8,655,773             | 4,149 (19)        | 15,406,216          | incomplete |
 
 Distinct image counts sum the actual $S_{n+1}$ orbit sizes of the listed
 representatives, so repeated images from stabilizer symmetries are counted once.
