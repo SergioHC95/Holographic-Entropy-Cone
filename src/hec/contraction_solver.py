@@ -324,13 +324,11 @@ def _prepare_cube(
     alpha = np.asarray(problem.alpha, dtype=np.int64)
     (
         var_id,
-        _n_vars,
         top_id,
         xor_clauses,
         diffs_flat,
         edge_offsets,
         k_card,
-        _top_id_arr,
         sym_clauses,
         feasible,
     ) = build_clauses(

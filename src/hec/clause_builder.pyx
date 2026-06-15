@@ -147,12 +147,10 @@ def build_clauses(cnp.int8_t[:, ::1] val,
     cdef cnp.int64_t[::1] diffs_flat = np.empty(max_diffs_total, dtype=np.int64)
     cdef cnp.int32_t[::1] edge_offsets = np.empty(max_edges + 1, dtype=np.int32)
     cdef cnp.int32_t[::1] k_card_arr = np.empty(max_edges, dtype=np.int32)
-    cdef cnp.int32_t[::1] top_id_arr = np.empty(max_edges, dtype=np.int32)
     cdef int n_edges = 0
     cdef int n_diffs_total = 0
     edge_offsets[0] = 0
 
-    cdef bint feasible = True
     cdef int vid, vpid, edge_start, xor_start, top_id_start
 
     for v in range(n_v):
@@ -200,26 +198,22 @@ def build_clauses(cnp.int8_t[:, ::1] val,
                     diffs_flat[n_diffs_total] = d_id
                     n_diffs_total += 1
             if fixed_disagree > bound:
-                feasible = False
-                return (np.asarray(var_id), n_vars, top_id,
+                return (np.asarray(var_id), top_id,
                         np.asarray(xor_clauses[:n_xor_cl]),
                         np.asarray(diffs_flat[:n_diffs_total]),
                         np.asarray(edge_offsets[:n_edges + 1]),
                         np.asarray(k_card_arr[:n_edges]),
-                        np.asarray(top_id_arr[:n_edges]),
                         np.asarray(sym_clauses[:n_sym_cl]),
                         False)
             if n_diffs_total == edge_start:
                 continue
             k_card = bound - fixed_disagree
             if k_card < 0:
-                feasible = False
-                return (np.asarray(var_id), n_vars, top_id,
+                return (np.asarray(var_id), top_id,
                         np.asarray(xor_clauses[:n_xor_cl]),
                         np.asarray(diffs_flat[:n_diffs_total]),
                         np.asarray(edge_offsets[:n_edges + 1]),
                         np.asarray(k_card_arr[:n_edges]),
-                        np.asarray(top_id_arr[:n_edges]),
                         np.asarray(sym_clauses[:n_sym_cl]),
                         False)
             if k_card >= n_diffs_total - edge_start:
@@ -229,14 +223,12 @@ def build_clauses(cnp.int8_t[:, ::1] val,
                 continue
             edge_offsets[n_edges + 1] = n_diffs_total
             k_card_arr[n_edges] = k_card
-            top_id_arr[n_edges] = top_id
             n_edges += 1
 
-    return (np.asarray(var_id), n_vars, top_id,
+    return (np.asarray(var_id), top_id,
             np.asarray(xor_clauses[:n_xor_cl]),
             np.asarray(diffs_flat[:n_diffs_total]),
             np.asarray(edge_offsets[:n_edges + 1]),
             np.asarray(k_card_arr[:n_edges]),
-            np.asarray(top_id_arr[:n_edges]),
             np.asarray(sym_clauses[:n_sym_cl]),
             True)
