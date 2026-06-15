@@ -27,16 +27,15 @@ records with only `lhs`, `rhs`, and `images`.
 
 ## Python package ##
 
-The repository also contains a `hec` package under `src/hec/`. It keeps the
-fast core algorithms from the larger HEC6/HEC6CC workspaces:
+The repository also contains a `hec` package under `src/hec/`.
 
-- `hec.contractions` searches and verifies contraction-map certificates for
+- `hec.contractions` searches and verifies contraction maps for
   inequalities.
 - `hec.rank` checks facet and extreme-ray rank from supporting orbit data.
 - `hec.checks` validates the official repository data with the same checks used
   by the example scripts.
-- `hec.graphs` realizes entropy vectors by weighted graphs using the AHC MILP
-  graph finder and verifies graph representatives by min-cut. The graph finder
+- `hec.graphs` realizes entropy vectors by weighted graphs using the Avis-Hernandez-Cuenca
+  MILP graph finder and verifies graph representatives by min-cut. The graph finder
   requires only the entropy vector and returns repository-format graphs with
   integer weights, up to overall ray scale.
 - `hec.data` locates and reads official repository JSON data.
@@ -48,7 +47,7 @@ fast core algorithms from the larger HEC6/HEC6CC workspaces:
   shared low-level machinery without a generic utilities bucket.
 
 Install into a Python environment created on the same operating system that will
-run the code. Do not reuse a `.venv` copied from another platform.
+run the code.
 
 On macOS or Linux, install with:
 
