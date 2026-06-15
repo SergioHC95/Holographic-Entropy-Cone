@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import time
 import warnings
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Iterable, Sequence
 from fractions import Fraction
 from functools import cache
 from itertools import combinations
@@ -19,8 +19,6 @@ from .coordinates import infer_n, party_labels, primitive_vector, row_to_array, 
 from .serialization import load_json_records, save_json_records
 
 Graph = dict[str, Any]
-MilpOptions = Mapping[str, bool | int | float | str]
-MilpSolveCallback = Callable[[float], None]
 SCIPY_LP_OPTIONS: dict[str, bool] = {"disp": False, "presolve": True}
 SCIPY_MILP_OPTIONS: dict[str, bool | int | float] = {
     "disp": False,
@@ -215,31 +213,6 @@ def _integer_graph(
     return {"edges": edges, "weights": integers}, denominator
 
 
-def _solve_milp(
-    c: np.ndarray,
-    A_ineq: np.ndarray,
-    b_ineq_lo: np.ndarray,
-    b_ineq_hi: np.ndarray,
-    A_eq: np.ndarray,
-    b_eq: np.ndarray,
-    integrality: np.ndarray,
-    lb: np.ndarray,
-    ub: np.ndarray,
-) -> np.ndarray | None:
-    return _solve_scipy_milp(
-        c,
-        A_ineq,
-        b_ineq_lo,
-        b_ineq_hi,
-        A_eq,
-        b_eq,
-        integrality,
-        lb,
-        ub,
-        options=SCIPY_MILP_OPTIONS,
-    )
-
-
 def _solve_scipy_milp(
     c: np.ndarray,
     A_ineq: np.ndarray,
@@ -250,9 +223,6 @@ def _solve_scipy_milp(
     integrality: np.ndarray,
     lb: np.ndarray,
     ub: np.ndarray,
-    *,
-    options: MilpOptions,
-    on_solve: MilpSolveCallback | None = None,
 ) -> np.ndarray | None:
     from scipy import sparse
     from scipy.optimize import Bounds, LinearConstraint, milp
@@ -263,7 +233,6 @@ def _solve_scipy_milp(
     lower = np.asarray(lb, dtype=np.float64)
     upper = np.asarray(ub, dtype=np.float64)
     integrality = np.asarray(integrality, dtype=np.int32)
-    start = time.perf_counter()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
         result = milp(
@@ -271,10 +240,8 @@ def _solve_scipy_milp(
             integrality=integrality,
             bounds=Bounds(lower, upper),
             constraints=LinearConstraint(A, row_lower, row_upper),
-            options=dict(options),
+            options=dict(SCIPY_MILP_OPTIONS),
         )
-    if on_solve is not None:
-        on_solve(time.perf_counter() - start)
     if result.x is None:
         return None
     solution = np.asarray(result.x, dtype=np.float64)
@@ -308,7 +275,6 @@ def _satisfies_linear_model(
 
 
 def _solve_lp_relaxation(
-    c: np.ndarray,
     A_ineq: np.ndarray,
     b_ineq_hi: np.ndarray,
     A_eq: np.ndarray,
@@ -319,7 +285,7 @@ def _solve_lp_relaxation(
     from scipy.optimize import linprog
 
     result = linprog(
-        c=np.asarray(c, dtype=np.float64),
+        c=np.zeros(lb.shape[0], dtype=np.float64),
         A_ub=A_ineq if A_ineq.shape[0] else None,
         b_ub=np.asarray(b_ineq_hi, dtype=np.float64) if A_ineq.shape[0] else None,
         A_eq=A_eq if A_eq.shape[0] else None,
@@ -560,10 +526,8 @@ def _solve_ahc_for_N(
         "build_s": time.perf_counter() - profile_start,
     }
 
-    relaxation_objective = np.zeros(var_count)
     lp_start = time.perf_counter()
     relaxation_status = _solve_lp_relaxation(
-        relaxation_objective,
         A_ineq,
         b_ineq_hi,
         A_eq,
@@ -578,7 +542,7 @@ def _solve_ahc_for_N(
     objective = np.zeros(var_count)
     objective[:edge_count] = -1.0
     milp_start = time.perf_counter()
-    solution = _solve_milp(
+    solution = _solve_scipy_milp(
         objective,
         A_ineq,
         b_ineq_lo,

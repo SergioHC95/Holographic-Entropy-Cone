@@ -39,24 +39,6 @@ def get_model_direct(intptr_t kissat_ptr, int max_var,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_model_by_vars(intptr_t kissat_ptr,
-                       cnp.int64_t[::1] vars_to_query,
-                       cnp.int8_t[::1] out_buf):
-    """Query kissat_value only for the listed variable IDs."""
-    cdef void *solver = <void*>kissat_ptr
-    cdef int n = vars_to_query.shape[0]
-    cdef int i, v, val
-    for i in range(n):
-        v = <int>vars_to_query[i]
-        if v <= 0:
-            out_buf[i] = 0
-        else:
-            val = _kissat_value(solver, v)
-            out_buf[i] = 1 if val > 0 else 0
-
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
 def dispatch_xor_direct(intptr_t kissat_ptr,
                         cnp.int64_t[:, ::1] xor_clauses,
                         int n_xor):
