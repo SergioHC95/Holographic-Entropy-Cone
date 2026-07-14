@@ -34,10 +34,10 @@ The repository also contains a `hec` package under `src/hec/`.
 - `hec.rank` checks facet and extreme-ray rank from supporting orbit data.
 - `hec.checks` validates the official repository data with the same checks used
   by the example scripts.
-- `hec.graphs` realizes entropy vectors by weighted graphs using the Avis-Hernandez-Cuenca
-  MILP graph finder and verifies graph representatives by min-cut. The graph finder
-  requires only the entropy vector and returns repository-format graphs with
-  integer weights, up to overall ray scale.
+- `hec.graphs` realizes entropy vectors by weighted graphs using the
+  Avis-Hernandez-Cuenca MILP construction. It combines exact preprocessing,
+  symmetry-reduced fixed-vertex search, a deterministic SCIP/HiGHS portfolio,
+  and solver-independent exact rational min-cut verification.
 - `hec.data` locates and reads official repository JSON data.
 - `hec.runs` manages timestamped output folders for generated graph and
   contraction searches.
@@ -65,7 +65,7 @@ print(_SAT_BACKEND)
 certificate = find_contraction([1, 1, -1], 2)
 print(check_contraction([1, 1, -1], 2, certificate)["ok"])
 
-graph = find_graph([1, 1, 0])
+graph = find_graph([1, 1, 0], max_vertices=3, verify=True)
 print(check_graph(graph["graph"], [1, 1, 0], graph["n"], primitive=True)["ok"])
 PY
 uv run ruff check .
@@ -99,9 +99,11 @@ The contraction solver uses the same direct Kissat/Cython backend on every
 platform. Import fails if the installed PySAT build does not provide the
 required Kissat solver and raw Kissat C symbols.
 
-The graph finder uses SciPy's deterministic HiGHS MILP wrapper with presolve
-enabled and an early feasible-incumbent gap target. Returned incumbents are
-accepted only after the local linear/integrality validator confirms feasibility.
+The graph finder pins every solver to one thread and a fixed seed. Its automatic
+portfolio uses equivalent SCIP indicator constraints first, then native HiGHS.
+Every incumbent must satisfy the original one-hot linear model and an independent
+exact rational min-cut check. Solver limits and backend errors return `unknown`;
+they are never reported as infeasibility.
 
 Generation scripts use process workers. Contraction generation defaults to
 `max(1, os.cpu_count() - 1)` workers. Graph generation defaults to at most four
@@ -148,8 +150,14 @@ Latest generation timing stats:
 | generated data | records | mean | median | max | sum |
 | :------------- | ------: | ---: | -----: | --: | -----------------: |
 | contractions   | 1,889   | 0.248 s | 0.164 s | 1.823 s | 468.519 s |
-| graphs         | 4,172   | 14.551 s | 5.696 s | 1328.874 s | 60705.174 s |
+| graphs (fixed-N replay) | 4,177 | 3.568 s | 0.445 s | 10,247.705 s | 14,901.541 s |
 
+The graph row is a sequential one-solver-worker replay at the total vertex
+count of each paired stored graph, not a search for the smallest realization.
+For all 4,177 stored ray representatives, both the paired stored graph and the
+regenerated graph passed independent exact rational min-cut verification against
+the ray at the requested size. These are known-feasible fixed-N reconstruction
+timings; the maximum is the sole 15-vertex case, and timings are host-specific.
 
 ## Attribution ##
 

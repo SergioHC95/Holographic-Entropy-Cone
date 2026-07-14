@@ -26,7 +26,15 @@ def infer_n(vector_length: int) -> int:
 
 
 def party_labels(n: int) -> list[str]:
-    labels = [chr(ord("A") + i) if i < 26 else f"P{i + 1}" for i in range(n)]
+    if isinstance(n, bool) or not isinstance(n, int) or n < 0:
+        raise ValueError("party count must be a non-negative integer")
+    # ``O`` is the repository-wide purifier label, so it must never also name
+    # a physical terminal.  Preserve the historical A..N convention and then
+    # continue through the remaining letters before using unbounded P<number>
+    # labels.
+    alphabet = tuple(chr(code) for code in range(ord("A"), ord("Z") + 1) if chr(code) != "O")
+    labels = list(alphabet[:n])
+    labels.extend(f"P{i + 1}" for i in range(len(labels), n))
     return labels + ["O"]
 
 
