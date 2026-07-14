@@ -12,7 +12,15 @@ from .contractions import (
 )
 from .coordinates import dim, infer_n, party_labels, primitive_vector
 from .data import available_ns, data_path, default_data_root, load_hec_data
-from .graphs import check_graph, entropy_vector, find_graph, normalize_graph, read_graphs, write_graphs
+from .graphs import (
+    check_graph,
+    entropy_vector,
+    find_graph,
+    find_graph_fixed_n,
+    normalize_graph,
+    read_graphs,
+    write_graphs,
+)
 from .rank import check_support_rank, support_rank
 from .symmetry import (
     canonical_vector,
@@ -39,6 +47,7 @@ __all__ = [
     "entropy_vector",
     "find_contraction",
     "find_graph",
+    "find_graph_fixed_n",
     "infer_n",
     "load_hec_data",
     "minimal_contraction",

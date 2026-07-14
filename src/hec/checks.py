@@ -8,9 +8,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .contractions import check_contraction, contraction_coeffs
-from .coordinates import primitive_vector
 from .data import available_ns, data_path, load_hec_data
-from .graphs import entropy_vector
+from .graphs import check_graph
 from .rank import check_support_rank_prepared, prepare_rank_candidates
 from .serialization import load_json
 from .workers import generation_worker_count
@@ -98,6 +97,6 @@ def check_stored_graphs(root: str | Path | None = None) -> Iterator[str]:
         if len(rays) != len(graphs):
             raise ValueError(f"n={n}: {len(rays)} rays but {len(graphs)} graphs")
         for index, (ray, graph) in enumerate(zip(rays, graphs, strict=True)):
-            if primitive_vector(entropy_vector(graph, n)) != primitive_vector(ray):
+            if not check_graph(graph, ray, n, primitive=True)["ok"]:
                 raise ValueError(f"n={n}, index={index}: graph/ray mismatch")
         yield f"n={n}: {len(rays)} ok"
