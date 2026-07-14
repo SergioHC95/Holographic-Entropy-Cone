@@ -17,7 +17,8 @@ Data files live under `data/n=*/`:
 
 - `data/n=*/facets.json` contains facet-inequality orbit representatives.
 - `data/n=*/rays.json` contains extreme-ray orbit representatives.
-- `data/n=*/graphs.json` contains graph representatives for the listed rays.
+- `data/n=*/graphs.json` contains exact, monotone quality-gated graph
+  representatives for the listed rays.
 - `data/n=*/contractions.json` contains contraction-map certificates for the listed facets.
 
 Facets and rays are integer rows in cardinality-then-lexicographic subset order.
@@ -101,9 +102,17 @@ required Kissat solver and raw Kissat C symbols.
 
 The graph finder pins every solver to one thread and a fixed seed. Its automatic
 portfolio uses equivalent SCIP indicator constraints first, then native HiGHS.
-Every incumbent must satisfy the original one-hot linear model and an independent
-exact rational min-cut check. Solver limits and backend errors return `unknown`;
-they are never reported as infeasibility.
+After a valid SCIP incumbent is found, the selector variables are fixed and a
+continuous HiGHS solve minimizes total edge capacity for that topology. The
+original and refined candidates are independently converted to canonical
+primitive graphs and verified by exact rational minimum cuts. The refined
+candidate is used only when it strictly improves the exact quality tuple
+(normalized total capacity, entropy multiplier, maximum integer edge weight,
+total integer edge weight, edge count); ties retain the original candidate.
+This is a topology-preserving weight polish, not a global topology optimization.
+Every incumbent must also satisfy the original one-hot linear model. Solver
+limits and backend errors return `unknown`; they are never reported as
+infeasibility.
 
 Generation scripts use process workers. Contraction generation defaults to
 `max(1, os.cpu_count() - 1)` workers. Graph generation defaults to at most four
@@ -146,21 +155,26 @@ Orbit-representative and distinct-image counts:
 Distinct image counts sum the actual $S_{n+1}$ orbit sizes of the listed
 representatives, so repeated images from stabilizer symmetries are counted once.
 
-Latest generation timing stats:
+Pinned sequential generation timing stats:
 | generated data | records | mean | median | max | sum |
 | :------------- | ------: | ---: | -----: | --: | -----------------: |
 | contractions   | 1,889   | 0.248 s | 0.164 s | 1.823 s | 468.519 s |
-| graphs (fixed-N replay) | 4,177 | 3.568 s | 0.445 s | 10,247.705 s | 14,901.541 s |
+| graphs (fixed-N replay) | 4,177 | 3.508 s | 0.435 s | 10,247.705 s | 14,654.463 s |
 
-The graph row is a sequential one-solver-worker replay at the total vertex
-count of each paired stored graph, not a search for the smallest realization.
-The checked-in graph for every ray is exactly the canonical primitive form of
-the graph returned by that replay. All 4,177 representatives also pass
-independent exact rational min-cut verification against their paired ray at the
-requested size. These are known-feasible fixed-N reconstruction timings; the
-maximum is the sole 15-vertex case, and timings are host-specific. Realizations
-need not be mathematically unique, so literal reproducibility refers to this
-single-worker production configuration and its pinned solver environment.
+The graph row reports wall-clock times from a sequential fixed-N replay with one
+solver worker, using the total vertex count of each paired stored graph; it is
+not a search for the smallest realization. Replay candidates and checked-in
+representatives are independently normalized and verified by exact rational
+minimum cuts. Database promotion is monotone: a candidate replaces the existing
+public representative only when it strictly improves the exact quality tuple
+above, while ties retain the existing graph. The checked-in database therefore
+records the best known verified representative and need not be the literal
+output of the latest replay. All 4,177 stored representatives pass exact
+verification against their paired rays at the requested size. Timings are
+host-specific, and graph realizations need not be mathematically unique. This
+replay recomputed 4,176 rows in 4,406.758 s; the sole 15-vertex row reused its
+previously verified 10,247.705 s native-HiGHS result because its winning solver
+path is untouched by the SCIP-only polishing step.
 
 ## Attribution ##
 
