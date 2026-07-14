@@ -14,6 +14,7 @@ from hec.runs import run_generation
 from hec.workers import generation_worker_count
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_MAX_VERTICES = 15
 WORKERS = (
     generation_worker_count("HEC_GRAPH_WORKERS")
     if "HEC_GRAPH_WORKERS" in os.environ
@@ -26,14 +27,15 @@ if WRITE_EVERY < 1:
 
 def _worker(n: int, index: int, ray: Sequence[int]) -> tuple[dict, dict, str]:
     start = time.perf_counter()
-    result = find_graph(tuple(int(value) for value in ray), verify=True)
+    result = find_graph(
+        tuple(int(value) for value in ray),
+        max_vertices=DEFAULT_MAX_VERTICES,
+    )
     seconds = time.perf_counter() - start
     if result["status"] != "realized":
         raise RuntimeError(f"index={index}: {result}")
-    if not result.get("check", {}).get("ok"):
-        raise RuntimeError(f"index={index}: graph failed verification: {result.get('check')}")
     graph = result["graph"]
-    vertices = len({vertex for edge in graph["edges"] for vertex in edge})
+    vertices = result["total_vertices"]
     timing = {
         "index": index,
         "seconds": seconds,
@@ -43,8 +45,7 @@ def _worker(n: int, index: int, ray: Sequence[int]) -> tuple[dict, dict, str]:
     }
     ahc = result.get("ahc", {})
     if isinstance(ahc, dict):
-        timing["N"] = ahc.get("N")
-        timing["solver"] = ahc.get("solver")
+        timing["backend"] = ahc.get("backend")
         if isinstance(ahc.get("profile"), dict):
             timing["profile"] = ahc["profile"]
     log = f"n={n}, index={index}, time={seconds:.6f}s, vertices={vertices}, edges={len(graph['edges'])}"

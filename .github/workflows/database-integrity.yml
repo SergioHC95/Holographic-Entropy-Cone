@@ -1,0 +1,94 @@
+name: database integrity
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: database-integrity-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: code quality and tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          version: "0.11.28"
+          python-version: "3.13.14"
+          enable-cache: true
+      - run: uv sync --locked --dev --python 3.13.14
+      - run: uv run --no-sync ruff check .
+      - run: uv run --no-sync ruff format --check .
+      - run: uv run --no-sync python -m unittest discover -s tests
+
+  discover:
+    name: discover datasets
+    runs-on: ubuntu-24.04
+    outputs:
+      ns: ${{ steps.datasets.outputs.ns }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - id: datasets
+        name: Find stored party counts
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          ns = sorted(int(path.name[2:]) for path in Path("data").glob("n=*") if path.name[2:].isdigit())
+          if not ns:
+              raise SystemExit("no data/n=* datasets found")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print(f"ns={json.dumps(ns, separators=(',', ':'))}", file=output)
+          PY
+
+  validate:
+    needs: discover
+    name: ${{ matrix.kind }} (n=${{ matrix.n }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        kind: [graphs, contractions]
+        n: ${{ fromJSON(needs.discover.outputs.ns) }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          version: "0.11.28"
+          python-version: "3.13.14"
+          enable-cache: true
+      - run: uv sync --locked --no-dev --python 3.13.14
+      - name: Validate ${{ matrix.kind }} for n=${{ matrix.n }}
+        env:
+          CHECK_KIND: ${{ matrix.kind }}
+          CHECK_N: ${{ matrix.n }}
+        run: |
+          uv run --no-sync python -m hec.checks "$CHECK_KIND" --n "$CHECK_N"
+
+  gate:
+    name: database integrity
+    if: ${{ always() }}
+    needs: [quality, discover, validate]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every validation job
+        env:
+          DISCOVER_RESULT: ${{ needs.discover.result }}
+          QUALITY_RESULT: ${{ needs.quality.result }}
+          VALIDATE_RESULT: ${{ needs.validate.result }}
+        run: |
+          if [[ "$QUALITY_RESULT" != "success" || "$DISCOVER_RESULT" != "success" || "$VALIDATE_RESULT" != "success" ]]; then
+            echo "required checks failed: quality=$QUALITY_RESULT, discovery=$DISCOVER_RESULT, validation=$VALIDATE_RESULT"
+            exit 1
+          fi

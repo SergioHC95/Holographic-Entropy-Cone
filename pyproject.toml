@@ -5,9 +5,11 @@ description = "Holographic Entropy Cone data with contraction and graph algorith
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+  "highspy>=1.14,<1.15",
   "numba>=0.65",
   "numpy>=1.24",
   "python-sat>=1.9.dev5",
+  "pyscipopt>=6.2,<6.3",
   "scipy>=1.11",
 ]
 
