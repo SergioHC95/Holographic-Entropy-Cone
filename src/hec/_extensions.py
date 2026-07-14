@@ -21,9 +21,7 @@ def ensure_contraction_extensions() -> None:
     setup_py = repo_root / "setup.py"
     if not setup_py.exists():
         names = ", ".join(f"hec.{name}" for name in missing)
-        raise RuntimeError(
-            f"missing compiled contraction extensions ({names}) and no setup.py was found at {setup_py}"
-        )
+        raise RuntimeError(f"missing compiled contraction extensions ({names}) and no setup.py was found at {setup_py}")
 
     _build_extensions_once(repo_root)
     importlib.invalidate_caches()

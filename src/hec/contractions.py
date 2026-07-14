@@ -23,6 +23,7 @@ from .coordinates import (
     infer_n,
     occurrence_vectors,
     parse_inequality,
+    party_index,
     party_labels,
     subset_index_map,
 )
@@ -168,22 +169,11 @@ def minimal_contraction(coeffs: Sequence[int], n: int, contraction: dict) -> dic
 
 
 @cache
-def _party_index(label: str) -> int:
-    if len(label) == 1 and "A" <= label <= "Z":
-        return ord(label) - ord("A")
-    if len(label) > 1 and label[0] == "P" and label[1:].isdigit():
-        index = int(label[1:])
-        if index > 0:
-            return index - 1
-    raise ValueError(f"invalid party label {label!r}")
-
-
-@cache
 def _term_from_label(label: str) -> frozenset[int]:
     pieces = _TERM_LABEL_RE.findall(label)
     if not pieces or "".join(pieces) != label:
         raise ValueError(f"invalid term label {label!r}")
-    out = frozenset(_party_index(piece) for piece in pieces)
+    out = frozenset(party_index(piece) for piece in pieces)
     if len(out) != len(pieces):
         raise ValueError(f"repeated party in term label {label!r}")
     return out
