@@ -25,7 +25,7 @@ from ._graph_milp import (
     _deterministic_union_cut_fixes_exact,
     _exact_ahc_preprocessing,
     _exact_target_values,
-    _solve_ahc_for_N,
+    _solve_ahc_fixed_vertices,
 )
 from ._graph_symmetry import (
     extended_terminal_automorphisms,
@@ -34,7 +34,7 @@ from ._graph_symmetry import (
 )
 from .coordinates import party_labels, subset_index_map, subsets
 
-AUTOMATIC_ORBIT_STRATEGY = "automatic-orbit-search-v1"
+AUTOMATIC_ORBIT_STRATEGY = "automatic-orbit-search"
 DEFAULT_MAX_ORBIT_FRONTIER = 512
 
 
@@ -338,14 +338,14 @@ def _solve_planned_branch(payload: dict[str, Any]) -> tuple[dict[str, Any] | Non
                 "status": "unknown",
             }
     target = np.asarray(payload["target"], dtype=np.int64)
-    return _solve_ahc_for_N(
+    return _solve_ahc_fixed_vertices(
         target,
         int(payload["n"]),
         int(payload["total_vertices"]),
         assume_no_smaller=bool(payload["assume_no_smaller"]),
         node_limit=payload["node_limit"],
         time_limit_s=remaining,
-        branch_choice_values={(int(sub), int(cut)): 1 for sub, cut in payload["selected_cuts"]},
+        selected_cuts=tuple((int(sub), int(cut)) for sub, cut in payload["selected_cuts"]),
     )
 
 
@@ -400,7 +400,7 @@ def solve_fixed_n(
                 "search_plan": plan.as_record(),
                 "status": "unknown",
             }
-        graph, info = _solve_ahc_for_N(
+        graph, info = _solve_ahc_fixed_vertices(
             np.asarray(clean_target, dtype=np.int64),
             n,
             total_vertices,

@@ -70,8 +70,7 @@ def _require_kissat_solver() -> None:
         solver = Solver(name=_SAT_SOLVER)
     except Exception as exc:  # pragma: no cover - depends on platform wheel contents
         raise RuntimeError(
-            f"PySAT library {pysolvers.__file__!r} is missing required solver {_SAT_SOLVER!r} "
-            f"for {sys.platform}"
+            f"PySAT library {pysolvers.__file__!r} is missing required solver {_SAT_SOLVER!r} for {sys.platform}"
         ) from exc
     solver.delete()
 

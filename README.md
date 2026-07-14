@@ -32,8 +32,8 @@ The repository also contains a `hec` package under `src/hec/`.
 - `hec.contractions` searches and verifies contraction maps for
   inequalities.
 - `hec.rank` checks facet and extreme-ray rank from supporting orbit data.
-- `hec.checks` validates the official repository data with the same checks used
-  by the example scripts.
+- `python -m hec.checks {graphs,contractions,facets,rays}` validates the
+  official repository data.
 - `hec.graphs` realizes entropy vectors by weighted graphs using the
   Avis-Hernandez-Cuenca MILP construction. It combines exact preprocessing,
   symmetry-reduced fixed-vertex search, a deterministic SCIP/HiGHS portfolio,
@@ -65,8 +65,8 @@ print(_SAT_BACKEND)
 certificate = find_contraction([1, 1, -1], 2)
 print(check_contraction([1, 1, -1], 2, certificate)["ok"])
 
-graph = find_graph([1, 1, 0], max_vertices=3, verify=True)
-print(check_graph(graph["graph"], [1, 1, 0], graph["n"], primitive=True)["ok"])
+graph = find_graph([1, 1, 0], max_vertices=3)
+print(check_graph(graph["graph"], [1, 1, 0], graph["n"], match="ray")["ok"])
 PY
 uv run ruff check .
 ```
@@ -116,7 +116,7 @@ run's worker count explicit:
 ```bash
 HEC_GRAPH_WORKERS=4 uv run python examples/find_ray_graphs.py
 HEC_WORKERS=8 uv run python examples/find_ineq_contractions.py
-HEC_CHECK_WORKERS=16 uv run python examples/check_ineq_facets.py
+HEC_CHECK_WORKERS=16 uv run python -m hec.checks facets
 ```
 
 ```powershell
@@ -125,7 +125,7 @@ uv run python examples\find_ray_graphs.py
 $env:HEC_WORKERS = "8"
 uv run python examples\find_ineq_contractions.py
 $env:HEC_CHECK_WORKERS = "16"
-uv run python examples\check_ineq_facets.py
+uv run python -m hec.checks facets
 Remove-Item Env:\HEC_GRAPH_WORKERS
 Remove-Item Env:\HEC_WORKERS
 Remove-Item Env:\HEC_CHECK_WORKERS

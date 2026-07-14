@@ -18,7 +18,7 @@ import numpy as np
 
 from ._graph_reductions import EqualityCut, close_tight_submodularity
 from ._graph_validation import (
-    exact_entropy_vector_mincut,
+    exact_entropy_match,
     graph_total_vertices,
     lift_graph_total_vertices,
     prune_entropy_irrelevant_components,
@@ -91,34 +91,6 @@ def _exact_target_values(target: Sequence[object] | np.ndarray, n: int) -> tuple
     if array.shape != (expected,):
         raise ValueError(f"expected target shape ({expected},), got {array.shape}")
     return tuple(_exact_number(value) for value in array.tolist())
-
-
-def _exact_graph_check(
-    graph: Graph,
-    target: Sequence[Fraction],
-    n: int,
-    *,
-    ray: bool,
-) -> dict[str, Any]:
-    """Independently verify a candidate with exact rational minimum cuts."""
-
-    entropy = exact_entropy_vector_mincut(graph, n)
-    if ray and any(target):
-        pivot = next(index for index, value in enumerate(target) if value != 0)
-        scale = entropy[pivot] / target[pivot] if entropy[pivot] != 0 else Fraction(0)
-        ok = scale > 0 and all(observed == scale * expected for observed, expected in zip(entropy, target, strict=True))
-    else:
-        ok = tuple(entropy) == tuple(target)
-
-    def encode(value: Fraction) -> int | str:
-        return int(value) if value.denominator == 1 else str(value)
-
-    return {
-        "ok": bool(ok),
-        "entropy": [encode(value) for value in entropy],
-        "target": [encode(value) for value in target],
-        "verification": "exact_rational_mincut",
-    }
 
 
 def _terminal_entropy_exact(
@@ -909,14 +881,14 @@ def _milp_attempt_plan(
     )
 
 
-def _solve_ahc_for_N(
+def _solve_ahc_fixed_vertices(
     target: np.ndarray,
     n: int,
     N: int,
     *,
     assume_no_smaller: bool = False,
     node_limit: int | None = None,
-    branch_choice_values: Mapping[tuple[int, int], int | float] | None = None,
+    selected_cuts: Sequence[tuple[int, int]] = (),
     time_limit_s: float | None = None,
 ) -> tuple[Graph | None, dict]:
     profile_start = time.perf_counter()
@@ -945,7 +917,6 @@ def _solve_ahc_for_N(
     maximum = max(exact_target, default=Fraction(0))
     scale = 1.0 if maximum == 0 else float(1 / maximum)
 
-    tol = 1e-9
     cut_bounds = exact.cut_bounds
     choices_by_sub = dict(exact.choices_by_sub)
     auto_selected_by_sub = dict(exact.auto_selected_by_sub)
@@ -963,83 +934,59 @@ def _solve_ahc_for_N(
     if not deterministic_feasible:
         return None, {"status": "infeasible"}
 
-    branch_fixed_count = 0
-    if branch_choice_values:
-        fixed_choice_values = dict(fixed_choice_values)
-        forced_upper_cut_set = set(forced_upper_cuts)
-        for raw_key, raw_value in branch_choice_values.items():
+    fixed_choice_values = dict(fixed_choice_values)
+    forced_upper_cut_set = set(forced_upper_cuts)
+    if selected_cuts:
+        for raw_key in selected_cuts:
+            if not isinstance(raw_key, tuple) or len(raw_key) != 2:
+                raise ValueError(f"selected cuts must be (subsystem, cut) pairs, got {raw_key!r}")
             sub_index, cut_index = int(raw_key[0]), int(raw_key[1])
-            if raw_value not in (0, 0.0, 1, 1.0):
-                raise ValueError(f"branch choice values must be binary, got {raw_value!r}")
             key = (sub_index, cut_index)
             choices = choices_by_sub.get(sub_index)
             existing = fixed_choice_values.get(key)
             if choices is None or cut_index not in choices:
-                if existing is not None and abs(existing - float(raw_value)) <= tol:
-                    continue
                 return None, {
                     "status": "infeasible",
-                    "reason": "branch_choice_not_available",
-                    "branch_choice": [sub_index, cut_index, int(raw_value)],
+                    "reason": "selected_cut_not_available",
+                    "selected_cut": [sub_index, cut_index],
                 }
-            value = float(raw_value)
             if existing is not None:
-                if abs(existing - value) > tol:
+                if existing != 1.0:
                     return None, {
                         "status": "infeasible",
-                        "reason": "branch_choice_conflict",
-                        "branch_choice": [sub_index, cut_index, int(value)],
+                        "reason": "selected_cut_conflict",
+                        "selected_cut": [sub_index, cut_index],
                     }
                 continue
-            fixed_choice_values[key] = value
-            branch_fixed_count += 1
-            if value == 1.0:
-                forced_upper_cut_set.add(key)
-        forced_upper_cuts = frozenset(forced_upper_cut_set)
+            fixed_choice_values[key] = 1.0
+            forced_upper_cut_set.add(key)
 
-    # Exact one-hot propagation keeps compact branch payloads compact without
-    # leaving hundreds of implied-zero selectors in the frozen MILP.  A fixed
-    # one selects the subsystem cut and fixes every peer to zero; conversely,
-    # if fixed zeros leave one cut, that final cut is selected.  Expanded
-    # historical branch payloads therefore build the byte-identical model.
+    # Exact one-hot propagation removes selectors implied by deterministic and
+    # orbit-selected cuts before freezing the model.
     propagated_choice_fixes = 0
-    fixed_choice_values = dict(fixed_choice_values)
-    forced_upper_cut_set = set(forced_upper_cuts)
     for sub_index, choices in choices_by_sub.items():
-        selected = [
-            cut_index
-            for cut_index in choices
-            if abs(float(fixed_choice_values.get((sub_index, cut_index), 0.0)) - 1.0) <= tol
-        ]
+        selected = [cut_index for cut_index in choices if fixed_choice_values.get((sub_index, cut_index)) == 1.0]
         if len(selected) > 1:
             return None, {"status": "infeasible", "reason": "multiple_selected_cuts"}
-        free = [cut_index for cut_index in choices if (sub_index, cut_index) not in fixed_choice_values]
-        if not selected and not free:
-            return None, {"status": "infeasible", "reason": "branch_choice_sum_conflict"}
-        if not selected and len(free) == 1:
-            selected = free
-            fixed_choice_values[(sub_index, free[0])] = 1.0
-            forced_upper_cut_set.add((sub_index, free[0]))
+        if not selected and len(choices) == 1:
+            selected = [choices[0]]
+            fixed_choice_values[(sub_index, choices[0])] = 1.0
+            forced_upper_cut_set.add((sub_index, choices[0]))
             propagated_choice_fixes += 1
         if selected:
             forced_upper_cut_set.add((sub_index, selected[0]))
             for cut_index in choices:
                 key = (sub_index, cut_index)
                 expected = 1.0 if cut_index == selected[0] else 0.0
-                existing = fixed_choice_values.get(key)
-                if existing is not None and abs(float(existing) - expected) > tol:
-                    return None, {"status": "infeasible", "reason": "branch_choice_sum_conflict"}
-                if existing is None:
+                if key not in fixed_choice_values:
                     fixed_choice_values[key] = expected
                     propagated_choice_fixes += 1
     forced_upper_cuts = frozenset(forced_upper_cut_set)
 
     selected_by_sub = dict(auto_selected_by_sub)
     for (sub_index, cut_index), value in fixed_choice_values.items():
-        if abs(float(value) - 1.0) <= tol:
-            previous = selected_by_sub.setdefault(sub_index, cut_index)
-            if previous != cut_index:
-                return None, {"status": "infeasible", "reason": "multiple_selected_cuts"}
+        if value == 1.0:
+            selected_by_sub[sub_index] = cut_index
 
     reduction_stats: dict[str, int] = {
         "tight_known_cuts": 0,
@@ -1154,27 +1101,13 @@ def _solve_ahc_for_N(
                 b_ineq_hi.append(float(upper))
                 b_ineq_lo.append(-np.inf)
         choices = choices_by_sub.get(sub_index)
-        if choices is not None:
-            rhs = 1.0
-            free_choices = []
-            for cut_index in choices:
-                fixed_value = fixed_choice_values.get((sub_index, cut_index))
-                if fixed_value is not None:
-                    rhs -= fixed_value
-                    continue
-                free_choices.append(cut_index)
-            if rhs < -tol or rhs - len(free_choices) > tol:
-                return None, {"status": "infeasible", "reason": "branch_choice_sum_conflict"}
-            if not free_choices:
-                if abs(rhs) > tol:
-                    return None, {"status": "infeasible"}
-                continue
+        if choices is not None and sub_index not in selected_by_sub:
             eq_row = len(b_eq)
-            for cut_index in free_choices:
+            for cut_index in choices:
                 eq_rows.append(eq_row)
                 eq_cols.append(choice_index[(sub_index, cut_index)])
                 eq_data.append(1.0)
-            b_eq.append(rhs)
+            b_eq.append(1.0)
 
     for terminals in fixed_subsystems:
         eq_row = len(b_eq)
@@ -1188,84 +1121,72 @@ def _solve_ahc_for_N(
     symmetry_rows = 0
     signature_rows = 0
     terminal_signature_pairs = 0
-    terminal_signature_rows = 0
     dominance_rows = 0
-    fixed_by_sub: dict[int, dict[int, float]] = {}
-    for (sub_index, cut_index), value in fixed_choice_values.items():
-        fixed_by_sub.setdefault(sub_index, {})[cut_index] = float(value)
-    partial_choice_fixing = any(
-        sub_index not in selected_by_sub and any(abs(value) <= tol for value in values.values())
-        for sub_index, values in fixed_by_sub.items()
-    )
+    bulk_count = max(0, N - n - 1)
+    known_subsystems = tuple(sorted(selected_by_sub))
+    known_masks = tuple(selected_by_sub[sub_index] for sub_index in known_subsystems)
+    prefix_blocks: dict[tuple[int, ...], list[int]] = {}
+    for bulk_offset in range(bulk_count):
+        signature = tuple((mask >> bulk_offset) & 1 for mask in known_masks)
+        prefix_blocks.setdefault(signature, []).append(bulk_offset)
+    variable_subsystems = tuple(sub_index for sub_index in sorted(choices_by_sub) if sub_index not in selected_by_sub)
 
-    if not partial_choice_fixing:
-        bulk_count = max(0, N - n - 1)
-        known_subsystems = tuple(sorted(selected_by_sub))
-        known_masks = tuple(selected_by_sub[sub_index] for sub_index in known_subsystems)
-        prefix_blocks: dict[tuple[int, ...], list[int]] = {}
-        for bulk_offset in range(bulk_count):
-            signature = tuple((mask >> bulk_offset) & 1 for mask in known_masks)
-            prefix_blocks.setdefault(signature, []).append(bulk_offset)
-        variable_subsystems = tuple(
-            sub_index for sub_index in sorted(choices_by_sub) if sub_index not in selected_by_sub
-        )
-
-        if len(variable_subsystems) <= 20:
-            for block in prefix_blocks.values():
-                for left_offset, right_offset in zip(block, block[1:], strict=False):
-                    coefficients: dict[int, float] = {}
-                    for position, sub_index in enumerate(variable_subsystems):
-                        weight = float(1 << position)
+    if len(variable_subsystems) <= 20:
+        for block in prefix_blocks.values():
+            for left_offset, right_offset in zip(block, block[1:], strict=False):
+                coefficients: dict[int, float] = {}
+                for position, sub_index in enumerate(variable_subsystems):
+                    weight = float(1 << position)
+                    for cut_index in choices_by_sub[sub_index]:
+                        choice_var = choice_index.get((sub_index, cut_index))
+                        if choice_var is None:
+                            continue
+                        difference = ((cut_index >> left_offset) & 1) - ((cut_index >> right_offset) & 1)
+                        if difference:
+                            coefficients[choice_var] = coefficients.get(choice_var, 0.0) + weight * difference
+                bound = -1.0 if assume_no_smaller else 0.0
+                if not coefficients:
+                    if bound < 0.0:
+                        return None, {
+                            "status": "infeasible",
+                            "reason": "duplicate_bulk_cut_signatures",
+                        }
+                    continue
+                row = len(b_ineq_hi)
+                for column, coefficient in coefficients.items():
+                    ineq_rows.append(row)
+                    ineq_cols.append(column)
+                    ineq_data.append(coefficient)
+                b_ineq_hi.append(bound)
+                b_ineq_lo.append(-np.inf)
+                symmetry_rows += 1
+                if assume_no_smaller:
+                    signature_rows += 1
+    elif assume_no_smaller:
+        for block in prefix_blocks.values():
+            for left_pos, left_offset in enumerate(block):
+                for right_offset in block[left_pos + 1 :]:
+                    separating_variables: list[int] = []
+                    for sub_index in variable_subsystems:
                         for cut_index in choices_by_sub[sub_index]:
-                            choice_var = choice_index.get((sub_index, cut_index))
-                            if choice_var is None:
+                            if ((cut_index >> left_offset) & 1) == ((cut_index >> right_offset) & 1):
                                 continue
-                            difference = ((cut_index >> left_offset) & 1) - ((cut_index >> right_offset) & 1)
-                            if difference:
-                                coefficients[choice_var] = coefficients.get(choice_var, 0.0) + weight * difference
-                    bound = -1.0 if assume_no_smaller else 0.0
-                    if not coefficients:
-                        if bound < 0.0:
-                            return None, {
-                                "status": "infeasible",
-                                "reason": "duplicate_bulk_cut_signatures",
-                            }
-                        continue
+                            choice_var = choice_index.get((sub_index, cut_index))
+                            if choice_var is not None:
+                                separating_variables.append(choice_var)
+                    if not separating_variables:
+                        return None, {
+                            "status": "infeasible",
+                            "reason": "duplicate_bulk_cut_signatures",
+                        }
                     row = len(b_ineq_hi)
-                    for column, coefficient in coefficients.items():
+                    for column in separating_variables:
                         ineq_rows.append(row)
                         ineq_cols.append(column)
-                        ineq_data.append(coefficient)
-                    b_ineq_hi.append(bound)
+                        ineq_data.append(-1.0)
+                    b_ineq_hi.append(-1.0)
                     b_ineq_lo.append(-np.inf)
-                    symmetry_rows += 1
-                    if assume_no_smaller:
-                        signature_rows += 1
-        elif assume_no_smaller:
-            for block in prefix_blocks.values():
-                for left_pos, left_offset in enumerate(block):
-                    for right_offset in block[left_pos + 1 :]:
-                        separating_variables: list[int] = []
-                        for sub_index in variable_subsystems:
-                            for cut_index in choices_by_sub[sub_index]:
-                                if ((cut_index >> left_offset) & 1) == ((cut_index >> right_offset) & 1):
-                                    continue
-                                choice_var = choice_index.get((sub_index, cut_index))
-                                if choice_var is not None:
-                                    separating_variables.append(choice_var)
-                        if not separating_variables:
-                            return None, {
-                                "status": "infeasible",
-                                "reason": "duplicate_bulk_cut_signatures",
-                            }
-                        row = len(b_ineq_hi)
-                        for column in separating_variables:
-                            ineq_rows.append(row)
-                            ineq_cols.append(column)
-                            ineq_data.append(-1.0)
-                        b_ineq_hi.append(-1.0)
-                        b_ineq_lo.append(-np.inf)
-                        signature_rows += 1
+                    signature_rows += 1
 
     if assume_no_smaller:
         # Every fixed-N model already selects the terminal-only singleton cut
@@ -1327,9 +1248,7 @@ def _solve_ahc_for_N(
         "assume_no_smaller": int(assume_no_smaller),
         "signature_rows": signature_rows,
         "terminal_signature_pairs": terminal_signature_pairs,
-        "terminal_signature_rows": terminal_signature_rows,
         "dominance_rows": dominance_rows,
-        "branch_fixed_choices": branch_fixed_count,
         "one_hot_propagated_fixes": propagated_choice_fixes,
         "milp_attempt_plan": [attempt.as_record() for attempt in attempt_plan],
         "constraint_model_sha256": constraint_model_sha256,
@@ -1339,8 +1258,6 @@ def _solve_ahc_for_N(
         "eq_rows": n_eq,
         "nnz": int(A_ineq.nnz + A_eq.nnz),
         "build_s": time.perf_counter() - profile_start,
-        "lp_s": 0.0,
-        "lp_status": "eliminated_redundant_relaxation",
     }
 
     def validate_incumbent(incumbent: np.ndarray, solver_info: dict[str, Any]) -> tuple[Graph | None, int | str | None]:
@@ -1357,13 +1274,8 @@ def _solve_ahc_for_N(
         candidate, component_pruning = prune_entropy_irrelevant_components(raw_candidate, n)
         prelift_vertices = graph_total_vertices(candidate, n)
         match_mode = "ray" if any(value != 0 for value in exact_target) else "exact"
-        raw_candidate_check = _exact_graph_check(
-            raw_candidate,
-            exact_target,
-            n,
-            ray=match_mode == "ray",
-        )
-        prelift_check = _exact_graph_check(candidate, exact_target, n, ray=match_mode == "ray")
+        raw_candidate_check = exact_entropy_match(raw_candidate, exact_target, n, match_mode)
+        prelift_check = exact_entropy_match(candidate, exact_target, n, match_mode)
         validation: dict[str, Any] = {
             "accepted": False,
             "exact_rational_mincut_model_candidate": raw_candidate_check,
@@ -1383,7 +1295,7 @@ def _solve_ahc_for_N(
             solver_info["incumbent_validation"] = validation
             return None, None
         lifted_graph, lift = lift_graph_total_vertices(candidate, n, N)
-        postlift_check = _exact_graph_check(lifted_graph, exact_target, n, ray=match_mode == "ray")
+        postlift_check = exact_entropy_match(lifted_graph, exact_target, n, match_mode)
         postlift_vertices = graph_total_vertices(lifted_graph, n)
         validation.update(
             {

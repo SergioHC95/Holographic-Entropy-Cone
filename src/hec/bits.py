@@ -29,7 +29,3 @@ def bit_mask(bits: Sequence[int]) -> int:
         if int(value):
             mask |= 1 << bit
     return mask
-
-
-def enumerate_cube(width: int) -> list[BitPoint]:
-    return [bit_tuple(mask, width) for mask in range(1 << width)]
