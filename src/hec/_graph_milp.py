@@ -18,6 +18,7 @@ import numpy as np
 
 from ._graph_reductions import EqualityCut, close_tight_submodularity
 from ._graph_validation import (
+    canonical_primitive_ray_graph,
     exact_entropy_match,
     graph_total_vertices,
     lift_graph_total_vertices,
@@ -64,6 +65,15 @@ class _ExactAHCPreprocessing:
     infeasible: bool = False
 
 
+@dataclass(frozen=True)
+class _ExactGraphCandidate:
+    graph: Graph
+    weight_scale: int | str
+    validation: dict[str, Any]
+    quality: tuple[Fraction, Fraction, int, int, int]
+    quality_record: dict[str, Any]
+
+
 def _boundary_subset_for_terminals(n: int, terminals: set[int] | frozenset[int]) -> frozenset[int]:
     boundary = {vertex for vertex in terminals if vertex < n}
     return frozenset(set(range(n)) - boundary if n in terminals else boundary)
@@ -91,6 +101,59 @@ def _exact_target_values(target: Sequence[object] | np.ndarray, n: int) -> tuple
     if array.shape != (expected,):
         raise ValueError(f"expected target shape ({expected},), got {array.shape}")
     return tuple(_exact_number(value) for value in array.tolist())
+
+
+def _primitive_integer_ray(target: Sequence[Fraction]) -> tuple[int, ...]:
+    denominator = 1
+    for value in target:
+        denominator = lcm(denominator, value.denominator)
+    integers = tuple(int(value * denominator) for value in target)
+    factor = 0
+    for value in integers:
+        factor = gcd(factor, abs(value))
+    return integers if factor == 0 else tuple(value // factor for value in integers)
+
+
+def _json_fraction(value: Fraction) -> int | str:
+    return int(value) if value.denominator == 1 else str(value)
+
+
+def _exact_graph_quality(
+    graph: Graph,
+    exact_target: Sequence[Fraction],
+    exact_check: Mapping[str, Any],
+) -> tuple[tuple[Fraction, Fraction, int, int, int], dict[str, Any]]:
+    """Rank one exact final graph independently of solver-scale artifacts."""
+
+    weights = tuple(int(weight) for weight in graph["weights"])
+    total_weight = sum(weights)
+    primitive_target = _primitive_integer_ray(exact_target)
+    if any(primitive_target):
+        entropy = tuple(_exact_number(value) for value in exact_check["entropy"])
+        pivot = next(index for index, value in enumerate(primitive_target) if value != 0)
+        entropy_multiplier = entropy[pivot] / primitive_target[pivot]
+        if entropy_multiplier <= 0 or any(
+            observed != entropy_multiplier * expected
+            for observed, expected in zip(entropy, primitive_target, strict=True)
+        ):
+            raise ValueError("exact graph is not proportional to the primitive target")
+    else:
+        entropy_multiplier = Fraction(1)
+    normalized_capacity = Fraction(total_weight, 1) / entropy_multiplier
+    quality = (
+        normalized_capacity,
+        entropy_multiplier,
+        max(weights, default=0),
+        total_weight,
+        len(weights),
+    )
+    return quality, {
+        "normalized_total_capacity": _json_fraction(normalized_capacity),
+        "entropy_multiplier": _json_fraction(entropy_multiplier),
+        "max_integer_weight": quality[2],
+        "sum_integer_weights": quality[3],
+        "edge_count": quality[4],
+    }
 
 
 def _terminal_entropy_exact(
@@ -816,6 +879,132 @@ def _satisfies_linear_model(
     return True
 
 
+def _refine_fixed_selector_incumbent(
+    incumbent: np.ndarray,
+    A_ineq: Any,
+    b_ineq_lo: np.ndarray,
+    b_ineq_hi: np.ndarray,
+    A_eq: Any,
+    b_eq: np.ndarray,
+    integrality: np.ndarray,
+    lb: np.ndarray,
+    ub: np.ndarray,
+    *,
+    edge_count: int,
+    time_limit_s: float | None,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    """Minimize total capacity after fixing one valid selector incumbent.
+
+    SCIP is deliberately used as a feasibility engine and stops at its first
+    incumbent.  Its continuous edge values are therefore arbitrary within the
+    selected one-hot cell and can have unnecessarily large rational
+    denominators.  Fixing every selector converts that same frozen model to a
+    continuous LP.  A deterministic minimum-total-capacity solve chooses a
+    compact representative without reopening the combinatorial search.
+
+    Refinement is best-effort: the original valid incumbent is returned for an
+    exhausted budget, backend error, missing LP solution, or invalid refined
+    point.  Exact graph validation remains the final acceptance authority.
+    """
+
+    variable_count = len(integrality)
+    if edge_count < 0 or edge_count > variable_count:
+        raise ValueError("edge_count must index a prefix of the model variables")
+    selector_columns = np.flatnonzero(np.asarray(integrality) != 0)
+    pre_edge_sum = float(np.sum(np.asarray(incumbent[:edge_count], dtype=np.float64)))
+    telemetry: dict[str, Any] = {
+        "attempted": False,
+        "backend": HIGHSPY_BACKEND,
+        "edge_variables": edge_count,
+        "fixed_selector_variables": int(len(selector_columns)),
+        "objective": "min-total-edge-weight",
+        "policy": "fixed-selector-continuous-lp",
+        "pre_edge_sum": pre_edge_sum,
+        "selected_solution": "scip-incumbent",
+        "time_limit_s": time_limit_s,
+    }
+    if time_limit_s is not None and (not math.isfinite(time_limit_s) or time_limit_s <= 0):
+        telemetry.update({"reason": "no_remaining_time", "status": "skipped"})
+        return incumbent, telemetry
+
+    rounded_selectors = np.rint(incumbent[selector_columns])
+    if np.any(np.abs(incumbent[selector_columns] - rounded_selectors) > 1e-6):
+        telemetry.update({"reason": "nonintegral_selector_incumbent", "status": "skipped"})
+        return incumbent, telemetry
+
+    refined_lb = np.asarray(lb, dtype=np.float64).copy()
+    refined_ub = np.asarray(ub, dtype=np.float64).copy()
+    refined_lb[selector_columns] = rounded_selectors
+    refined_ub[selector_columns] = rounded_selectors
+    objective = np.zeros(variable_count, dtype=np.float64)
+    objective[:edge_count] = 1.0
+    continuous = np.zeros(variable_count, dtype=np.int32)
+    started = time.perf_counter()
+    telemetry["attempted"] = True
+    try:
+        refined, solver_info = _solve_highspy_milp(
+            objective,
+            A_ineq,
+            b_ineq_lo,
+            b_ineq_hi,
+            A_eq,
+            b_eq,
+            continuous,
+            refined_lb,
+            refined_ub,
+            time_limit_s=time_limit_s,
+        )
+    except Exception as exc:
+        telemetry.update(
+            {
+                "reason": "backend_error",
+                "solve_s": time.perf_counter() - started,
+                "status": "fallback",
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+        )
+        return incumbent, telemetry
+
+    telemetry.update({"solve_s": time.perf_counter() - started, "solver": solver_info})
+    if refined is None:
+        telemetry.update({"reason": "no_refined_solution", "status": "fallback"})
+        return incumbent, telemetry
+    post_edge_sum = float(np.sum(np.asarray(refined[:edge_count], dtype=np.float64)))
+    edge_sum_tolerance = 1e-6 * max(1.0, abs(pre_edge_sum), abs(post_edge_sum))
+    telemetry.update(
+        {
+            "edge_sum_reduction": pre_edge_sum - post_edge_sum,
+            "edge_sum_tolerance": edge_sum_tolerance,
+            "post_edge_sum": post_edge_sum,
+        }
+    )
+    refined_valid = _satisfies_linear_model(
+        refined,
+        A_ineq,
+        b_ineq_lo,
+        b_ineq_hi,
+        refined_lb,
+        refined_ub,
+        integrality,
+    ) and _satisfies_linear_model(
+        refined,
+        A_eq,
+        b_eq,
+        b_eq,
+        refined_lb,
+        refined_ub,
+        integrality,
+    )
+    if not refined_valid:
+        telemetry.update({"reason": "refined_solution_failed_shared_model", "status": "fallback"})
+        return incumbent, telemetry
+    if post_edge_sum > pre_edge_sum + edge_sum_tolerance:
+        telemetry.update({"reason": "refined_solution_worsened_edge_sum", "status": "fallback"})
+        return incumbent, telemetry
+    telemetry.update({"selected_solution": "refined", "status": "refined"})
+    return refined, telemetry
+
+
 @lru_cache(maxsize=4)
 def _ahc_structure(
     n: int,
@@ -1260,7 +1449,7 @@ def _solve_ahc_fixed_vertices(
         "build_s": time.perf_counter() - profile_start,
     }
 
-    def validate_incumbent(incumbent: np.ndarray, solver_info: dict[str, Any]) -> tuple[Graph | None, int | str | None]:
+    def validate_incumbent(incumbent: np.ndarray) -> tuple[_ExactGraphCandidate | None, dict[str, Any]]:
         labels = party_labels(n)
         raw_edges: list[list[str]] = []
         raw_weights: list[float] = []
@@ -1270,7 +1459,7 @@ def _solve_ahc_fixed_vertices(
                 continue
             raw_edges.append([_vertex_label(a, n, N, labels), _vertex_label(b, n, N, labels)])
             raw_weights.append(weight)
-        raw_candidate, candidate_scale = _integer_graph(raw_edges, raw_weights)
+        raw_candidate, _ = _integer_graph(raw_edges, raw_weights)
         candidate, component_pruning = prune_entropy_irrelevant_components(raw_candidate, n)
         prelift_vertices = graph_total_vertices(candidate, n)
         match_mode = "ray" if any(value != 0 for value in exact_target) else "exact"
@@ -1292,11 +1481,11 @@ def _solve_ahc_fixed_vertices(
                 if not raw_candidate_check["ok"] or not prelift_check["ok"]
                 else "active_vertex_overflow"
             )
-            solver_info["incumbent_validation"] = validation
-            return None, None
+            return None, validation
         lifted_graph, lift = lift_graph_total_vertices(candidate, n, N)
-        postlift_check = exact_entropy_match(lifted_graph, exact_target, n, match_mode)
-        postlift_vertices = graph_total_vertices(lifted_graph, n)
+        final_graph = canonical_primitive_ray_graph(lifted_graph, n)
+        postlift_check = exact_entropy_match(final_graph, exact_target, n, match_mode)
+        postlift_vertices = graph_total_vertices(final_graph, n)
         validation.update(
             {
                 "accepted": bool(postlift_check["ok"] and postlift_vertices == N),
@@ -1310,10 +1499,25 @@ def _solve_ahc_fixed_vertices(
                 **lift,
             }
         )
-        solver_info["incumbent_validation"] = validation
         if not validation["accepted"]:
-            return None, None
-        return lifted_graph, candidate_scale
+            return None, validation
+        quality, quality_record = _exact_graph_quality(final_graph, exact_target, postlift_check)
+        if any(exact_target):
+            pivot = next(index for index, value in enumerate(exact_target) if value != 0)
+            emitted_entropy = _exact_number(postlift_check["entropy"][pivot])
+            final_weight_scale = _json_fraction(exact_target[pivot] / emitted_entropy)
+        else:
+            final_weight_scale = 1
+        return (
+            _ExactGraphCandidate(
+                graph=final_graph,
+                weight_scale=final_weight_scale,
+                validation=validation,
+                quality=quality,
+                quality_record=quality_record,
+            ),
+            validation,
+        )
 
     attempt_records: list[dict[str, Any]] = []
     prior_model_valid_incumbent = False
@@ -1380,6 +1584,7 @@ def _solve_ahc_fixed_vertices(
         attempt_info["constraint_model_sha256"] = constraint_model_sha256
         attempt_info.update({"attempt": attempt.as_record(), "attempt_ordinal": len(attempt_records)})
         if solution is not None:
+            original_incumbent = solution
             shared_model_valid = _satisfies_linear_model(
                 solution,
                 A_ineq,
@@ -1405,9 +1610,96 @@ def _solve_ahc_fixed_vertices(
                 attempt_records.append(attempt_info)
                 continue
             prior_model_valid_incumbent = True
-            graph, weight_scale = validate_incumbent(solution, attempt_info)
+            original_candidate, original_validation = validate_incumbent(original_incumbent)
+            selected_candidate = original_candidate
+            refinement: dict[str, Any] | None = None
+            if attempt.backend == SCIP_INDICATOR_BACKEND:
+                refinement_time_limit = None
+                if time_limit_s is not None:
+                    refinement_time_limit = time_limit_s - (time.perf_counter() - profile_start)
+                refined_solution, refinement = _refine_fixed_selector_incumbent(
+                    original_incumbent,
+                    A_ineq,
+                    b_ineq_lo_array,
+                    b_ineq_hi_array,
+                    A_eq,
+                    b_eq_array,
+                    integrality,
+                    lb,
+                    ub,
+                    edge_count=edge_count,
+                    time_limit_s=refinement_time_limit,
+                )
+                attempt_info["continuous_refinement"] = refinement
+                refinement.update(
+                    {
+                        "candidate_quality": {
+                            "scip-incumbent": (
+                                None if original_candidate is None else original_candidate.quality_record
+                            )
+                        },
+                        "candidate_validation": {"scip-incumbent": original_validation},
+                        "quality_order": [
+                            "normalized_total_capacity",
+                            "entropy_multiplier",
+                            "max_integer_weight",
+                            "sum_integer_weights",
+                            "edge_count",
+                        ],
+                        "selection_policy": "strict-lexicographic-exact-graph-quality",
+                    }
+                )
+                if refinement["selected_solution"] == "refined":
+                    refined_candidate, refined_validation = validate_incumbent(refined_solution)
+                    refinement["candidate_validation"]["refined"] = refined_validation
+                    refinement["candidate_quality"]["refined"] = (
+                        None if refined_candidate is None else refined_candidate.quality_record
+                    )
+                    if refined_candidate is not None and (
+                        original_candidate is None or refined_candidate.quality < original_candidate.quality
+                    ):
+                        selected_candidate = refined_candidate
+                        refinement.update(
+                            {
+                                "exact_graph_validation": "accepted",
+                                "reason": (
+                                    "original_failed_exact_graph_validation"
+                                    if original_candidate is None
+                                    else "strict_exact_graph_quality_improvement"
+                                ),
+                                "status": "refined",
+                            }
+                        )
+                    elif original_candidate is not None:
+                        selected_candidate = original_candidate
+                        refinement.update(
+                            {
+                                "exact_graph_validation": "accepted",
+                                "reason": (
+                                    "refined_solution_failed_exact_graph_validation"
+                                    if refined_candidate is None
+                                    else "refined_quality_not_better"
+                                ),
+                                "selected_solution": "scip-incumbent",
+                                "status": "fallback" if refined_candidate is None else "retained",
+                            }
+                        )
+                    else:
+                        selected_candidate = None
+                        refinement.update(
+                            {
+                                "reason": "both_candidates_failed_exact_graph_validation",
+                                "selected_solution": "none",
+                                "status": "fallback",
+                            }
+                        )
+                elif original_candidate is not None:
+                    refinement["exact_graph_validation"] = "accepted"
+            attempt_info["incumbent_validation"] = (
+                original_validation if selected_candidate is None else selected_candidate.validation
+            )
             attempt_records.append(attempt_info)
-            if graph is not None:
+            if selected_candidate is not None:
                 profile.update(
                     {
                         "milp_attempts": len(attempt_records),
@@ -1417,10 +1709,10 @@ def _solve_ahc_fixed_vertices(
                     }
                 )
                 winning_info = {**attempt_info, "attempts": attempt_records}
-                validation = attempt_info["incumbent_validation"]
-                return graph, {
+                validation = selected_candidate.validation
+                return selected_candidate.graph, {
                     "status": "realized",
-                    "weight_scale": weight_scale,
+                    "weight_scale": selected_candidate.weight_scale,
                     "active_total_vertices": N,
                     "prelift_total_vertices": validation["prelift_total_vertices"],
                     "lift": validation["lift"],
