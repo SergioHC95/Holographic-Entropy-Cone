@@ -1,6 +1,16 @@
 """Check that each stored graph realizes the ray at the same list position."""
 
+import argparse
+
 from hec.checks import check_stored_graphs, run_check
 
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--n", type=int, help="check only data for this number of parties")
+    args = parser.parse_args()
+    run_check(check_stored_graphs(n=args.n))
+
+
 if __name__ == "__main__":
-    run_check(check_stored_graphs())
+    main()

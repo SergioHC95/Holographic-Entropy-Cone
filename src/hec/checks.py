@@ -7,7 +7,7 @@ from collections.abc import Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from .contractions import check_contraction, contraction_coeffs
+from .contractions import check_contraction, contraction_coeffs, normalize_contraction
 from .data import available_ns, data_path, load_hec_data
 from .graphs import check_graph
 from .rank import check_support_rank_prepared, prepare_rank_candidates
@@ -32,9 +32,18 @@ def run_check(results: Iterable[str]) -> None:
         raise SystemExit(str(exc)) from None
 
 
-def _stored(root: str | Path | None, *kinds: str) -> Iterator[tuple]:
-    for n in available_ns(root=root):
-        yield (n, *(load_hec_data(n, kind, root=root) for kind in kinds))
+def _selected_ns(root: str | Path | None, n: int | None) -> list[int]:
+    available = available_ns(root=root)
+    if n is None:
+        return available
+    if n not in available:
+        raise ValueError(f"no stored data for n={n}")
+    return [n]
+
+
+def _stored(root: str | Path | None, *kinds: str, n: int | None = None) -> Iterator[tuple]:
+    for current_n in _selected_ns(root, n):
+        yield (current_n, *(load_hec_data(current_n, kind, root=root) for kind in kinds))
 
 
 def _check_stored_rank(
@@ -74,29 +83,31 @@ def check_stored_rays(root: str | Path | None = None) -> Iterator[str]:
     yield from _check_stored_rank(root, "rays", "facets")
 
 
-def check_stored_contractions(root: str | Path | None = None) -> Iterator[str]:
-    for n in available_ns(root=root):
-        facets = load_hec_data(n, "facets", root=root)
-        contractions = load_json(data_path(n, "contractions", root=root))
+def check_stored_contractions(root: str | Path | None = None, *, n: int | None = None) -> Iterator[str]:
+    for current_n in _selected_ns(root, n):
+        facets = load_hec_data(current_n, "facets", root=root)
+        contractions = load_json(data_path(current_n, "contractions", root=root))
         if not isinstance(contractions, list):
-            raise ValueError(f"expected a list of contractions in {data_path(n, 'contractions', root=root)}")
+            raise ValueError(f"expected a list of contractions in {data_path(current_n, 'contractions', root=root)}")
         if len(facets) != len(contractions):
-            raise ValueError(f"n={n}: {len(facets)} facets but {len(contractions)} contractions")
+            raise ValueError(f"n={current_n}: {len(facets)} facets but {len(contractions)} contractions")
         for index, (facet, contraction) in enumerate(zip(facets, contractions, strict=True)):
-            coeffs, inferred_n = contraction_coeffs(contraction, n)
-            if inferred_n != n or tuple(coeffs) != tuple(facet):
-                raise ValueError(f"n={n}, index={index}: contraction lhs/rhs do not match stored facet")
-            check = check_contraction(coeffs, n, contraction)
+            if contraction != normalize_contraction(contraction, current_n):
+                raise ValueError(f"n={current_n}, index={index}: contraction is not in canonical stored form")
+            coeffs, inferred_n = contraction_coeffs(contraction, current_n)
+            if inferred_n != current_n or tuple(coeffs) != tuple(facet):
+                raise ValueError(f"n={current_n}, index={index}: contraction lhs/rhs do not match stored facet")
+            check = check_contraction(coeffs, current_n, contraction)
             if not check["ok"]:
-                raise ValueError(f"n={n}, index={index}: {check['errors']}")
-        yield f"n={n}: {len(facets)} ok"
+                raise ValueError(f"n={current_n}, index={index}: {check['errors']}")
+        yield f"n={current_n}: {len(facets)} ok"
 
 
-def check_stored_graphs(root: str | Path | None = None) -> Iterator[str]:
-    for n, rays, graphs in _stored(root, "rays", "graphs"):
+def check_stored_graphs(root: str | Path | None = None, *, n: int | None = None) -> Iterator[str]:
+    for current_n, rays, graphs in _stored(root, "rays", "graphs", n=n):
         if len(rays) != len(graphs):
-            raise ValueError(f"n={n}: {len(rays)} rays but {len(graphs)} graphs")
+            raise ValueError(f"n={current_n}: {len(rays)} rays but {len(graphs)} graphs")
         for index, (ray, graph) in enumerate(zip(rays, graphs, strict=True)):
-            if not check_graph(graph, ray, n, primitive=True)["ok"]:
-                raise ValueError(f"n={n}, index={index}: graph/ray mismatch")
-        yield f"n={n}: {len(rays)} ok"
+            if not check_graph(graph, ray, current_n, primitive=True)["ok"]:
+                raise ValueError(f"n={current_n}, index={index}: graph/ray mismatch")
+        yield f"n={current_n}: {len(rays)} ok"
