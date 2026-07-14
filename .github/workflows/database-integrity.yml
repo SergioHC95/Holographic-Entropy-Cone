@@ -63,3 +63,19 @@ jobs:
           else
             uv run --no-sync python examples/check_ineq_contractions.py --n "$CHECK_N"
           fi
+
+  gate:
+    name: database integrity
+    if: ${{ always() }}
+    needs: [discover, validate]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every validation job
+        env:
+          DISCOVER_RESULT: ${{ needs.discover.result }}
+          VALIDATE_RESULT: ${{ needs.validate.result }}
+        run: |
+          if [[ "$DISCOVER_RESULT" != "success" || "$VALIDATE_RESULT" != "success" ]]; then
+            echo "database validation failed: discovery=$DISCOVER_RESULT, validation=$VALIDATE_RESULT"
+            exit 1
+          fi
