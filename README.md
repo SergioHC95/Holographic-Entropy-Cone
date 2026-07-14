@@ -154,10 +154,13 @@ Latest generation timing stats:
 
 The graph row is a sequential one-solver-worker replay at the total vertex
 count of each paired stored graph, not a search for the smallest realization.
-For all 4,177 stored ray representatives, both the paired stored graph and the
-regenerated graph passed independent exact rational min-cut verification against
-the ray at the requested size. These are known-feasible fixed-N reconstruction
-timings; the maximum is the sole 15-vertex case, and timings are host-specific.
+The checked-in graph for every ray is exactly the canonical primitive form of
+the graph returned by that replay. All 4,177 representatives also pass
+independent exact rational min-cut verification against their paired ray at the
+requested size. These are known-feasible fixed-N reconstruction timings; the
+maximum is the sole 15-vertex case, and timings are host-specific. Realizations
+need not be mathematically unique, so literal reproducibility refers to this
+single-worker production configuration and its pinned solver environment.
 
 ## Attribution ##
 
