@@ -69,7 +69,7 @@ class _ExactAHCPreprocessing:
 class _ExactGraphCandidate:
     graph: Graph
     weight_scale: int | str
-    validation: dict[str, Any]
+    prelift_total_vertices: int
     quality: tuple[Fraction, Fraction, int, int, int]
     quality_record: dict[str, Any]
 
@@ -376,7 +376,7 @@ def _integer_graph(
     max_denominator: int = 1_000_000,
     tol: float = 1e-9,
     snap_tol: float = 1e-5,
-) -> tuple[Graph, int | str]:
+) -> Graph:
     fractions: list[Fraction] = []
     edges: list[list[str]] = []
     for edge, weight in zip(raw_edges, raw_weights, strict=True):
@@ -389,7 +389,7 @@ def _integer_graph(
             fractions.append(Fraction(float(weight)).limit_denominator(max_denominator))
         edges.append([str(edge[0]), str(edge[1])])
     if not fractions:
-        return {"edges": [], "weights": []}, 1
+        return {"edges": [], "weights": []}
 
     denominator = 1
     for weight in fractions:
@@ -400,9 +400,7 @@ def _integer_graph(
         factor = gcd(factor, abs(weight))
     if factor > 1:
         integers = [weight // factor for weight in integers]
-    scale = Fraction(factor, denominator)
-    weight_scale: int | str = int(scale) if scale.denominator == 1 else str(scale)
-    return {"edges": edges, "weights": integers}, weight_scale
+    return {"edges": edges, "weights": integers}
 
 
 def _solve_highspy_milp(
@@ -914,11 +912,7 @@ def _refine_fixed_selector_incumbent(
     pre_edge_sum = float(np.sum(np.asarray(incumbent[:edge_count], dtype=np.float64)))
     telemetry: dict[str, Any] = {
         "attempted": False,
-        "backend": HIGHSPY_BACKEND,
-        "edge_variables": edge_count,
         "fixed_selector_variables": int(len(selector_columns)),
-        "objective": "min-total-edge-weight",
-        "policy": "fixed-selector-continuous-lp",
         "pre_edge_sum": pre_edge_sum,
         "selected_solution": "scip-incumbent",
         "time_limit_s": time_limit_s,
@@ -965,7 +959,9 @@ def _refine_fixed_selector_incumbent(
         )
         return incumbent, telemetry
 
-    telemetry.update({"solve_s": time.perf_counter() - started, "solver": solver_info})
+    telemetry["solve_s"] = time.perf_counter() - started
+    if model_status := solver_info.get("model_status"):
+        telemetry["model_status"] = model_status
     if refined is None:
         telemetry.update({"reason": "no_refined_solution", "status": "fallback"})
         return incumbent, telemetry
@@ -1046,14 +1042,6 @@ class _MilpAttempt:
     objective: str
     time_limit_s: float | None = None
 
-    def as_record(self) -> dict[str, Any]:
-        return {
-            "backend": self.backend,
-            "name": self.name,
-            "objective": self.objective,
-            "time_limit_s": self.time_limit_s,
-        }
-
 
 def _milp_attempt_plan(
     *,
@@ -1068,6 +1056,60 @@ def _milp_attempt_plan(
         _MilpAttempt("scip-indicator-constant", SCIP_INDICATOR_BACKEND, "constant", scip_limit),
         _MilpAttempt("native-highs-1.14-max-edges", HIGHSPY_BACKEND, "max-edges"),
     )
+
+
+def _attempt_record(
+    info: Mapping[str, Any],
+    attempt: _MilpAttempt,
+    *,
+    effective_time_limit_s: float | None,
+) -> dict[str, Any]:
+    """Keep one compact diagnostic record for a completed backend attempt."""
+
+    fields = (
+        "backend",
+        "base_model_sha256",
+        "build_s",
+        "error",
+        "highs_githash",
+        "highs_version",
+        "incumbent_model_valid",
+        "indicator_rows",
+        "indicator_transform_sha256",
+        "linear_rows",
+        "mip_gap",
+        "mip_node_count",
+        "model_status",
+        "negative_downgraded_by_prior_model_valid_incumbent",
+        "nodes",
+        "presolve",
+        "pyscipopt_version",
+        "reason",
+        "scip_version",
+        "solutions",
+        "solve_s",
+        "solver_reported_s",
+        "status",
+        "status_before_feasibility_contradiction",
+        "status_before_shared_model_validation",
+        "status_raw",
+        "trusted_infeasibility",
+    )
+    record = {field: info[field] for field in fields if info.get(field) is not None}
+    record.update(
+        {
+            "effective_time_limit_s": effective_time_limit_s,
+            "name": attempt.name,
+            "objective": attempt.objective,
+        }
+    )
+    if refinement := info.get("continuous_refinement"):
+        record["refinement"] = refinement
+    if validation := info.get("candidate_validation"):
+        record["candidate_validation"] = validation
+    if "retry_without_presolve" in info:
+        record["retried_without_presolve"] = True
+    return record
 
 
 def _solve_ahc_fixed_vertices(
@@ -1428,24 +1470,24 @@ def _solve_ahc_fixed_vertices(
 
     binary_count = var_count - edge_count
     attempt_plan = _milp_attempt_plan(selector_count=binary_count)
+    reduction_counts = {
+        **deterministic_stats,
+        **reduction_stats,
+        "dominance_rows": dominance_rows,
+        "one_hot_propagated_fixes": propagated_choice_fixes,
+        "signature_rows": signature_rows,
+        "symmetry_rows": symmetry_rows,
+        "terminal_signature_pairs": terminal_signature_pairs,
+    }
     profile: dict[str, Any] = {
         "edge_vars": edge_count,
         "binary_vars": binary_count,
-        **deterministic_stats,
-        **reduction_stats,
-        "symmetry_rows": symmetry_rows,
-        "assume_no_smaller": int(assume_no_smaller),
-        "signature_rows": signature_rows,
-        "terminal_signature_pairs": terminal_signature_pairs,
-        "dominance_rows": dominance_rows,
-        "one_hot_propagated_fixes": propagated_choice_fixes,
-        "milp_attempt_plan": [attempt.as_record() for attempt in attempt_plan],
+        "assume_no_smaller": assume_no_smaller,
         "constraint_model_sha256": constraint_model_sha256,
-        "scip_selector_threshold": DEFAULT_SCIP_SELECTOR_THRESHOLD,
-        "vars": var_count,
         "ineq_rows": n_ineq,
         "eq_rows": n_eq,
         "nnz": int(A_ineq.nnz + A_eq.nnz),
+        "reductions": {name: count for name, count in reduction_counts.items() if count},
         "build_s": time.perf_counter() - profile_start,
     }
 
@@ -1459,52 +1501,22 @@ def _solve_ahc_fixed_vertices(
                 continue
             raw_edges.append([_vertex_label(a, n, N, labels), _vertex_label(b, n, N, labels)])
             raw_weights.append(weight)
-        raw_candidate, _ = _integer_graph(raw_edges, raw_weights)
-        candidate, component_pruning = prune_entropy_irrelevant_components(raw_candidate, n)
+        candidate = prune_entropy_irrelevant_components(_integer_graph(raw_edges, raw_weights), n)
         prelift_vertices = graph_total_vertices(candidate, n)
         match_mode = "ray" if any(value != 0 for value in exact_target) else "exact"
-        raw_candidate_check = exact_entropy_match(raw_candidate, exact_target, n, match_mode)
-        prelift_check = exact_entropy_match(candidate, exact_target, n, match_mode)
-        validation: dict[str, Any] = {
-            "accepted": False,
-            "exact_rational_mincut_model_candidate": raw_candidate_check,
-            "exact_rational_mincut_prelift": prelift_check,
-            "original_one_hot_model_valid": True,
-            "prelift_total_vertices": prelift_vertices,
-            "requested_total_vertices": N,
-            "target_match_mode": match_mode,
-            "terminal_component_pruning": component_pruning,
-        }
-        if not raw_candidate_check["ok"] or not prelift_check["ok"] or prelift_vertices > N:
-            validation["reason"] = (
-                "exact_rational_mincut_mismatch"
-                if not raw_candidate_check["ok"] or not prelift_check["ok"]
-                else "active_vertex_overflow"
-            )
-            return None, validation
-        lifted_graph, lift = lift_graph_total_vertices(candidate, n, N)
+        if prelift_vertices > N:
+            return None, {"accepted": False, "reason": "active_vertex_overflow"}
+        lifted_graph = lift_graph_total_vertices(candidate, n, N)
         final_graph = canonical_primitive_ray_graph(lifted_graph, n)
-        postlift_check = exact_entropy_match(final_graph, exact_target, n, match_mode)
-        postlift_vertices = graph_total_vertices(final_graph, n)
-        validation.update(
-            {
-                "accepted": bool(postlift_check["ok"] and postlift_vertices == N),
-                "assume_no_smaller_counterexample": bool(assume_no_smaller and prelift_vertices < N),
-                "exact_rational_mincut_postlift": postlift_check,
-                "lift": {
-                    **lift,
-                    "assume_no_smaller_counterexample": bool(assume_no_smaller and prelift_vertices < N),
-                    "terminal_component_pruning": component_pruning,
-                },
-                **lift,
-            }
-        )
-        if not validation["accepted"]:
-            return None, validation
-        quality, quality_record = _exact_graph_quality(final_graph, exact_target, postlift_check)
+        final_check = exact_entropy_match(final_graph, exact_target, n, match_mode)
+        final_vertices = graph_total_vertices(final_graph, n)
+        if not final_check["ok"] or final_vertices != N:
+            reason = "exact_rational_mincut_mismatch" if not final_check["ok"] else "lift_failed"
+            return None, {"accepted": False, "reason": reason}
+        quality, quality_record = _exact_graph_quality(final_graph, exact_target, final_check)
         if any(exact_target):
             pivot = next(index for index, value in enumerate(exact_target) if value != 0)
-            emitted_entropy = _exact_number(postlift_check["entropy"][pivot])
+            emitted_entropy = _exact_number(final_check["entropy"][pivot])
             final_weight_scale = _json_fraction(exact_target[pivot] / emitted_entropy)
         else:
             final_weight_scale = 1
@@ -1512,11 +1524,11 @@ def _solve_ahc_fixed_vertices(
             _ExactGraphCandidate(
                 graph=final_graph,
                 weight_scale=final_weight_scale,
-                validation=validation,
+                prelift_total_vertices=prelift_vertices,
                 quality=quality,
                 quality_record=quality_record,
             ),
-            validation,
+            {"accepted": True},
         )
 
     attempt_records: list[dict[str, Any]] = []
@@ -1530,12 +1542,15 @@ def _solve_ahc_fixed_vertices(
             remaining = time_limit_s - (time.perf_counter() - profile_start)
             if remaining <= 0:
                 attempt_records.append(
-                    {
-                        "attempt": attempt.as_record(),
-                        "attempt_ordinal": len(attempt_records),
-                        "reason": "fixed_n_time_limit_exhausted",
-                        "status": "unknown",
-                    }
+                    _attempt_record(
+                        {
+                            "backend": attempt.backend,
+                            "reason": "fixed_n_time_limit_exhausted",
+                            "status": "unknown",
+                        },
+                        attempt,
+                        effective_time_limit_s=0.0,
+                    )
                 )
                 break
             effective_time_limit = remaining if effective_time_limit is None else min(remaining, effective_time_limit)
@@ -1580,9 +1595,6 @@ def _solve_ahc_fixed_vertices(
                 "reason": "backend_error",
                 "status": "unknown",
             }
-        attempt_info["effective_time_limit_s"] = effective_time_limit
-        attempt_info["constraint_model_sha256"] = constraint_model_sha256
-        attempt_info.update({"attempt": attempt.as_record(), "attempt_ordinal": len(attempt_records)})
         if solution is not None:
             original_incumbent = solution
             shared_model_valid = _satisfies_linear_model(
@@ -1607,7 +1619,9 @@ def _solve_ahc_fixed_vertices(
             if not shared_model_valid:
                 attempt_info["status_before_shared_model_validation"] = attempt_info.get("status")
                 attempt_info["status"] = "unknown"
-                attempt_records.append(attempt_info)
+                attempt_records.append(
+                    _attempt_record(attempt_info, attempt, effective_time_limit_s=effective_time_limit)
+                )
                 continue
             prior_model_valid_incumbent = True
             original_candidate, original_validation = validate_incumbent(original_incumbent)
@@ -1638,20 +1652,12 @@ def _solve_ahc_fixed_vertices(
                                 None if original_candidate is None else original_candidate.quality_record
                             )
                         },
-                        "candidate_validation": {"scip-incumbent": original_validation},
-                        "quality_order": [
-                            "normalized_total_capacity",
-                            "entropy_multiplier",
-                            "max_integer_weight",
-                            "sum_integer_weights",
-                            "edge_count",
-                        ],
-                        "selection_policy": "strict-lexicographic-exact-graph-quality",
+                        "candidate_validity": {"scip-incumbent": original_candidate is not None},
                     }
                 )
                 if refinement["selected_solution"] == "refined":
-                    refined_candidate, refined_validation = validate_incumbent(refined_solution)
-                    refinement["candidate_validation"]["refined"] = refined_validation
+                    refined_candidate, _ = validate_incumbent(refined_solution)
+                    refinement["candidate_validity"]["refined"] = refined_candidate is not None
                     refinement["candidate_quality"]["refined"] = (
                         None if refined_candidate is None else refined_candidate.quality_record
                     )
@@ -1695,31 +1701,19 @@ def _solve_ahc_fixed_vertices(
                         )
                 elif original_candidate is not None:
                     refinement["exact_graph_validation"] = "accepted"
-            attempt_info["incumbent_validation"] = (
-                original_validation if selected_candidate is None else selected_candidate.validation
-            )
-            attempt_records.append(attempt_info)
+            elif original_candidate is None:
+                attempt_info["candidate_validation"] = original_validation
+            attempt_records.append(_attempt_record(attempt_info, attempt, effective_time_limit_s=effective_time_limit))
             if selected_candidate is not None:
-                profile.update(
-                    {
-                        "milp_attempts": len(attempt_records),
-                        "milp_effective_backend": attempt.backend,
-                        "milp_objective_policy": attempt.objective,
-                        "milp_s": time.perf_counter() - solve_start,
-                    }
-                )
-                winning_info = {**attempt_info, "attempts": attempt_records}
-                validation = selected_candidate.validation
+                profile["milp_s"] = time.perf_counter() - solve_start
                 return selected_candidate.graph, {
                     "status": "realized",
+                    "backend": attempt.backend,
                     "weight_scale": selected_candidate.weight_scale,
-                    "active_total_vertices": N,
-                    "prelift_total_vertices": validation["prelift_total_vertices"],
-                    "lift": validation["lift"],
-                    "verification": validation["exact_rational_mincut_postlift"],
-                    "solver": "milp",
+                    "prelift_total_vertices": selected_candidate.prelift_total_vertices,
+                    "quality": selected_candidate.quality_record,
                     "profile": profile,
-                    "milp": winning_info,
+                    "attempts": attempt_records,
                 }
             continue
 
@@ -1732,38 +1726,23 @@ def _solve_ahc_fixed_vertices(
             attempt_info["status"] = "unknown"
             attempt_info["negative_downgraded_by_prior_model_valid_incumbent"] = True
             trustworthy_negative = False
-        attempt_records.append(attempt_info)
+        attempt_info["trusted_infeasibility"] = trustworthy_negative
+        attempt_records.append(_attempt_record(attempt_info, attempt, effective_time_limit_s=effective_time_limit))
         if trustworthy_negative:
-            profile.update(
-                {
-                    "milp_attempts": len(attempt_records),
-                    "milp_effective_backend": attempt.backend,
-                    "milp_objective_policy": attempt.objective,
-                    "milp_s": time.perf_counter() - solve_start,
-                }
-            )
-            terminal_info = {**attempt_info, "attempts": attempt_records}
+            profile["milp_s"] = time.perf_counter() - solve_start
             return None, {
                 "status": "infeasible",
-                "solver": "milp",
+                "backend": attempt.backend,
                 "profile": profile,
-                "milp": terminal_info,
+                "attempts": attempt_records,
             }
 
-    profile.update(
-        {
-            "milp_attempts": len(attempt_records),
-            "milp_effective_backend": attempt_records[-1].get("backend") if attempt_records else None,
-            "milp_s": time.perf_counter() - solve_start,
-        }
-    )
-    final_info = {**attempt_records[-1], "attempts": attempt_records} if attempt_records else {"status": "unknown"}
+    profile["milp_s"] = time.perf_counter() - solve_start
     return None, {
         "status": "unknown",
         "reason": "milp_attempt_plan_exhausted",
-        "solver": "milp",
         "profile": profile,
-        "milp": final_info,
+        "attempts": attempt_records,
     }
 
 

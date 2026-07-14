@@ -38,16 +38,6 @@ AUTOMATIC_ORBIT_STRATEGY = "automatic-orbit-search"
 DEFAULT_MAX_ORBIT_FRONTIER = 512
 
 
-def _json_native(value: Any) -> Any:
-    """Return nested records with tuples normalized to JSON arrays."""
-
-    if isinstance(value, Mapping):
-        return {str(key): _json_native(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_json_native(item) for item in value]
-    return value
-
-
 @dataclass(frozen=True)
 class OrbitBranchPlan:
     """One compact exact orbit representative.
@@ -59,12 +49,6 @@ class OrbitBranchPlan:
 
     selected_cuts: tuple[tuple[int, int], ...]
     orbit_size: int
-
-    def as_record(self) -> dict[str, Any]:
-        return {
-            "orbit_size": self.orbit_size,
-            "selected_cuts": [list(choice) for choice in self.selected_cuts],
-        }
 
 
 @dataclass(frozen=True)
@@ -85,8 +69,8 @@ class OrbitSearchPlan:
         return dict(self.metadata)
 
     def as_record(self) -> dict[str, Any]:
-        record = {
-            "branches": [branch.as_record() for branch in self.branches],
+        return {
+            "representative_count": len(self.branches),
             "mode": self.mode,
             "n": self.n,
             "reason": self.reason,
@@ -96,7 +80,6 @@ class OrbitSearchPlan:
             "total_vertices": self.total_vertices,
             **self.metadata_dict,
         }
-        return _json_native(record)
 
 
 def free_subsystem_choices(
@@ -434,23 +417,27 @@ def solve_fixed_n(
         info: dict[str, Any],
     ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
         branch = plan.branches[ordinal]
-        milp = info.get("milp") if isinstance(info.get("milp"), Mapping) else {}
-        completions.append(
-            {
-                "backend": info.get("backend", milp.get("backend")),
-                "error": info.get("error", milp.get("error")),
-                "ordinal": ordinal,
-                "orbit_size": branch.orbit_size,
-                "reason": info.get("reason", milp.get("reason")),
-                "selected_cuts": [list(choice) for choice in branch.selected_cuts],
-                "status": info.get("status", "unknown"),
-            }
+        attempts = info.get("attempts")
+        last_attempt = (
+            attempts[-1] if isinstance(attempts, list) and attempts and isinstance(attempts[-1], Mapping) else {}
         )
+        completion = {
+            "backend": info.get("backend", last_attempt.get("backend")),
+            "error": info.get("error", last_attempt.get("error")),
+            "ordinal": ordinal,
+            "orbit_size": branch.orbit_size,
+            "reason": info.get("reason", last_attempt.get("reason")),
+            "status": info.get("status", "unknown"),
+        }
+        completions.append(completion)
         if graph is None:
             return None, None
         return graph, {
             **info,
-            "orbit_branch": completions[-1],
+            "orbit_branch": {
+                **completion,
+                "selected_cuts": [list(choice) for choice in branch.selected_cuts],
+            },
             "orbit_completed_representatives": len(completions),
             "orbit_elapsed_s": time.perf_counter() - started,
             "search_plan": plan.as_record(),
