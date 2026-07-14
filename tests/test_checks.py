@@ -10,22 +10,22 @@ from hec.checks import check_stored_contractions, check_stored_graphs
 from hec.data import default_data_root
 
 
-class StoredContractionCheckTests(unittest.TestCase):
-    def _temporary_dataset(self, n: int) -> tuple[TemporaryDirectory, Path, list, list]:
-        temporary = TemporaryDirectory()
-        root = Path(temporary.name)
-        target = root / f"n={n}"
-        target.mkdir()
-        source = default_data_root() / f"n={n}"
-        facets = json.loads((source / "facets.json").read_text(encoding="utf-8"))
-        contractions = json.loads((source / "contractions.json").read_text(encoding="utf-8"))
-        (target / "facets.json").write_text(json.dumps(facets), encoding="utf-8")
-        return temporary, target, facets, contractions
+def _temporary_dataset(n: int, *kinds: str) -> tuple[TemporaryDirectory, Path, dict[str, list]]:
+    temporary = TemporaryDirectory()
+    target = Path(temporary.name) / f"n={n}"
+    target.mkdir()
+    source = default_data_root() / f"n={n}"
+    records = {kind: json.loads((source / f"{kind}.json").read_text(encoding="utf-8")) for kind in kinds}
+    for kind, values in records.items():
+        (target / f"{kind}.json").write_text(json.dumps(values), encoding="utf-8")
+    return temporary, target, records
 
+
+class StoredContractionCheckTests(unittest.TestCase):
     def test_noncanonical_fractional_coefficient_is_rejected(self) -> None:
-        temporary, target, _facets, contractions = self._temporary_dataset(2)
+        temporary, target, records = _temporary_dataset(2, "facets", "contractions")
         self.addCleanup(temporary.cleanup)
-        mutated = copy.deepcopy(contractions)
+        mutated = copy.deepcopy(records["contractions"])
         mutated[0]["lhs"][0][1] = 1.9
         (target / "contractions.json").write_text(json.dumps(mutated), encoding="utf-8")
 
@@ -33,9 +33,9 @@ class StoredContractionCheckTests(unittest.TestCase):
             list(check_stored_contractions(temporary.name, n=2))
 
     def test_nonempty_images_for_empty_rhs_are_rejected(self) -> None:
-        temporary, target, _facets, contractions = self._temporary_dataset(1)
+        temporary, target, records = _temporary_dataset(1, "facets", "contractions")
         self.addCleanup(temporary.cleanup)
-        mutated = copy.deepcopy(contractions)
+        mutated = copy.deepcopy(records["contractions"])
         mutated[0]["images"] = [""]
         (target / "contractions.json").write_text(json.dumps(mutated), encoding="utf-8")
 
@@ -44,31 +44,20 @@ class StoredContractionCheckTests(unittest.TestCase):
 
 
 class StoredGraphCheckTests(unittest.TestCase):
-    def _temporary_dataset(self) -> tuple[TemporaryDirectory, Path, list]:
-        temporary = TemporaryDirectory()
-        root = Path(temporary.name)
-        target = root / "n=1"
-        target.mkdir()
-        source = default_data_root() / "n=1"
-        rays = json.loads((source / "rays.json").read_text(encoding="utf-8"))
-        graphs = json.loads((source / "graphs.json").read_text(encoding="utf-8"))
-        (target / "rays.json").write_text(json.dumps(rays), encoding="utf-8")
-        return temporary, target, graphs
-
     def test_scaled_graph_is_rejected_as_nonprimitive(self) -> None:
-        temporary, target, graphs = self._temporary_dataset()
+        temporary, target, records = _temporary_dataset(1, "rays", "graphs")
         self.addCleanup(temporary.cleanup)
-        graphs[0]["weights"] = [2]
-        (target / "graphs.json").write_text(json.dumps(graphs), encoding="utf-8")
+        records["graphs"][0]["weights"] = [2]
+        (target / "graphs.json").write_text(json.dumps(records["graphs"]), encoding="utf-8")
 
         with self.assertRaisesRegex(ValueError, "canonical stored form"):
             list(check_stored_graphs(temporary.name, n=1))
 
     def test_out_of_range_party_label_is_rejected(self) -> None:
-        temporary, target, graphs = self._temporary_dataset()
+        temporary, target, records = _temporary_dataset(1, "rays", "graphs")
         self.addCleanup(temporary.cleanup)
-        graphs[0]["edges"] = [["A", "Z"]]
-        (target / "graphs.json").write_text(json.dumps(graphs), encoding="utf-8")
+        records["graphs"][0]["edges"] = [["A", "Z"]]
+        (target / "graphs.json").write_text(json.dumps(records["graphs"]), encoding="utf-8")
 
         with self.assertRaisesRegex(ValueError, "not a terminal"):
             list(check_stored_graphs(temporary.name, n=1))

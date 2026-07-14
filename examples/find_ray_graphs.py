@@ -45,8 +45,7 @@ def _worker(n: int, index: int, ray: Sequence[int]) -> tuple[dict, dict, str]:
     }
     ahc = result.get("ahc", {})
     if isinstance(ahc, dict):
-        timing["N"] = ahc.get("N")
-        timing["solver"] = ahc.get("solver")
+        timing["backend"] = ahc.get("backend")
         if isinstance(ahc.get("profile"), dict):
             timing["profile"] = ahc["profile"]
     log = f"n={n}, index={index}, time={seconds:.6f}s, vertices={vertices}, edges={len(graph['edges'])}"

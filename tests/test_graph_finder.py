@@ -38,6 +38,17 @@ from hec._graph_validation import graph_total_vertices
 from hec.graphs import check_graph, find_graph, find_graph_fixed_n, read_graphs, write_graphs
 
 
+def _orbit_plan(*selected_cuts: tuple[tuple[int, int], ...]) -> OrbitSearchPlan:
+    return OrbitSearchPlan(
+        mode="orbit",
+        reason="test_plan",
+        n=2,
+        total_vertices=3,
+        selector_count=2,
+        branches=tuple(OrbitBranchPlan(cuts, 1) for cuts in selected_cuts),
+    )
+
+
 class GraphFinderBackendTests(unittest.TestCase):
     def test_native_highs_solves_and_proves_small_models(self) -> None:
         solution, feasible = _solve_highspy_milp(
@@ -124,8 +135,9 @@ class GraphFinderBackendTests(unittest.TestCase):
             )
         self.assertIsNone(graph)
         self.assertEqual(info["status"], "infeasible")
-        self.assertEqual(len(info["milp"]["attempts"]), 2)
-        self.assertEqual(info["milp"]["attempts"][0]["reason"], "backend_error")
+        self.assertEqual(len(info["attempts"]), 2)
+        self.assertEqual(info["attempts"][0]["reason"], "backend_error")
+        self.assertTrue(info["attempts"][-1]["trusted_infeasibility"])
 
         with (
             patch("hec._graph_milp._solve_scip_indicator_milp", side_effect=RuntimeError("scip failed")),
@@ -144,10 +156,10 @@ class GraphFinderBackendTests(unittest.TestCase):
             result = find_graph_fixed_n([1, 1, 1], 3)
         self.assertEqual(result["status"], "realized")
         self.assertTrue(result["check"]["ok"])
-        milp = result["ahc"]["milp"]
-        self.assertEqual(milp["backend"], HIGHSPY_BACKEND)
+        ahc = result["ahc"]
+        self.assertEqual(ahc["backend"], HIGHSPY_BACKEND)
         self.assertEqual(
-            [attempt["backend"] for attempt in milp["attempts"]],
+            [attempt["backend"] for attempt in ahc["attempts"]],
             [SCIP_INDICATOR_BACKEND, HIGHSPY_BACKEND],
         )
 
@@ -161,10 +173,9 @@ class GraphFinderBackendTests(unittest.TestCase):
         near_tight = (Fraction(0),) * 6 + (Fraction(1, 10**12),)
         self.assertFalse(_has_additive_union_decomposition_exact(near_tight, 3, frozenset({0, 1, 2})))
 
-    def test_integer_graph_records_exact_raw_scale(self) -> None:
-        graph, scale = _integer_graph([["A", "O"], ["B", "O"]], [2 / 3, 4 / 3])
+    def test_integer_graph_uses_primitive_integer_weights(self) -> None:
+        graph = _integer_graph([["A", "O"], ["B", "O"]], [2 / 3, 4 / 3])
         self.assertEqual(graph["weights"], [1, 2])
-        self.assertEqual(scale, "2/3")
 
     def test_fixed_selector_refinement_freezes_binaries_and_minimizes_capacity(self) -> None:
         incumbent = np.asarray([0.8, 0.2, 1.0])
@@ -290,7 +301,7 @@ class GraphFinderBackendTests(unittest.TestCase):
             nonlocal calls
             calls += 1
             if calls == 2:
-                return {"edges": [], "weights": []}, 1
+                return {"edges": [], "weights": []}
             return original_integer_graph(edges, weights)
 
         def nominal_refinement(incumbent, *_args, **_kwargs):
@@ -306,11 +317,11 @@ class GraphFinderBackendTests(unittest.TestCase):
             result = find_graph_fixed_n([1, 1, 1], 3)
         self.assertEqual(result["status"], "realized")
         self.assertTrue(result["check"]["ok"])
-        refinement = result["ahc"]["milp"]["continuous_refinement"]
+        refinement = result["ahc"]["attempts"][-1]["refinement"]
         self.assertEqual(refinement["status"], "fallback")
         self.assertEqual(refinement["selected_solution"], "scip-incumbent")
         self.assertEqual(refinement["reason"], "refined_solution_failed_exact_graph_validation")
-        self.assertFalse(refinement["candidate_validation"]["refined"]["accepted"])
+        self.assertFalse(refinement["candidate_validity"]["refined"])
 
     def test_equal_quality_refinement_retains_the_original_candidate(self) -> None:
         def unchanged_refinement(incumbent, *_args, **_kwargs):
@@ -318,21 +329,11 @@ class GraphFinderBackendTests(unittest.TestCase):
 
         with patch("hec._graph_milp._refine_fixed_selector_incumbent", side_effect=unchanged_refinement):
             result = find_graph_fixed_n([1, 1, 1], 3)
-        refinement = result["ahc"]["milp"]["continuous_refinement"]
+        refinement = result["ahc"]["attempts"][-1]["refinement"]
         self.assertEqual(refinement["candidate_quality"]["scip-incumbent"], refinement["candidate_quality"]["refined"])
         self.assertEqual(refinement["status"], "retained")
         self.assertEqual(refinement["selected_solution"], "scip-incumbent")
         self.assertEqual(refinement["reason"], "refined_quality_not_better")
-        self.assertEqual(
-            refinement["quality_order"],
-            [
-                "normalized_total_capacity",
-                "entropy_multiplier",
-                "max_integer_weight",
-                "sum_integer_weights",
-                "edge_count",
-            ],
-        )
 
 
 class GraphFinderModelTests(unittest.TestCase):
@@ -355,6 +356,8 @@ class GraphFinderModelTests(unittest.TestCase):
         self.assertEqual(
             first.branches, tuple(sorted(first.branches, key=lambda branch: (-branch.orbit_size, branch.selected_cuts)))
         )
+        self.assertEqual(first.as_record()["representative_count"], len(first.branches))
+        self.assertNotIn("branches", first.as_record())
 
     def _model_hash(self, selected_cuts: tuple[tuple[int, int], ...]) -> tuple[str, dict]:
         hashes: list[str] = []
@@ -392,20 +395,10 @@ class GraphFinderModelTests(unittest.TestCase):
         second_hash, second_profile = self._model_hash(selected)
         self.assertEqual(first_hash, second_hash)
         self.assertEqual(first_profile["constraint_model_sha256"], second_profile["constraint_model_sha256"])
-        self.assertGreater(first_profile["one_hot_propagated_fixes"], 0)
+        self.assertGreater(first_profile["reductions"]["one_hot_propagated_fixes"], 0)
 
     def test_parallel_orbit_pool_uses_supported_early_termination(self) -> None:
-        plan = OrbitSearchPlan(
-            mode="orbit",
-            reason="test_plan",
-            n=2,
-            total_vertices=3,
-            selector_count=2,
-            branches=(
-                OrbitBranchPlan(selected_cuts=(), orbit_size=1),
-                OrbitBranchPlan(selected_cuts=((0, 1),), orbit_size=1),
-            ),
-        )
+        plan = _orbit_plan((), ((0, 1),))
         with patch("hec._graph_search.plan_orbit_search", return_value=plan):
             graph, info = solve_fixed_n([1, 1, 0], 2, 3, workers=2)
         self.assertIsNotNone(graph, info)
@@ -413,14 +406,7 @@ class GraphFinderModelTests(unittest.TestCase):
         self.assertLessEqual(info["orbit_completed_representatives"], 2)
 
     def test_parallel_pool_infrastructure_failure_returns_unknown(self) -> None:
-        plan = OrbitSearchPlan(
-            mode="orbit",
-            reason="test_plan",
-            n=2,
-            total_vertices=3,
-            selector_count=2,
-            branches=(OrbitBranchPlan(selected_cuts=(), orbit_size=1),),
-        )
+        plan = _orbit_plan(())
         with (
             patch("hec._graph_search.plan_orbit_search", return_value=plan),
             patch("hec._graph_search.mp.get_context", side_effect=OSError("process quota")),
@@ -431,17 +417,7 @@ class GraphFinderModelTests(unittest.TestCase):
         self.assertEqual(info["reason"], "process_pool_infrastructure_error")
 
     def test_all_orbit_representatives_must_be_trusted_infeasible(self) -> None:
-        plan = OrbitSearchPlan(
-            mode="orbit",
-            reason="test_plan",
-            n=2,
-            total_vertices=3,
-            selector_count=2,
-            branches=(
-                OrbitBranchPlan(selected_cuts=(), orbit_size=1),
-                OrbitBranchPlan(selected_cuts=((0, 1),), orbit_size=1),
-            ),
-        )
+        plan = _orbit_plan((), ((0, 1),))
         with (
             patch("hec._graph_search.plan_orbit_search", return_value=plan),
             patch(
@@ -455,17 +431,7 @@ class GraphFinderModelTests(unittest.TestCase):
         self.assertEqual(info["orbit_completed_representatives"], 2)
 
     def test_one_unknown_orbit_representative_prevents_infeasibility(self) -> None:
-        plan = OrbitSearchPlan(
-            mode="orbit",
-            reason="test_plan",
-            n=2,
-            total_vertices=3,
-            selector_count=2,
-            branches=(
-                OrbitBranchPlan(selected_cuts=(), orbit_size=1),
-                OrbitBranchPlan(selected_cuts=((0, 1),), orbit_size=1),
-            ),
-        )
+        plan = _orbit_plan((), ((0, 1),))
         with (
             patch("hec._graph_search.plan_orbit_search", return_value=plan),
             patch(
@@ -492,14 +458,7 @@ class GraphFinderModelTests(unittest.TestCase):
         solve.assert_not_called()
 
     def test_parent_deadline_terminates_a_stalled_process_pool(self) -> None:
-        plan = OrbitSearchPlan(
-            mode="orbit",
-            reason="test_plan",
-            n=2,
-            total_vertices=3,
-            selector_count=2,
-            branches=(OrbitBranchPlan(selected_cuts=(), orbit_size=1),),
-        )
+        plan = _orbit_plan(())
 
         class StalledResults:
             def next(self, timeout):  # noqa: A003 - mirrors multiprocessing's public iterator API
@@ -556,7 +515,7 @@ class PublicGraphFinderTests(unittest.TestCase):
                 self.assertEqual(entropy_multipliers, {1 / weight_scale})
                 self.assertLessEqual(next(iter(entropy_multipliers)), 2)
                 self.assertLessEqual(max(result["graph"]["weights"]), 5)
-                refinement = result["ahc"]["milp"]["continuous_refinement"]
+                refinement = result["ahc"]["attempts"][-1]["refinement"]
                 self.assertEqual(refinement["status"], "refined")
                 self.assertEqual(refinement["exact_graph_validation"], "accepted")
                 if index in (162, 484):
@@ -620,7 +579,7 @@ class PublicGraphFinderTests(unittest.TestCase):
             result = find_graph([1], max_vertices=2)
         self.assertEqual(result["status"], "realized")
         self.assertTrue(result["check"]["ok"])
-        self.assertTrue(result["verification"]["ok"])
+        self.assertEqual(result["check"]["verification"], "exact_rational_mincut")
 
     def test_candidate_with_wrong_active_vertex_count_is_rejected(self) -> None:
         wrong_size = {"edges": [["x1", "O"]], "weights": [1]}
