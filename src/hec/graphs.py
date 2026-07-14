@@ -182,9 +182,8 @@ def _search_result(
         "n": n,
         "match": match,
         "graph": graph,
-        "ahc": info,
+        "ahc": {key: value for key, value in info.items() if key not in {"N", "status"}},
         "check": check,
-        "verification": {"method": "exact_rational_mincut", "ok": True},
         "elapsed_s": round(time.perf_counter() - started, 6),
     }
     if total_vertices is not None:

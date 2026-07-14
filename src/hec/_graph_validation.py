@@ -178,7 +178,7 @@ def graph_total_vertices(graph: ExactGraph, n: int) -> int:
 def prune_entropy_irrelevant_components(
     graph: ExactGraph,
     n: int,
-) -> tuple[dict[str, Any], dict[str, Any]]:
+) -> dict[str, Any]:
     """Drop positive components containing no physical terminal.
 
     Such a component can always be placed with the purifier in every physical
@@ -187,7 +187,6 @@ def prune_entropy_irrelevant_components(
 
     canonical_edges = _exact_graph_edges(graph, n)
     physical_terminals = frozenset(party_labels(n)[:n])
-    all_terminals = frozenset(party_labels(n))
     adjacency: defaultdict[str, set[str]] = defaultdict(set)
     for left, right, _weight in canonical_edges:
         adjacency[left].add(right)
@@ -202,31 +201,10 @@ def prune_entropy_irrelevant_components(
                 reachable.add(neighbor)
                 pending.append(neighbor)
 
-    kept = tuple(edge for edge in canonical_edges if edge[0] in reachable)
-    removed = tuple(edge for edge in canonical_edges if edge[0] not in reachable)
-    pruned = _graph_payload(kept)
-    removed_payload = _graph_payload(removed)
-    kept_vertices = {vertex for left, right, _weight in kept for vertex in (left, right)}
-    removed_vertices = {vertex for left, right, _weight in removed for vertex in (left, right)}
-
-    def bulk_label_key(vertex: str) -> tuple[int, int | str]:
-        return (0, int(vertex[1:])) if vertex.startswith("x") and vertex[1:].isdigit() else (1, vertex)
-
-    metadata = {
-        "changed": bool(removed),
-        "postprune_total_vertices": graph_total_vertices(pruned, n),
-        "preprune_total_vertices": graph_total_vertices(graph, n),
-        "removed_bulk_vertices": sorted(
-            (removed_vertices - kept_vertices) - all_terminals,
-            key=bulk_label_key,
-        ),
-        "removed_edges": removed_payload["edges"],
-        "removed_weights": removed_payload["weights"],
-    }
-    return pruned, metadata
+    return _graph_payload(tuple(edge for edge in canonical_edges if edge[0] in reachable))
 
 
-def lift_graph_total_vertices(graph: ExactGraph, n: int, total_vertices: int) -> tuple[dict[str, Any], dict[str, Any]]:
+def lift_graph_total_vertices(graph: ExactGraph, n: int, total_vertices: int) -> dict[str, Any]:
     """Deterministically add active bulk vertices without changing entropies.
 
     Each step subdivides a positive edge ``u--v`` into ``u--x--v`` with the
@@ -244,7 +222,8 @@ def lift_graph_total_vertices(graph: ExactGraph, n: int, total_vertices: int) ->
     if current_total > total_vertices:
         raise ValueError(f"cannot lift {current_total} active vertices down to {total_vertices}")
     terminals = frozenset(party_labels(n))
-    used_labels = terminals | {vertex for left, right, _weight in canonical_edges for vertex in (left, right)}
+    used_labels = set(terminals)
+    used_labels.update(vertex for left, right, _weight in canonical_edges for vertex in (left, right))
     canonical_bulk_pool = tuple(f"x{index}" for index in range(1, total_vertices - n))
 
     def next_unused_bulk() -> str:
@@ -253,21 +232,14 @@ def lift_graph_total_vertices(graph: ExactGraph, n: int, total_vertices: int) ->
         except StopIteration as exc:
             raise ValueError("no inactive canonical bulk label remains for the requested total") from exc
 
-    zero_ray_seed: dict[str, Any] | None = None
     if current_total < total_vertices and not canonical_edges:
         new_vertex = next_unused_bulk()
         purifier = party_labels(n)[-1]
         seed_edge = _orient_edge(purifier, new_vertex)
         canonical_edges.append((*seed_edge, Fraction(1)))
-        used_labels = used_labels | {new_vertex}
+        used_labels.add(new_vertex)
         current_total += 1
-        zero_ray_seed = {
-            "edge": list(seed_edge),
-            "new_vertex": new_vertex,
-            "weight": 1,
-        }
 
-    steps: list[dict[str, Any]] = []
     while current_total < total_vertices:
         new_vertex = next_unused_bulk()
         left, right, weight = min(canonical_edges)
@@ -279,26 +251,10 @@ def lift_graph_total_vertices(graph: ExactGraph, n: int, total_vertices: int) ->
             ]
         )
         canonical_edges.sort(key=_edge_sort_key)
-        used_labels = used_labels | {new_vertex}
-        steps.append(
-            {
-                "new_vertex": new_vertex,
-                "replaced_edge": [left, right],
-                "weight": _json_weight(weight),
-            }
-        )
+        used_labels.add(new_vertex)
         current_total += 1
 
-    lifted = _graph_payload(canonical_edges)
-    metadata = {
-        "canonical_bulk_label_pool": list(canonical_bulk_pool),
-        "lift_steps": steps,
-        "postlift_total_vertices": graph_total_vertices(lifted, n),
-        "prelift_total_vertices": graph_total_vertices(graph, n),
-        "requested_total_vertices": total_vertices,
-        "zero_ray_seed": zero_ray_seed,
-    }
-    return lifted, metadata
+    return _graph_payload(canonical_edges)
 
 
 def _maximum_flow(

@@ -100,19 +100,13 @@ The contraction solver uses the same direct Kissat/Cython backend on every
 platform. Import fails if the installed PySAT build does not provide the
 required Kissat solver and raw Kissat C symbols.
 
-The graph finder pins every solver to one thread and a fixed seed. Its automatic
-portfolio uses equivalent SCIP indicator constraints first, then native HiGHS.
-After a valid SCIP incumbent is found, the selector variables are fixed and a
-continuous HiGHS solve minimizes total edge capacity for that topology. The
-original and refined candidates are independently converted to canonical
-primitive graphs and verified by exact rational minimum cuts. The refined
-candidate is used only when it strictly improves the exact quality tuple
-(normalized total capacity, entropy multiplier, maximum integer edge weight,
-total integer edge weight, edge count); ties retain the original candidate.
-This is a topology-preserving weight polish, not a global topology optimization.
-Every incumbent must also satisfy the original one-hot linear model. Solver
-limits and backend errors return `unknown`; they are never reported as
-infeasibility.
+The deterministic graph finder pins each solver to one thread and a fixed seed,
+trying equivalent SCIP indicator constraints before native HiGHS. A valid SCIP
+topology is polished by a fixed-selector continuous HiGHS solve when time remains.
+Every incumbent must satisfy the original one-hot model and exact rational
+minimum cuts; a polish is accepted only when it strictly improves (normalized
+total capacity, entropy multiplier, maximum weight, total weight, edge count).
+Limits and backend errors are never themselves treated as infeasibility.
 
 Generation scripts use process workers. Contraction generation defaults to
 `max(1, os.cpu_count() - 1)` workers. Graph generation defaults to at most four
@@ -161,20 +155,14 @@ Pinned sequential generation timing stats:
 | contractions   | 1,889   | 0.248 s | 0.164 s | 1.823 s | 468.519 s |
 | graphs (fixed-N replay) | 4,177 | 3.508 s | 0.435 s | 10,247.705 s | 14,654.463 s |
 
-The graph row reports wall-clock times from a sequential fixed-N replay with one
-solver worker, using the total vertex count of each paired stored graph; it is
-not a search for the smallest realization. Replay candidates and checked-in
-representatives are independently normalized and verified by exact rational
-minimum cuts. Database promotion is monotone: a candidate replaces the existing
-public representative only when it strictly improves the exact quality tuple
-above, while ties retain the existing graph. The checked-in database therefore
-records the best known verified representative and need not be the literal
-output of the latest replay. All 4,177 stored representatives pass exact
-verification against their paired rays at the requested size. Timings are
-host-specific, and graph realizations need not be mathematically unique. This
-replay recomputed 4,176 rows in 4,406.758 s; the sole 15-vertex row reused its
-previously verified 10,247.705 s native-HiGHS result because its winning solver
-path is untouched by the SCIP-only polishing step.
+The graph row is a sequential one-worker fixed-N replay at each stored graph's
+vertex count, not a smallest-realization search. Candidates and stored graphs
+are independently normalized and checked by exact rational minimum cuts;
+promotion is monotone under the quality tuple above, with ties retaining the
+stored graph. All 4,177 representatives verify against their paired rays.
+Timings are host-specific: 4,176 rows were recomputed in 4,406.758 s, while the
+sole 15-vertex row reused its verified 10,247.705 s native-HiGHS result because
+the SCIP-only polishing change cannot affect that winning path.
 
 ## Attribution ##
 

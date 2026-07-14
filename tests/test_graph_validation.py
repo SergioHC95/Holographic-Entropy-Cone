@@ -100,7 +100,7 @@ class ExactGraphValidationTests(unittest.TestCase):
         }
 
         self.assertEqual(graph_total_vertices(graph, 1), 4)
-        lifted, _metadata = lift_graph_total_vertices(graph, 1, 4)
+        lifted = lift_graph_total_vertices(graph, 1, 4)
         self.assertEqual(lifted["edges"], [["A", "x1"], ["x3", "O"]])
         self.assertEqual(lifted["weights"], [1, 4])
 
@@ -111,15 +111,12 @@ class ExactGraphValidationTests(unittest.TestCase):
         }
         before = exact_entropy_vector_mincut(graph, 2)
 
-        pruned, metadata = prune_entropy_irrelevant_components(graph, 2)
+        pruned = prune_entropy_irrelevant_components(graph, 2)
 
         self.assertEqual(pruned, {"edges": [["A", "x1"], ["B", "x2"]], "weights": [2, 3]})
         self.assertEqual(exact_entropy_vector_mincut(pruned, 2), before)
-        self.assertEqual(metadata["removed_edges"], [["x3", "O"], ["x4", "x5"]])
-        self.assertEqual(metadata["removed_weights"], ["5/2", 7])
-        self.assertEqual(metadata["removed_bulk_vertices"], ["x3", "x4", "x5"])
-        self.assertEqual(metadata["preprune_total_vertices"], 8)
-        self.assertEqual(metadata["postprune_total_vertices"], 5)
+        self.assertEqual(graph_total_vertices(graph, 2), 8)
+        self.assertEqual(graph_total_vertices(pruned, 2), 5)
 
     def test_subdivision_lift_is_exact_deterministic_and_canonical(self) -> None:
         graph = {
@@ -128,24 +125,32 @@ class ExactGraphValidationTests(unittest.TestCase):
         }
         before = exact_entropy_vector_mincut(graph, 2)
 
-        first, first_metadata = lift_graph_total_vertices(graph, 2, 6)
-        second, second_metadata = lift_graph_total_vertices(graph, 2, 6)
+        first = lift_graph_total_vertices(graph, 2, 6)
+        second = lift_graph_total_vertices(graph, 2, 6)
 
         self.assertEqual(first, second)
-        self.assertEqual(first_metadata, second_metadata)
+        self.assertEqual(
+            first,
+            {
+                "edges": [["A", "x2"], ["A", "x3"], ["B", "x2"], ["x1", "x3"], ["x1", "O"], ["x2", "O"]],
+                "weights": ["3/2", 4, "5/2", 4, 4, "7/3"],
+            },
+        )
         self.assertEqual(graph_total_vertices(first, 2), 6)
         self.assertEqual(exact_entropy_vector_mincut(first, 2), before)
-        self.assertEqual([step["new_vertex"] for step in first_metadata["lift_steps"]], ["x1", "x3"])
-        self.assertEqual(first_metadata["canonical_bulk_label_pool"], ["x1", "x2", "x3"])
-        self.assertIsNone(first_metadata["zero_ray_seed"])
 
     def test_zero_graph_uses_purifier_seed_then_subdivision(self) -> None:
-        lifted, metadata = lift_graph_total_vertices({"edges": [], "weights": []}, 1, 6)
+        lifted = lift_graph_total_vertices({"edges": [], "weights": []}, 1, 6)
 
+        self.assertEqual(
+            lifted,
+            {
+                "edges": [["x1", "x4"], ["x2", "x3"], ["x2", "O"], ["x3", "x4"]],
+                "weights": [1, 1, 1, 1],
+            },
+        )
         self.assertEqual(graph_total_vertices(lifted, 1), 6)
         self.assertEqual(exact_entropy_vector_mincut(lifted, 1), (Fraction(0),))
-        self.assertEqual(metadata["zero_ray_seed"]["edge"], ["x1", "O"])
-        self.assertEqual([step["new_vertex"] for step in metadata["lift_steps"]], ["x2", "x3", "x4"])
 
     def test_exact_mincut_has_no_machine_word_vertex_limit(self) -> None:
         vertices = ["A", *(f"x{index}" for index in range(1, 65)), "O"]
