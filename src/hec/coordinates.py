@@ -6,12 +6,13 @@ cardinality-then-lexicographic order.
 
 from __future__ import annotations
 
-import math
 from collections.abc import Sequence
 from functools import cache
 from itertools import combinations
 
 import numpy as np
+
+_PARTY_ALPHABET = tuple(chr(code) for code in range(ord("A"), ord("Z") + 1) if chr(code) != "O")
 
 
 def dim(n: int) -> int:
@@ -28,14 +29,25 @@ def infer_n(vector_length: int) -> int:
 def party_labels(n: int) -> list[str]:
     if isinstance(n, bool) or not isinstance(n, int) or n < 0:
         raise ValueError("party count must be a non-negative integer")
-    # ``O`` is the repository-wide purifier label, so it must never also name
-    # a physical terminal.  Preserve the historical A..N convention and then
-    # continue through the remaining letters before using unbounded P<number>
-    # labels.
-    alphabet = tuple(chr(code) for code in range(ord("A"), ord("Z") + 1) if chr(code) != "O")
-    labels = list(alphabet[:n])
+    # ``O`` is the purifier, so physical labels use A..N, skip O, and continue
+    # through the remaining letters before switching to P<number>.
+    labels = list(_PARTY_ALPHABET[:n])
     labels.extend(f"P{i + 1}" for i in range(len(labels), n))
     return labels + ["O"]
+
+
+def party_index(label: str, n: int | None = None) -> int:
+    """Decode one physical-party label produced by :func:`party_labels`."""
+
+    if label in _PARTY_ALPHABET:
+        index = _PARTY_ALPHABET.index(label)
+    elif label.startswith("P") and label[1:].isdigit() and int(label[1:]) > len(_PARTY_ALPHABET):
+        index = int(label[1:]) - 1
+    else:
+        raise ValueError(f"invalid physical-party label {label!r}")
+    if n is not None and not 0 <= index < n:
+        raise ValueError(f"party label {label!r} is outside n={n}")
+    return index
 
 
 @cache
@@ -56,24 +68,6 @@ def row_to_array(row: Sequence[int | float], n: int | None = None, *, dtype=np.i
     if n is not None and arr.shape != (dim(n),):
         raise ValueError(f"expected vector length {dim(n)} for n={n}, got {arr.shape}")
     return arr
-
-
-def primitive_vector(row: Sequence[int | float], *, tol: float = 1e-9) -> tuple[int, ...] | None:
-    arr = np.asarray(row)
-    if np.issubdtype(arr.dtype, np.floating):
-        rounded = np.rint(arr)
-        if not np.allclose(arr, rounded, atol=tol):
-            return None
-        arr = rounded.astype(np.int64)
-    else:
-        arr = arr.astype(np.int64)
-    factor = 0
-    values = [int(value) for value in arr.tolist()]
-    for value in values:
-        factor = math.gcd(factor, abs(value))
-    if factor == 0:
-        return None
-    return tuple(value // factor for value in values)
 
 
 def parse_inequality(

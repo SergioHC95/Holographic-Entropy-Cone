@@ -30,15 +30,12 @@ def _worker(n: int, index: int, ray: Sequence[int]) -> tuple[dict, dict, str]:
     result = find_graph(
         tuple(int(value) for value in ray),
         max_vertices=DEFAULT_MAX_VERTICES,
-        verify=True,
     )
     seconds = time.perf_counter() - start
     if result["status"] != "realized":
         raise RuntimeError(f"index={index}: {result}")
-    if not result.get("check", {}).get("ok"):
-        raise RuntimeError(f"index={index}: graph failed verification: {result.get('check')}")
     graph = result["graph"]
-    vertices = len({vertex for edge in graph["edges"] for vertex in edge})
+    vertices = result["total_vertices"]
     timing = {
         "index": index,
         "seconds": seconds,

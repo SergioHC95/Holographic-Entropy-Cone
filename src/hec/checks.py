@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 from collections.abc import Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from ._graph_validation import canonical_primitive_ray_graph
 from .contractions import check_contraction, contraction_coeffs, normalize_contraction
 from .data import available_ns, data_path, load_hec_data
 from .graphs import check_graph
@@ -50,37 +52,39 @@ def _check_stored_rank(
     root: str | Path | None,
     fixed_kind: str,
     candidate_kind: str,
+    *,
+    n: int | None = None,
 ) -> Iterator[str]:
-    for n, fixed_rows, candidate_rows in _stored(root, fixed_kind, candidate_kind):
-        prepared = prepare_rank_candidates(candidate_rows, n)
+    for current_n, fixed_rows, candidate_rows in _stored(root, fixed_kind, candidate_kind, n=n):
+        prepared = prepare_rank_candidates(candidate_rows, current_n)
         workers = check_worker_count()
 
-        def check_row(row, *, n=n, prepared=prepared):
-            return check_support_rank_prepared(row, n, *prepared)
+        def check_row(row, *, current_n=current_n, prepared=prepared):
+            return check_support_rank_prepared(row, current_n, *prepared)
 
         if workers > 1 and len(fixed_rows) >= 32:
             first = check_row(fixed_rows[0])
             if not first["ok"]:
-                raise ValueError(f"n={n}, index=0: rank {first['rank']} < {first['target_rank']}")
+                raise ValueError(f"n={current_n}, index=0: rank {first['rank']} < {first['target_rank']}")
             with ThreadPoolExecutor(max_workers=workers) as pool:
                 checks = enumerate(pool.map(check_row, fixed_rows[1:]), start=1)
                 for index, check in checks:
                     if not check["ok"]:
-                        raise ValueError(f"n={n}, index={index}: rank {check['rank']} < {check['target_rank']}")
+                        raise ValueError(f"n={current_n}, index={index}: rank {check['rank']} < {check['target_rank']}")
         else:
             for index, row in enumerate(fixed_rows):
                 check = check_row(row)
                 if not check["ok"]:
-                    raise ValueError(f"n={n}, index={index}: rank {check['rank']} < {check['target_rank']}")
-        yield f"n={n}: {len(fixed_rows)} ok"
+                    raise ValueError(f"n={current_n}, index={index}: rank {check['rank']} < {check['target_rank']}")
+        yield f"n={current_n}: {len(fixed_rows)} ok"
 
 
-def check_stored_facets(root: str | Path | None = None) -> Iterator[str]:
-    yield from _check_stored_rank(root, "facets", "rays")
+def check_stored_facets(root: str | Path | None = None, *, n: int | None = None) -> Iterator[str]:
+    yield from _check_stored_rank(root, "facets", "rays", n=n)
 
 
-def check_stored_rays(root: str | Path | None = None) -> Iterator[str]:
-    yield from _check_stored_rank(root, "rays", "facets")
+def check_stored_rays(root: str | Path | None = None, *, n: int | None = None) -> Iterator[str]:
+    yield from _check_stored_rank(root, "rays", "facets", n=n)
 
 
 def check_stored_contractions(root: str | Path | None = None, *, n: int | None = None) -> Iterator[str]:
@@ -104,10 +108,36 @@ def check_stored_contractions(root: str | Path | None = None, *, n: int | None =
 
 
 def check_stored_graphs(root: str | Path | None = None, *, n: int | None = None) -> Iterator[str]:
-    for current_n, rays, graphs in _stored(root, "rays", "graphs", n=n):
+    for current_n in _selected_ns(root, n):
+        rays = load_hec_data(current_n, "rays", root=root)
+        graphs = load_json(data_path(current_n, "graphs", root=root))
+        if not isinstance(graphs, list):
+            raise ValueError(f"expected a list of graphs in {data_path(current_n, 'graphs', root=root)}")
         if len(rays) != len(graphs):
             raise ValueError(f"n={current_n}: {len(rays)} rays but {len(graphs)} graphs")
         for index, (ray, graph) in enumerate(zip(rays, graphs, strict=True)):
-            if not check_graph(graph, ray, current_n, primitive=True)["ok"]:
+            if graph != canonical_primitive_ray_graph(graph, current_n):
+                raise ValueError(f"n={current_n}, index={index}: graph is not in canonical stored form")
+            if not check_graph(graph, ray, current_n, match="ray")["ok"]:
                 raise ValueError(f"n={current_n}, index={index}: graph/ray mismatch")
         yield f"n={current_n}: {len(rays)} ok"
+
+
+def main() -> None:
+    """Run one repository-data validation from the command line."""
+
+    checks = {
+        "contractions": check_stored_contractions,
+        "facets": check_stored_facets,
+        "graphs": check_stored_graphs,
+        "rays": check_stored_rays,
+    }
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("kind", choices=checks)
+    parser.add_argument("--n", type=int, help="check only this stored party count")
+    args = parser.parse_args()
+    run_check(checks[args.kind](n=args.n))
+
+
+if __name__ == "__main__":
+    main()

@@ -13,7 +13,7 @@ from hec._graph_validation import (
     lift_graph_total_vertices,
     prune_entropy_irrelevant_components,
 )
-from hec.coordinates import party_labels, subsets
+from hec.coordinates import party_index, party_labels, subsets
 
 
 def brute_force_entropy(graph: dict, n: int) -> tuple[Fraction, ...]:
@@ -64,11 +64,13 @@ class ExactGraphValidationTests(unittest.TestCase):
                     self.assertEqual(exact_entropy_vector_mincut(graph, n), brute_force_entropy(graph, n))
 
     def test_party_labels_reserve_the_purifier_for_arbitrary_counts(self) -> None:
-        labels = party_labels(64)
-        self.assertEqual(labels[:14], list("ABCDEFGHIJKLMN"))
-        self.assertEqual(labels[14], "P")
-        self.assertEqual(labels[-1], "O")
-        self.assertEqual(len(labels), len(set(labels)))
+        for n in (14, 15, 25, 26, 64):
+            with self.subTest(n=n):
+                labels = party_labels(n)
+                self.assertEqual(labels[:14], list("ABCDEFGHIJKLMN"))
+                self.assertEqual(labels[-1], "O")
+                self.assertEqual(len(labels), len(set(labels)))
+                self.assertEqual([party_index(label, n) for label in labels[:-1]], list(range(n)))
 
     def test_ray_canonicalization_merges_and_primitivizes_exact_weights(self) -> None:
         graph = {
@@ -77,7 +79,7 @@ class ExactGraphValidationTests(unittest.TestCase):
         }
         self.assertEqual(
             canonical_primitive_ray_graph(graph),
-            {"edges": [["A", "x1"], ["O", "x1"]], "weights": [1, 2]},
+            {"edges": [["A", "x1"], ["x1", "O"]], "weights": [1, 2]},
         )
 
     def test_exact_rational_star_entropy(self) -> None:
@@ -99,7 +101,7 @@ class ExactGraphValidationTests(unittest.TestCase):
 
         self.assertEqual(graph_total_vertices(graph, 1), 4)
         lifted, _metadata = lift_graph_total_vertices(graph, 1, 4)
-        self.assertEqual(lifted["edges"], [["A", "x1"], ["O", "x3"]])
+        self.assertEqual(lifted["edges"], [["A", "x1"], ["x3", "O"]])
         self.assertEqual(lifted["weights"], [1, 4])
 
     def test_pruning_removes_only_components_without_physical_terminals(self) -> None:
@@ -113,7 +115,7 @@ class ExactGraphValidationTests(unittest.TestCase):
 
         self.assertEqual(pruned, {"edges": [["A", "x1"], ["B", "x2"]], "weights": [2, 3]})
         self.assertEqual(exact_entropy_vector_mincut(pruned, 2), before)
-        self.assertEqual(metadata["removed_edges"], [["O", "x3"], ["x4", "x5"]])
+        self.assertEqual(metadata["removed_edges"], [["x3", "O"], ["x4", "x5"]])
         self.assertEqual(metadata["removed_weights"], ["5/2", 7])
         self.assertEqual(metadata["removed_bulk_vertices"], ["x3", "x4", "x5"])
         self.assertEqual(metadata["preprune_total_vertices"], 8)
@@ -142,7 +144,7 @@ class ExactGraphValidationTests(unittest.TestCase):
 
         self.assertEqual(graph_total_vertices(lifted, 1), 6)
         self.assertEqual(exact_entropy_vector_mincut(lifted, 1), (Fraction(0),))
-        self.assertEqual(metadata["zero_ray_seed"]["edge"], ["O", "x1"])
+        self.assertEqual(metadata["zero_ray_seed"]["edge"], ["x1", "O"])
         self.assertEqual([step["new_vertex"] for step in metadata["lift_steps"]], ["x2", "x3", "x4"])
 
     def test_exact_mincut_has_no_machine_word_vertex_limit(self) -> None:
@@ -161,6 +163,8 @@ class ExactGraphValidationTests(unittest.TestCase):
             ({"edges": [["A", "O"]], "weights": [math.inf]}, "finite"),
             ({"edges": [["A", "O"]], "weights": [True]}, "boolean"),
             ({"edges": [["A", "O"]], "weights": []}, "mismatch"),
+            ({"edges": [["bogus", "also-bogus"]], "weights": [0]}, "invalid graph vertex"),
+            ({"edges": [["A", "Z"]], "weights": [0]}, "not a terminal"),
         )
         for graph, message in invalid:
             with self.subTest(message=message), self.assertRaisesRegex((TypeError, ValueError), message):

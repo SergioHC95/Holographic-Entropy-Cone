@@ -21,7 +21,7 @@ from hec._graph_milp import (
     _has_additive_union_decomposition_exact,
     _integer_graph,
     _milp_attempt_plan,
-    _solve_ahc_for_N,
+    _solve_ahc_fixed_vertices,
     _solve_highspy_milp,
     _solve_scip_indicator_milp,
     _trusted_scip_infeasibility,
@@ -116,7 +116,7 @@ class GraphFinderBackendTests(unittest.TestCase):
                 return_value=(None, {"backend": HIGHSPY_BACKEND, "status": "infeasible"}),
             ),
         ):
-            graph, info = _solve_ahc_for_N(
+            graph, info = _solve_ahc_fixed_vertices(
                 np.asarray([1, 1, 1], dtype=np.int64),
                 2,
                 3,
@@ -130,7 +130,7 @@ class GraphFinderBackendTests(unittest.TestCase):
             patch("hec._graph_milp._solve_scip_indicator_milp", side_effect=RuntimeError("scip failed")),
             patch("hec._graph_milp._solve_highspy_milp", side_effect=RuntimeError("highs failed")),
         ):
-            graph, info = _solve_ahc_for_N(
+            graph, info = _solve_ahc_fixed_vertices(
                 np.asarray([1, 1, 1], dtype=np.int64),
                 2,
                 3,
@@ -140,7 +140,7 @@ class GraphFinderBackendTests(unittest.TestCase):
 
     def test_real_highs_fallback_reaches_shared_exact_validation(self) -> None:
         with patch("hec._graph_milp._solve_scip_indicator_milp", side_effect=RuntimeError("scip unavailable")):
-            result = find_graph_fixed_n([1, 1, 1], 3, verify=True)
+            result = find_graph_fixed_n([1, 1, 1], 3)
         self.assertEqual(result["status"], "realized")
         self.assertTrue(result["check"]["ok"])
         milp = result["ahc"]["milp"]
@@ -187,7 +187,7 @@ class GraphFinderModelTests(unittest.TestCase):
             first.branches, tuple(sorted(first.branches, key=lambda branch: (-branch.orbit_size, branch.selected_cuts)))
         )
 
-    def _model_hash(self, fixed: dict[tuple[int, int], int]) -> tuple[str, dict]:
+    def _model_hash(self, selected_cuts: tuple[tuple[int, int], ...]) -> tuple[str, dict]:
         hashes: list[str] = []
 
         def fake_solver(c, a_ineq, lo, hi, a_eq, rhs, integrality, lb, ub, **_kwargs):
@@ -209,35 +209,21 @@ class GraphFinderModelTests(unittest.TestCase):
             patch("hec._graph_milp._solve_scip_indicator_milp", side_effect=ImportError("test skip")),
             patch("hec._graph_milp._solve_highspy_milp", side_effect=fake_solver),
         ):
-            _graph, info = _solve_ahc_for_N(
+            _graph, info = _solve_ahc_fixed_vertices(
                 self.target,
                 6,
                 15,
-                branch_choice_values=fixed,
+                selected_cuts=selected_cuts,
             )
         return hashes[0], info["profile"]
 
-    def test_compact_selected_cuts_build_the_same_frozen_one_hot_model(self) -> None:
-        selected = dict(plan_orbit_search(self.target.tolist(), 6, 15).branches[0].selected_cuts)
-        choices = dict(
-            _exact_ahc_preprocessing(
-                6,
-                15,
-                tuple(Fraction(int(value)) for value in self.target),
-            ).choices_by_sub
-        )
-        compact = {(subsystem, cut): 1 for subsystem, cut in selected.items()}
-        expanded = {
-            (subsystem, cut): int(cut == selected_cut)
-            for subsystem, selected_cut in selected.items()
-            for cut in choices[subsystem]
-        }
-        compact_hash, compact_profile = self._model_hash(compact)
-        expanded_hash, expanded_profile = self._model_hash(expanded)
-        self.assertEqual(compact_hash, expanded_hash)
-        self.assertEqual(compact_profile["constraint_model_sha256"], expanded_profile["constraint_model_sha256"])
-        self.assertGreater(compact_profile["one_hot_propagated_fixes"], 0)
-        self.assertEqual(expanded_profile["one_hot_propagated_fixes"], 0)
+    def test_selected_orbit_cuts_freeze_a_stable_one_hot_model(self) -> None:
+        selected = plan_orbit_search(self.target.tolist(), 6, 15).branches[0].selected_cuts
+        first_hash, first_profile = self._model_hash(selected)
+        second_hash, second_profile = self._model_hash(selected)
+        self.assertEqual(first_hash, second_hash)
+        self.assertEqual(first_profile["constraint_model_sha256"], second_profile["constraint_model_sha256"])
+        self.assertGreater(first_profile["one_hot_propagated_fixes"], 0)
 
     def test_parallel_orbit_pool_uses_supported_early_termination(self) -> None:
         plan = OrbitSearchPlan(
@@ -329,7 +315,7 @@ class GraphFinderModelTests(unittest.TestCase):
     def test_expired_shared_deadline_never_starts_an_orbit_solver(self) -> None:
         with (
             patch("hec._graph_search.time.perf_counter", return_value=10.0),
-            patch("hec._graph_search._solve_ahc_for_N") as solve,
+            patch("hec._graph_search._solve_ahc_fixed_vertices") as solve,
         ):
             graph, info = _solve_planned_branch({"deadline": 9.0, "time_limit_s": 300.0})
         self.assertIsNone(graph)
@@ -384,8 +370,8 @@ class GraphFinderModelTests(unittest.TestCase):
 
 class PublicGraphFinderTests(unittest.TestCase):
     def test_fixed_n_ray_and_exact_modes_are_explicit_and_verified(self) -> None:
-        ray = find_graph_fixed_n([1, 1, 1], 3, match="ray", verify=True)
-        exact = find_graph_fixed_n([1, 1, 1], 3, match="exact", verify=True)
+        ray = find_graph_fixed_n([1, 1, 1], 3, match="ray")
+        exact = find_graph_fixed_n([1, 1, 1], 3, match="exact")
         self.assertEqual(ray["status"], "realized")
         self.assertEqual(ray["check"]["entropy"], [2, 2, 2])
         self.assertEqual(exact["status"], "realized")
@@ -393,31 +379,44 @@ class PublicGraphFinderTests(unittest.TestCase):
         self.assertEqual(exact["check"]["entropy"], [1, 1, 1])
 
     def test_fixed_n_lifts_to_exact_requested_active_vertex_count(self) -> None:
-        result = find_graph_fixed_n([1, 1, 0], 5, verify=True)
+        result = find_graph_fixed_n([1, 1, 0], 5)
         self.assertEqual(result["status"], "realized")
         self.assertEqual(graph_total_vertices(result["graph"], 2), 5)
         self.assertTrue(result["check"]["ok"])
 
     def test_rational_graph_io_roundtrip_is_exact(self) -> None:
-        graph = {"edges": [["A", "x1"], ["O", "x1"]], "weights": ["1/3", 2]}
+        graph = {"edges": [["A", "x1"], ["x1", "O"]], "weights": ["1/3", 2]}
         with TemporaryDirectory() as temporary:
             path = Path(temporary) / "graphs.json"
             write_graphs(path, [graph])
             self.assertEqual(read_graphs(path), [graph])
 
-    def test_legacy_verify_flag_controls_output_not_acceptance(self) -> None:
+    def test_every_candidate_is_verified_and_reported(self) -> None:
         wrong = {"edges": [], "weights": []}
         with patch("hec._graph_search.solve_fixed_n", return_value=(wrong, {"status": "realized"})):
-            result = find_graph([1], max_vertices=2, verify=False)
+            result = find_graph([1], max_vertices=2)
         self.assertEqual(result["status"], "unknown")
-        self.assertNotIn("check", result)
 
         valid = {"edges": [["A", "O"]], "weights": [1]}
         with patch("hec._graph_search.solve_fixed_n", return_value=(valid, {"status": "realized"})):
-            result = find_graph([1], max_vertices=2, verify=False)
+            result = find_graph([1], max_vertices=2)
         self.assertEqual(result["status"], "realized")
-        self.assertNotIn("check", result)
+        self.assertTrue(result["check"]["ok"])
         self.assertTrue(result["verification"]["ok"])
+
+    def test_candidate_with_wrong_active_vertex_count_is_rejected(self) -> None:
+        wrong_size = {"edges": [["x1", "O"]], "weights": [1]}
+        with patch("hec._graph_search.solve_fixed_n", return_value=(wrong_size, {"status": "realized"})):
+            result = find_graph_fixed_n([0], 2)
+        self.assertEqual(result["status"], "unknown")
+        self.assertIn("does not use exactly 2", result["reason"]["reason"])
+
+    def test_exact_candidate_with_noncanonical_bulk_labels_is_rejected(self) -> None:
+        noncanonical = {"edges": [["A", "x2"], ["x2", "O"]], "weights": [1, 1]}
+        with patch("hec._graph_search.solve_fixed_n", return_value=(noncanonical, {"status": "realized"})):
+            result = find_graph_fixed_n([1], 3, match="exact")
+        self.assertEqual(result["status"], "unknown")
+        self.assertIn("contiguous from x1", result["reason"]["reason"])
 
     def test_trusted_infeasible_and_unknown_statuses_stay_distinct(self) -> None:
         with patch("hec._graph_search.solve_fixed_n", return_value=(None, {"status": "infeasible"})):
@@ -429,10 +428,25 @@ class PublicGraphFinderTests(unittest.TestCase):
         self.assertEqual(result["status"], "unknown")
         solve.assert_called_once()
 
+    def test_search_time_limit_is_shared_across_vertex_counts(self) -> None:
+        valid = {"edges": [["A", "x1"], ["x1", "O"]], "weights": [1, 1]}
+        with (
+            patch(
+                "hec._graph_search.solve_fixed_n",
+                side_effect=[(None, {"status": "infeasible"}), (valid, {"status": "realized"})],
+            ) as solve,
+            patch("hec.graphs.time.perf_counter", side_effect=[100.0, 101.0, 104.0, 105.0]),
+        ):
+            result = find_graph([1], max_vertices=3, time_limit_s=10)
+        self.assertEqual(result["status"], "realized")
+        self.assertEqual([call.kwargs["time_limit_s"] for call in solve.call_args_list], [9.0, 6.0])
+
     def test_invalid_inputs_fail_before_model_construction(self) -> None:
+        with self.assertRaises(TypeError):
+            find_graph([1])  # type: ignore[call-arg]
         for target in ([-1], [float("nan")], [True], [1.25], [1.0000000001]):
             with self.subTest(target=target), self.assertRaises(ValueError):
-                find_graph(target)
+                find_graph(target, max_vertices=2)
         with self.assertRaises(ValueError):
             find_graph([1], max_vertices=1)
         with self.assertRaises(ValueError):
@@ -448,27 +462,25 @@ class PublicGraphFinderTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             find_graph_fixed_n([1], 2, match="scale")  # type: ignore[arg-type]
 
-    def test_primitive_verification_has_no_tolerance_or_zero_loophole(self) -> None:
+    def test_ray_verification_has_no_tolerance_or_zero_loophole(self) -> None:
         near = {"edges": [["A", "O"], ["B", "O"]], "weights": [1_000_000.1, 1_000_000]}
-        self.assertFalse(check_graph(near, [1_000_000, 1_000_000, 2_000_000], 2, primitive=True)["ok"])
-        self.assertTrue(check_graph({"edges": [], "weights": []}, [0], 1, primitive=True)["ok"])
-        self.assertFalse(check_graph({"edges": [["A", "O"]], "weights": [1e-8]}, [0], 1, primitive=True)["ok"])
+        self.assertFalse(check_graph(near, [1_000_000, 1_000_000, 2_000_000], 2, match="ray")["ok"])
+        self.assertTrue(check_graph({"edges": [], "weights": []}, [0], 1, match="ray")["ok"])
+        self.assertFalse(check_graph({"edges": [["A", "O"]], "weights": [1e-8]}, [0], 1, match="ray")["ok"])
 
-    def test_normalized_verification_retains_explicit_tolerance(self) -> None:
+    def test_exact_verification_uses_exact_rational_equality(self) -> None:
         graph = {"edges": [["A", "O"]], "weights": [1.05]}
-        self.assertTrue(check_graph(graph, [1], 1, tol=0.1)["ok"])
-        self.assertFalse(check_graph(graph, [1], 1, tol=0.01)["ok"])
-        with self.assertRaises(ValueError):
-            check_graph(graph, [1], 1, tol=float("nan"))
+        self.assertFalse(check_graph(graph, [1], 1, match="exact")["ok"])
+        self.assertTrue(check_graph(graph, ["21/20"], 1, match="exact")["ok"])
 
         huge = 10**400
-        huge_check = check_graph({"edges": [["A", "O"]], "weights": [huge]}, [0], 1, tol=0)
-        self.assertEqual(huge_check["max_error"], str(huge))
+        huge_check = check_graph({"edges": [["A", "O"]], "weights": [huge]}, [0], 1, match="exact")
+        self.assertEqual(huge_check["max_error"], huge)
         json.dumps(huge_check, allow_nan=False)
 
-    def test_default_search_bound_retains_the_safe_legacy_ceiling(self) -> None:
+    def test_search_visits_each_explicit_vertex_count(self) -> None:
         with patch("hec._graph_search.solve_fixed_n", return_value=(None, {"status": "infeasible"})) as solve:
-            result = find_graph([0] * 63)
+            result = find_graph([0] * 63, max_vertices=12)
         self.assertEqual(result["status"], "infeasible")
         self.assertEqual([call.args[2] for call in solve.call_args_list], list(range(7, 13)))
         self.assertEqual(
@@ -482,7 +494,7 @@ class PublicGraphFinderTests(unittest.TestCase):
         self.assertLessEqual(largest, script["DEFAULT_MAX_VERTICES"])
 
     def test_ray_results_are_primitive_and_strict_json(self) -> None:
-        result = find_graph_fixed_n([11, 7, 6], 5, match="ray", verify=True)
+        result = find_graph_fixed_n([11, 7, 6], 5, match="ray")
         self.assertEqual(result["status"], "realized")
         self.assertEqual(math.gcd(*result["graph"]["weights"]), 1)
         self.assertIsNone(result["check"]["max_error"])

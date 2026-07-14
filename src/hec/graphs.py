@@ -12,7 +12,13 @@ from typing import Any, Literal
 
 import numpy as np
 
-from ._graph_validation import canonical_primitive_ray_graph, exact_entropy_vector_mincut
+from ._graph_validation import (
+    canonical_graph,
+    canonical_primitive_ray_graph,
+    exact_entropy_match,
+    exact_entropy_vector_mincut,
+    graph_total_vertices,
+)
 from .coordinates import infer_n
 from .serialization import load_json_records, save_json_records
 
@@ -20,65 +26,10 @@ Graph = dict[str, Any]
 MatchMode = Literal["ray", "exact"]
 
 
-def normalize_graph(graph: Graph | tuple[Sequence[Sequence[str]], Sequence[object]]) -> Graph:
-    """Return one repository-format graph with validated labels and weights."""
+def normalize_graph(graph: Graph) -> Graph:
+    """Return one canonical repository-format graph."""
 
-    if isinstance(graph, dict):
-        edges = graph.get("edges", [])
-        weights = graph.get("weights", [])
-    else:
-        edges, weights = graph
-    if not isinstance(edges, (list, tuple)) or not isinstance(weights, (list, tuple)):
-        raise ValueError("graph records must contain list-valued edges and weights")
-    if len(edges) != len(weights):
-        raise ValueError(f"edge/weight mismatch: {len(edges)} vs {len(weights)}")
-
-    clean_edges: list[list[str]] = []
-    for edge in edges:
-        if not isinstance(edge, (list, tuple)) or len(edge) != 2:
-            raise ValueError(f"invalid graph edge {edge!r}")
-        left, right = str(edge[0]), str(edge[1])
-        if not left or not right or left == right:
-            raise ValueError(f"invalid graph edge {edge!r}")
-        clean_edges.append([left, right])
-    return {
-        "edges": clean_edges,
-        "weights": [_clean_number(weight) for weight in weights],
-    }
-
-
-def _clean_number(value: object) -> int | float | str:
-    if isinstance(value, (bool, np.bool_)):
-        raise ValueError("graph weights cannot be booleans")
-    if isinstance(value, (int, np.integer)):
-        number = Fraction(int(value))
-        original_float = False
-    elif isinstance(value, (float, np.floating)):
-        raw = float(value)
-        if not math.isfinite(raw):
-            raise ValueError("graph weights must be finite and non-negative")
-        number = Fraction(str(raw))
-        original_float = True
-    else:
-        try:
-            number = Fraction(value)  # type: ignore[arg-type]
-        except (TypeError, ValueError, ZeroDivisionError) as exc:
-            raise ValueError(f"invalid graph weight {value!r}") from exc
-        original_float = False
-    if number < 0:
-        raise ValueError("graph weights must be finite and non-negative")
-    if number.denominator == 1:
-        return int(number)
-    return float(number) if original_float else str(number)
-
-
-def entropy_vector(
-    graph: Graph | tuple[Sequence[Sequence[str]], Sequence[object]],
-    n: int,
-) -> np.ndarray:
-    """Compute the graph entropy vector using exact rational minimum cuts."""
-
-    return np.asarray([float(value) for value in exact_entropy_vector_mincut(graph, n)], dtype=np.float64)
+    return canonical_graph(graph)
 
 
 def _exact_target(v: Sequence[object], n: int) -> tuple[Fraction, ...]:
@@ -102,62 +53,21 @@ def _exact_target(v: Sequence[object], n: int) -> tuple[Fraction, ...]:
     return tuple(values)
 
 
-def _encode_exact(value: Fraction) -> int | str:
-    return int(value) if value.denominator == 1 else str(value)
-
-
-def _finite_float_or_exact(value: Fraction) -> float | str:
-    try:
-        encoded = float(value)
-    except OverflowError:
-        return str(value)
-    return encoded if math.isfinite(encoded) else str(value)
-
-
 def check_graph(
-    graph: Graph | tuple[Sequence[Sequence[str]], Sequence[object]],
-    v: Sequence[int | float],
+    graph: Graph,
+    v: Sequence[object],
     n: int | None = None,
     *,
-    tol: float = 1e-7,
-    primitive: bool = False,
+    match: MatchMode = "ray",
 ) -> dict[str, Any]:
-    """Verify a graph independently with exact rational minimum cuts.
-
-    primitive=True checks exact positive proportionality and is the legacy name
-    for ray matching. In normalized mode, ``tol`` retains the historical public
-    checker behavior while all finder incumbents are accepted with ``tol=0``.
-    """
+    """Verify exact equality or positive proportionality to an entropy vector."""
 
     if n is None:
         n = infer_n(len(v))
+    if match not in ("ray", "exact"):
+        raise ValueError("match must be 'ray' or 'exact'")
     target = _exact_target(v, n)
-    entropy = exact_entropy_vector_mincut(graph, n)
-    if primitive:
-        max_error: float | None = None
-        if any(target):
-            pivot = next(index for index, value in enumerate(target) if value != 0)
-            scale = entropy[pivot] / target[pivot] if entropy[pivot] != 0 else Fraction(0)
-            ok = scale > 0 and all(
-                observed == scale * expected for observed, expected in zip(entropy, target, strict=True)
-            )
-        else:
-            ok = not any(entropy)
-    else:
-        if isinstance(tol, bool) or not isinstance(tol, Real) or not math.isfinite(tol) or tol < 0:
-            raise ValueError("tol must be a finite non-negative number")
-        errors = [abs(observed - expected) for observed, expected in zip(entropy, target, strict=True)]
-        exact_error = max(errors, default=Fraction(0))
-        max_error = _finite_float_or_exact(exact_error)
-        ok = exact_error <= Fraction(str(float(tol)))
-    return {
-        "ok": bool(ok),
-        "n": n,
-        "max_error": max_error,
-        "entropy": [_encode_exact(value) for value in entropy],
-        "target": [_encode_exact(value) for value in target],
-        "verification": "exact_rational_mincut",
-    }
+    return {"n": n, **exact_entropy_match(graph, target, n, match)}
 
 
 def read_graphs(path: str | Path) -> list[Graph]:
@@ -203,24 +113,25 @@ def _validate_limits(
 
 def _scale_graph_for_match(graph: Graph, target: np.ndarray, n: int, match: MatchMode) -> Graph:
     if match == "ray":
-        return canonical_primitive_ray_graph(graph)
+        return canonical_primitive_ray_graph(graph, n)
     observed = exact_entropy_vector_mincut(graph, n)
     exact_target = tuple(Fraction(int(value)) for value in target)
     if not any(exact_target):
         if any(observed):
             raise ValueError("solver candidate is not the exact zero vector")
-        return normalize_graph(graph)
+        return canonical_graph(graph, n)
     pivot = next(index for index, value in enumerate(exact_target) if value != 0)
     if observed[pivot] == 0:
         raise ValueError("solver candidate is not proportional to the target")
     factor = exact_target[pivot] / observed[pivot]
     if factor <= 0 or any(factor * value != expected for value, expected in zip(observed, exact_target, strict=True)):
         raise ValueError("solver candidate is not proportional to the target")
+    normalized = canonical_graph(graph, n)
     scaled_weights: list[int | str] = []
-    for weight in normalize_graph(graph)["weights"]:
+    for weight in normalized["weights"]:
         scaled = Fraction(weight) * factor
         scaled_weights.append(int(scaled) if scaled.denominator == 1 else str(scaled))
-    return normalize_graph({"edges": graph["edges"], "weights": scaled_weights})
+    return canonical_graph({"edges": normalized["edges"], "weights": scaled_weights}, n)
 
 
 def _search_result(
@@ -230,7 +141,6 @@ def _search_result(
     n: int,
     target: np.ndarray,
     match: MatchMode,
-    verify: bool,
     started: float,
     total_vertices: int | None,
 ) -> dict[str, Any]:
@@ -246,7 +156,9 @@ def _search_result(
 
     try:
         graph = _scale_graph_for_match(graph, target, n, match)
-        check = check_graph(graph, target.tolist(), n, tol=0.0, primitive=match == "ray")
+        check = check_graph(graph, target.tolist(), n, match=match)
+        if total_vertices is not None and graph_total_vertices(graph, n) != total_vertices:
+            raise ValueError(f"candidate does not use exactly {total_vertices} active vertices")
     except (ArithmeticError, TypeError, ValueError) as exc:
         return {
             "status": "unknown",
@@ -271,13 +183,12 @@ def _search_result(
         "match": match,
         "graph": graph,
         "ahc": info,
+        "check": check,
         "verification": {"method": "exact_rational_mincut", "ok": True},
         "elapsed_s": round(time.perf_counter() - started, 6),
     }
     if total_vertices is not None:
         result["total_vertices"] = total_vertices
-    if verify:
-        result["check"] = check
     return result
 
 
@@ -286,7 +197,6 @@ def find_graph_fixed_n(
     total_vertices: int,
     *,
     match: MatchMode = "ray",
-    verify: bool = False,
     workers: int = 1,
     node_limit: int | None = None,
     time_limit_s: float | None = None,
@@ -323,7 +233,6 @@ def find_graph_fixed_n(
         n=n,
         target=target,
         match=match,
-        verify=verify,
         started=started,
         total_vertices=total_vertices,
     )
@@ -332,21 +241,17 @@ def find_graph_fixed_n(
 def find_graph(
     v: Sequence[int | float],
     *,
-    max_vertices: int | None = None,
+    max_vertices: int,
     match: MatchMode = "ray",
-    verify: bool = False,
     workers: int = 1,
     node_limit: int | None = None,
     time_limit_s: float | None = None,
 ) -> dict[str, Any]:
     """Find a graph realization by searching successively larger vertex counts.
 
-    If max_vertices is omitted, the compatibility policy retains the historical
-    ceiling of 12 total vertices (while always permitting the terminal-only
-    model). Pass an explicit larger bound, or call find_graph_fixed_n, for rays
-    known to require more. Search stops at the first resource-limited or
-    otherwise unknown fixed-N result; it never treats an unknown as an
-    infeasibility proof.
+    Search stops at the first resource-limited or otherwise unknown fixed-N
+    result; it never treats an unknown as an infeasibility proof. ``time_limit_s``
+    is a single deadline shared across all vertex counts.
     """
 
     started = time.perf_counter()
@@ -354,8 +259,6 @@ def find_graph(
     if match not in ("ray", "exact"):
         raise ValueError("match must be 'ray' or 'exact'")
     _validate_limits(workers=workers, node_limit=node_limit, time_limit_s=time_limit_s)
-    if max_vertices is None:
-        max_vertices = max(n + 1, min(2 * n + 1, 12))
     if isinstance(max_vertices, bool) or not isinstance(max_vertices, int) or max_vertices < n + 1:
         raise ValueError(f"max_vertices must be an integer at least {n + 1}")
 
@@ -363,14 +266,26 @@ def find_graph(
 
     all_smaller_infeasible = False
     last_info: dict[str, Any] = {}
+    deadline = None if time_limit_s is None else started + float(time_limit_s)
     for total_vertices in range(n + 1, max_vertices + 1):
+        remaining_s = None if deadline is None else deadline - time.perf_counter()
+        if remaining_s is not None and remaining_s <= 0:
+            return _search_result(
+                graph=None,
+                info={"status": "unknown", "reason": "search_time_limit_exhausted"},
+                n=n,
+                target=target,
+                match=match,
+                started=started,
+                total_vertices=None,
+            )
         graph, info = solve_fixed_n(
             target.tolist(),
             n,
             total_vertices,
             assume_no_smaller=all_smaller_infeasible,
             node_limit=node_limit,
-            time_limit_s=time_limit_s,
+            time_limit_s=remaining_s,
             workers=workers,
         )
         info = {**info, "N": total_vertices}
@@ -381,7 +296,6 @@ def find_graph(
                 n=n,
                 target=target,
                 match=match,
-                verify=verify,
                 started=started,
                 total_vertices=total_vertices,
             )
@@ -392,7 +306,6 @@ def find_graph(
                 n=n,
                 target=target,
                 match=match,
-                verify=verify,
                 started=started,
                 total_vertices=None,
             )
@@ -411,7 +324,6 @@ def find_graph(
         n=n,
         target=target,
         match=match,
-        verify=verify,
         started=started,
         total_vertices=None,
     )

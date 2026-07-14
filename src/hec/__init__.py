@@ -1,6 +1,5 @@
 """Algorithms and data helpers for the Holographic Entropy Cone."""
 
-from .checks import check_stored_contractions, check_stored_facets, check_stored_graphs, check_stored_rays
 from .contractions import (
     check_contraction,
     contraction_coeffs,
@@ -10,11 +9,10 @@ from .contractions import (
     read_contractions,
     write_contractions,
 )
-from .coordinates import dim, infer_n, party_labels, primitive_vector
+from .coordinates import dim, infer_n, party_labels
 from .data import available_ns, data_path, default_data_root, load_hec_data
 from .graphs import (
     check_graph,
-    entropy_vector,
     find_graph,
     find_graph_fixed_n,
     normalize_graph,
@@ -35,16 +33,11 @@ __all__ = [
     "canonical_vector",
     "check_contraction",
     "check_graph",
-    "check_stored_contractions",
-    "check_stored_facets",
-    "check_stored_graphs",
-    "check_stored_rays",
     "check_support_rank",
     "contraction_coeffs",
     "data_path",
     "default_data_root",
     "dim",
-    "entropy_vector",
     "find_contraction",
     "find_graph",
     "find_graph_fixed_n",
@@ -56,7 +49,6 @@ __all__ = [
     "party_labels",
     "permute_vector",
     "permuted_vectors",
-    "primitive_vector",
     "read_contractions",
     "read_graphs",
     "support_rank",
