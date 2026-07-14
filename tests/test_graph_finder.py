@@ -21,6 +21,7 @@ from hec._graph_milp import (
     _has_additive_union_decomposition_exact,
     _integer_graph,
     _milp_attempt_plan,
+    _refine_fixed_selector_incumbent,
     _solve_ahc_fixed_vertices,
     _solve_highspy_milp,
     _solve_scip_indicator_milp,
@@ -164,6 +165,174 @@ class GraphFinderBackendTests(unittest.TestCase):
         graph, scale = _integer_graph([["A", "O"], ["B", "O"]], [2 / 3, 4 / 3])
         self.assertEqual(graph["weights"], [1, 2])
         self.assertEqual(scale, "2/3")
+
+    def test_fixed_selector_refinement_freezes_binaries_and_minimizes_capacity(self) -> None:
+        incumbent = np.asarray([0.8, 0.2, 1.0])
+        refined = np.asarray([0.25, 0.1, 1.0])
+
+        def fake_lp(c, _a_ineq, _lo, _hi, _a_eq, _rhs, integrality, lb, ub, **kwargs):
+            self.assertEqual(c.tolist(), [1.0, 1.0, 0.0])
+            self.assertEqual(integrality.tolist(), [0, 0, 0])
+            self.assertEqual(lb.tolist(), [0.0, 0.0, 1.0])
+            self.assertEqual(ub.tolist(), [1.0, 1.0, 1.0])
+            self.assertEqual(kwargs["time_limit_s"], 2.5)
+            return refined, {"backend": HIGHSPY_BACKEND, "status": "realized"}
+
+        with patch("hec._graph_milp._solve_highspy_milp", side_effect=fake_lp):
+            solution, info = _refine_fixed_selector_incumbent(
+                incumbent,
+                sparse.csr_matrix((0, 3)),
+                np.empty(0),
+                np.empty(0),
+                sparse.csr_matrix((0, 3)),
+                np.empty(0),
+                np.asarray([0, 0, 1]),
+                np.zeros(3),
+                np.ones(3),
+                edge_count=2,
+                time_limit_s=2.5,
+            )
+        np.testing.assert_array_equal(solution, refined)
+        self.assertEqual(info["status"], "refined")
+        self.assertEqual(info["selected_solution"], "refined")
+        self.assertEqual(info["fixed_selector_variables"], 1)
+        self.assertAlmostEqual(info["pre_edge_sum"], 1.0)
+        self.assertAlmostEqual(info["post_edge_sum"], 0.35)
+        self.assertAlmostEqual(info["edge_sum_reduction"], 0.65)
+
+    def test_fixed_selector_refinement_falls_back_on_error_or_invalid_solution(self) -> None:
+        incumbent = np.asarray([0.8, 1.0])
+        args = (
+            incumbent,
+            sparse.csr_matrix((0, 2)),
+            np.empty(0),
+            np.empty(0),
+            sparse.csr_matrix([[1.0, 0.0]]),
+            np.asarray([0.8]),
+            np.asarray([0, 1]),
+            np.zeros(2),
+            np.ones(2),
+        )
+        with patch("hec._graph_milp._solve_highspy_milp", side_effect=RuntimeError("test failure")):
+            solution, error = _refine_fixed_selector_incumbent(
+                *args,
+                edge_count=1,
+                time_limit_s=None,
+            )
+        np.testing.assert_array_equal(solution, incumbent)
+        self.assertEqual(error["status"], "fallback")
+        self.assertEqual(error["reason"], "backend_error")
+
+        with patch(
+            "hec._graph_milp._solve_highspy_milp",
+            return_value=(np.asarray([0.1, 1.0]), {"backend": HIGHSPY_BACKEND, "status": "realized"}),
+        ):
+            solution, invalid = _refine_fixed_selector_incumbent(
+                *args,
+                edge_count=1,
+                time_limit_s=None,
+            )
+        np.testing.assert_array_equal(solution, incumbent)
+        self.assertEqual(invalid["status"], "fallback")
+        self.assertEqual(invalid["reason"], "refined_solution_failed_shared_model")
+
+    def test_fixed_selector_refinement_rejects_a_worse_valid_solution(self) -> None:
+        incumbent = np.asarray([0.8, 1.0])
+        with patch(
+            "hec._graph_milp._solve_highspy_milp",
+            return_value=(np.asarray([0.9, 1.0]), {"backend": HIGHSPY_BACKEND, "status": "realized"}),
+        ):
+            solution, worse = _refine_fixed_selector_incumbent(
+                incumbent,
+                sparse.csr_matrix((0, 2)),
+                np.empty(0),
+                np.empty(0),
+                sparse.csr_matrix((0, 2)),
+                np.empty(0),
+                np.asarray([0, 1]),
+                np.zeros(2),
+                np.ones(2),
+                edge_count=1,
+                time_limit_s=None,
+            )
+        np.testing.assert_array_equal(solution, incumbent)
+        self.assertEqual(worse["status"], "fallback")
+        self.assertEqual(worse["reason"], "refined_solution_worsened_edge_sum")
+        self.assertAlmostEqual(worse["pre_edge_sum"], 0.8)
+        self.assertAlmostEqual(worse["post_edge_sum"], 0.9)
+
+    def test_fixed_selector_refinement_never_overruns_an_expired_budget(self) -> None:
+        with patch("hec._graph_milp._solve_highspy_milp") as solve:
+            incumbent = np.asarray([0.5, 1.0])
+            solution, info = _refine_fixed_selector_incumbent(
+                incumbent,
+                sparse.csr_matrix((0, 2)),
+                np.empty(0),
+                np.empty(0),
+                sparse.csr_matrix((0, 2)),
+                np.empty(0),
+                np.asarray([0, 1]),
+                np.zeros(2),
+                np.ones(2),
+                edge_count=1,
+                time_limit_s=0.0,
+            )
+        solve.assert_not_called()
+        np.testing.assert_array_equal(solution, incumbent)
+        self.assertEqual(info["status"], "skipped")
+        self.assertEqual(info["reason"], "no_remaining_time")
+
+    def test_failed_exact_refinement_validation_reuses_the_scip_incumbent(self) -> None:
+        original_integer_graph = _integer_graph
+        calls = 0
+
+        def fail_first_export(edges, weights):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                return {"edges": [], "weights": []}, 1
+            return original_integer_graph(edges, weights)
+
+        def nominal_refinement(incumbent, *_args, **_kwargs):
+            return incumbent.copy(), {
+                "selected_solution": "refined",
+                "status": "refined",
+            }
+
+        with (
+            patch("hec._graph_milp._refine_fixed_selector_incumbent", side_effect=nominal_refinement),
+            patch("hec._graph_milp._integer_graph", side_effect=fail_first_export),
+        ):
+            result = find_graph_fixed_n([1, 1, 1], 3)
+        self.assertEqual(result["status"], "realized")
+        self.assertTrue(result["check"]["ok"])
+        refinement = result["ahc"]["milp"]["continuous_refinement"]
+        self.assertEqual(refinement["status"], "fallback")
+        self.assertEqual(refinement["selected_solution"], "scip-incumbent")
+        self.assertEqual(refinement["reason"], "refined_solution_failed_exact_graph_validation")
+        self.assertFalse(refinement["candidate_validation"]["refined"]["accepted"])
+
+    def test_equal_quality_refinement_retains_the_original_candidate(self) -> None:
+        def unchanged_refinement(incumbent, *_args, **_kwargs):
+            return incumbent.copy(), {"selected_solution": "refined", "status": "refined"}
+
+        with patch("hec._graph_milp._refine_fixed_selector_incumbent", side_effect=unchanged_refinement):
+            result = find_graph_fixed_n([1, 1, 1], 3)
+        refinement = result["ahc"]["milp"]["continuous_refinement"]
+        self.assertEqual(refinement["candidate_quality"]["scip-incumbent"], refinement["candidate_quality"]["refined"])
+        self.assertEqual(refinement["status"], "retained")
+        self.assertEqual(refinement["selected_solution"], "scip-incumbent")
+        self.assertEqual(refinement["reason"], "refined_quality_not_better")
+        self.assertEqual(
+            refinement["quality_order"],
+            [
+                "normalized_total_capacity",
+                "entropy_multiplier",
+                "max_integer_weight",
+                "sum_integer_weights",
+                "edge_count",
+            ],
+        )
 
 
 class GraphFinderModelTests(unittest.TestCase):
@@ -369,6 +538,38 @@ class GraphFinderModelTests(unittest.TestCase):
 
 
 class PublicGraphFinderTests(unittest.TestCase):
+    def test_n6_pathological_incumbents_are_polished_to_small_exact_graphs(self) -> None:
+        rays = load_hec_data(6, "rays")
+        for index, total_vertices in ((162, 11), (227, 9), (484, 11), (2813, 10)):
+            with self.subTest(index=index):
+                result = find_graph_fixed_n(rays[index], total_vertices)
+                self.assertEqual(result["status"], "realized")
+                self.assertTrue(result["check"]["ok"])
+                self.assertEqual(graph_total_vertices(result["graph"], 6), total_vertices)
+                weight_scale = Fraction(str(result["ahc"]["weight_scale"]))
+                self.assertGreater(weight_scale, 0)
+                entropy_multipliers = {
+                    Fraction(int(entropy), int(target))
+                    for entropy, target in zip(result["check"]["entropy"], result["check"]["target"], strict=True)
+                    if target
+                }
+                self.assertEqual(entropy_multipliers, {1 / weight_scale})
+                self.assertLessEqual(next(iter(entropy_multipliers)), 2)
+                self.assertLessEqual(max(result["graph"]["weights"]), 5)
+                refinement = result["ahc"]["milp"]["continuous_refinement"]
+                self.assertEqual(refinement["status"], "refined")
+                self.assertEqual(refinement["exact_graph_validation"], "accepted")
+                if index in (162, 484):
+                    self.assertLessEqual(abs(refinement["edge_sum_reduction"]), refinement["edge_sum_tolerance"])
+                    original_quality = refinement["candidate_quality"]["scip-incumbent"]
+                    refined_quality = refinement["candidate_quality"]["refined"]
+                    self.assertEqual(
+                        original_quality["normalized_total_capacity"],
+                        refined_quality["normalized_total_capacity"],
+                    )
+                    self.assertGreater(original_quality["entropy_multiplier"], refined_quality["entropy_multiplier"])
+                    self.assertEqual(refinement["reason"], "strict_exact_graph_quality_improvement")
+
     def test_fixed_n_ray_and_exact_modes_are_explicit_and_verified(self) -> None:
         ray = find_graph_fixed_n([1, 1, 1], 3, match="ray")
         exact = find_graph_fixed_n([1, 1, 1], 3, match="exact")
@@ -377,6 +578,23 @@ class PublicGraphFinderTests(unittest.TestCase):
         self.assertEqual(exact["status"], "realized")
         self.assertEqual(exact["graph"]["weights"], ["1/2", "1/2", "1/2"])
         self.assertEqual(exact["check"]["entropy"], [1, 1, 1])
+
+    def test_reported_weight_scale_uses_the_final_emitted_graph(self) -> None:
+        for target, expected_scale in (
+            ([1, 1, 1], "1/2"),
+            ([2, 2, 2], 1),
+            ([3, 3, 3], "3/2"),
+            ([2, 4, 4], 1),
+        ):
+            with self.subTest(target=target):
+                result = find_graph_fixed_n(target, 3)
+                self.assertEqual(result["status"], "realized")
+                self.assertEqual(result["ahc"]["weight_scale"], expected_scale)
+                scale = Fraction(str(expected_scale))
+                self.assertEqual(
+                    [scale * Fraction(value) for value in result["check"]["entropy"]],
+                    [Fraction(value) for value in target],
+                )
 
     def test_fixed_n_lifts_to_exact_requested_active_vertex_count(self) -> None:
         result = find_graph_fixed_n([1, 1, 0], 5)
