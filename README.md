@@ -21,9 +21,21 @@ Data files live under `data/n=*/`:
   representatives for the listed rays.
 - `data/n=*/contractions.json` contains contraction-map certificates for the listed facets.
 
-Facets and rays are integer rows in cardinality-then-lexicographic subset order.
-Graphs are records with only `edges` and `weights`. Contractions are minimal
-records with only `lhs`, `rhs`, and `images`.
+Facets and rays are primitive integer rows in cardinality-then-lexicographic
+subset order. Facet representatives retain their historical orbit images;
+there is one representative per full symmetry orbit. Facet files are ordered
+with lifts first and all remaining rows in row-lexicographic order, mixing old
+and new representatives in that same order. The contraction record at each
+position proves exactly the facet at that position.
+Graphs are records with only `edges` and `weights`. Contractions are exposed
+as minimal records with only `lhs`, `rhs`, and `images`.
+
+For the large n=6 database, `contractions.json` is a small manifest for the
+aligned `contractions.packbits.zst` stream. The stream stores each binary
+contraction table in facet-file order using little-endian row-major packbits;
+the loader reconstructs the same minimal contraction records used by the
+checks and public API. The manifest records sizes, hashes, dimensions, and
+the ordering contract so CI can validate the complete stream without a solver.
 
 
 ## Python package ##
@@ -33,7 +45,7 @@ The repository also contains a `hec` package under `src/hec/`.
 - `hec.contractions` searches and verifies contraction maps for
   inequalities.
 - `hec.rank` checks facet and extreme-ray rank from supporting orbit data.
-- `python -m hec.checks {graphs,contractions,facets,rays}` validates the
+- `python -m hec.checks {graphs,contractions,database,facets,rays}` validates the
   official repository data.
 - `hec.graphs` realizes entropy vectors by weighted graphs using the
   Avis-Hernandez-Cuenca MILP construction. It combines exact preprocessing,
@@ -144,12 +156,22 @@ Orbit-representative and distinct-image counts:
 | 3   | 2 (1)              | 7                     | 2 (1)            | 7                   | complete   |
 | 4   | 2 (2)              | 20                    | 3 (2)            | 20                  | complete   |
 | 5   | 8 (3)              | 372                   | 19 (3)           | 2,267               | complete   |
-| 6   | 1,875 (11)          | 8,655,773             | 4,151 (19)        | 15,408,106          | incomplete |
+| 6   | 57,940 (11)         | not recomputed        | 4,151 (19)        | 15,408,106          | incomplete |
 
 Distinct image counts sum the actual $S_{n+1}$ orbit sizes of the listed
 representatives, so repeated images from stabilizer symmetries are counted once.
 
-Pinned sequential generation timing stats:
+Data updates:
+- 2026-07-28: added 52,211 retained IIICCC `newextremal` facet
+  representatives and their already-proved contraction certificates. All
+  historical representative values were preserved; all n=1 through n=6 facet
+  files were sorted with lifts first and the remaining old/new rows mixed in
+  row-lexicographic order. The 57,940 aligned n=6 contraction tables are
+  stored as a 251.7 MiB zstd packbits stream (1.83 GiB raw), with exact
+  dimensions and SHA-256 metadata. The n=6 facet-image total was not
+  recomputed in this data-only update.
+
+Existing generation timing stats:
 | generated data | records | mean | median | max | sum |
 | :------------- | ------: | ---: | -----: | --: | -----------------: |
 | contractions   | 1,889   | 0.248 s | 0.164 s | 1.823 s | 468.519 s |

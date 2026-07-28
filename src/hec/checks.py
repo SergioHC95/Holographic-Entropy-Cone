@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import argparse
+import math
 import os
 from collections.abc import Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from ._graph_validation import canonical_primitive_ray_graph
-from .contractions import check_contraction, contraction_coeffs, normalize_contraction
+from .contractions import check_contraction, contraction_coeffs, minimal_contraction
 from .data import available_ns, data_path, load_hec_data
 from .graphs import check_graph
 from .rank import check_support_rank_prepared, prepare_rank_candidates
 from .serialization import load_json
+from .symmetry import canonical_vector
 from .workers import generation_worker_count
 
 
@@ -46,6 +48,15 @@ def _selected_ns(root: str | Path | None, n: int | None) -> list[int]:
 def _stored(root: str | Path | None, *kinds: str, n: int | None = None) -> Iterator[tuple]:
     for current_n in _selected_ns(root, n):
         yield (current_n, *(load_hec_data(current_n, kind, root=root) for kind in kinds))
+
+
+def _is_primitive_row(row: tuple[int, ...]) -> bool:
+    nonzero = [abs(int(value)) for value in row if int(value)]
+    return bool(nonzero) and math.gcd(*nonzero) == 1
+
+
+def _facet_orbit_key(row: tuple[int, ...], n: int) -> tuple[int, ...]:
+    return tuple(int(value) for value in canonical_vector(row, n))
 
 
 def _check_stored_rank(
@@ -90,21 +101,97 @@ def check_stored_rays(root: str | Path | None = None, *, n: int | None = None) -
 def check_stored_contractions(root: str | Path | None = None, *, n: int | None = None) -> Iterator[str]:
     for current_n in _selected_ns(root, n):
         facets = load_hec_data(current_n, "facets", root=root)
-        contractions = load_json(data_path(current_n, "contractions", root=root))
-        if not isinstance(contractions, list):
-            raise ValueError(f"expected a list of contractions in {data_path(current_n, 'contractions', root=root)}")
+        contractions = load_hec_data(current_n, "contractions", root=root)
         if len(facets) != len(contractions):
             raise ValueError(f"n={current_n}: {len(facets)} facets but {len(contractions)} contractions")
-        for index, (facet, contraction) in enumerate(zip(facets, contractions, strict=True)):
-            if contraction != normalize_contraction(contraction, current_n):
+
+        def check_pair(pair: tuple[int, tuple[int, ...], dict], *, current_n=current_n) -> tuple[int, dict]:
+            index, facet, contraction = pair
+            if set(contraction) != {"lhs", "rhs", "images"}:
+                raise ValueError(f"n={current_n}, index={index}: contraction is not a minimal record")
+            if minimal_contraction(facet, current_n, contraction) != contraction:
                 raise ValueError(f"n={current_n}, index={index}: contraction is not in canonical stored form")
             coeffs, inferred_n = contraction_coeffs(contraction, current_n)
             if inferred_n != current_n or tuple(coeffs) != tuple(facet):
                 raise ValueError(f"n={current_n}, index={index}: contraction lhs/rhs do not match stored facet")
-            check = check_contraction(coeffs, current_n, contraction)
-            if not check["ok"]:
-                raise ValueError(f"n={current_n}, index={index}: {check['errors']}")
+            return index, check_contraction(coeffs, current_n, contraction)
+
+        pairs = (
+            (index, tuple(facet), contraction)
+            for index, (facet, contraction) in enumerate(zip(facets, contractions, strict=True))
+        )
+        workers = check_worker_count()
+        if workers > 1:
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                checks = pool.map(check_pair, pairs)
+                for index, check in checks:
+                    if not check["ok"]:
+                        raise ValueError(f"n={current_n}, index={index}: {check['errors']}")
+                    if (index + 1) % 1000 == 0:
+                        print(f"n={current_n}: checked {index + 1:,}/{len(facets):,} contractions", flush=True)
+        else:
+            for index, check in map(check_pair, pairs):
+                if not check["ok"]:
+                    raise ValueError(f"n={current_n}, index={index}: {check['errors']}")
+                if (index + 1) % 1000 == 0:
+                    print(f"n={current_n}: checked {index + 1:,}/{len(facets):,} contractions", flush=True)
         yield f"n={current_n}: {len(facets)} ok"
+
+
+def check_stored_facet_database_format(root: str | Path | None = None, *, n: int | None = None) -> Iterator[str]:
+    """Check the shared facet/order/contraction representation contract.
+
+    Historical representative values are intentionally preserved.  The
+    ordering invariant is lifts first, followed by one row-lexicographically
+    sorted mix of all remaining old and new representatives; each contraction
+    record is aligned with the facet at the same position.
+    """
+
+    lift_counts = {1: 0, 2: 1, 3: 1, 4: 2, 5: 3, 6: 11}
+    for current_n in _selected_ns(root, n):
+        facets = load_hec_data(current_n, "facets", root=root)
+        lift_count = lift_counts.get(current_n, 0)
+        if lift_count > len(facets):
+            raise ValueError(f"n={current_n}: lift count {lift_count} exceeds facet count {len(facets)}")
+        for index, row in enumerate(facets):
+            if not _is_primitive_row(row):
+                raise ValueError(f"n={current_n}, index={index}: facet is not primitive")
+        keys = [_facet_orbit_key(row, current_n) for row in facets]
+        if len(keys) != len(set(keys)):
+            raise ValueError(f"n={current_n}: duplicate facet symmetry orbit")
+        expected = sorted(facets[:lift_count]) + sorted(facets[lift_count:])
+        if facets != expected:
+            raise ValueError(f"n={current_n}: facets are not ordered lifts-first, then row-lexicographically")
+
+        contractions_path = data_path(current_n, "contractions", root=root)
+        raw = load_json(contractions_path)
+        if isinstance(raw, list):
+            if len(raw) != len(facets):
+                raise ValueError(f"n={current_n}: raw contraction count does not match facets")
+            for index, record in enumerate(raw):
+                if not isinstance(record, dict) or set(record) != {"lhs", "rhs", "images"}:
+                    raise ValueError(f"n={current_n}, index={index}: contraction is not a minimal record")
+                if minimal_contraction(facets[index], current_n, record) != record:
+                    raise ValueError(f"n={current_n}, index={index}: contraction is not in standard minimal form")
+        elif isinstance(raw, dict) and raw.get("kind") == "packed-contractions":
+            if int(raw.get("schema_version", -1)) != 1 or int(raw.get("n", -1)) != current_n:
+                raise ValueError(f"n={current_n}: packed contraction manifest has the wrong schema or party count")
+            if int(raw.get("record_count", -1)) != len(facets):
+                raise ValueError(f"n={current_n}: packed contraction count does not match facets")
+            if raw.get("order") != "same-as-facets-json":
+                raise ValueError(f"n={current_n}: packed contractions do not declare facet-file order")
+            records = raw.get("records")
+            if not isinstance(records, list) or len(records) != len(facets):
+                raise ValueError(f"n={current_n}: packed contraction index is not aligned with facets")
+            for record in records:
+                if not isinstance(record, list | tuple) or len(record) != 2 or int(record[0]) < 0 or int(record[1]) < 0:
+                    raise ValueError(f"n={current_n}: packed contraction index contains an invalid table shape")
+            # The contractions check streams and verifies every table; this
+            # check validates the manifest/order contract without a duplicate
+            # expensive proof pass.
+        else:
+            raise ValueError(f"n={current_n}: unsupported contraction storage format")
+        yield f"n={current_n}: {len(facets)} standard facet/contraction records"
 
 
 def check_stored_graphs(root: str | Path | None = None, *, n: int | None = None) -> Iterator[str]:
@@ -128,6 +215,7 @@ def main() -> None:
 
     checks = {
         "contractions": check_stored_contractions,
+        "database": check_stored_facet_database_format,
         "facets": check_stored_facets,
         "graphs": check_stored_graphs,
         "rays": check_stored_rays,
