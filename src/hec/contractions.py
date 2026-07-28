@@ -8,12 +8,15 @@ The public API is intentionally small:
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import time
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -27,7 +30,7 @@ from .coordinates import (
     party_labels,
     subset_index_map,
 )
-from .serialization import json_path, load_json_records, save_json_records
+from .serialization import json_path, load_json, save_json_records
 
 _TERM_LABEL_RE = re.compile(r"P\d+|[A-Z]")
 
@@ -119,6 +122,22 @@ def _encoded_image_table(table: np.ndarray, L: int) -> dict[str, str]:
     else:
         images = tuple(raw[offset : offset + R].decode("ascii") for offset in range(0, len(raw), R))
     return dict(zip(_cube_bitstrings(L), images, strict=True))
+
+
+def _encoded_image_rows(data: bytes, L: int, R: int) -> list[str]:
+    """Decode a row-major little-endian packed contraction table."""
+
+    bit_count = (1 << int(L)) * int(R)
+    expected_bytes = (bit_count + 7) // 8
+    if len(data) != expected_bytes:
+        raise ValueError(f"packed contraction table has {len(data)} bytes, expected {expected_bytes}")
+    if R == 0:
+        return [""] * (1 << int(L))
+    bits = np.unpackbits(np.frombuffer(data, dtype=np.uint8), bitorder="little", count=bit_count)
+    table = bits.reshape(1 << int(L), int(R))
+    ascii_rows = np.asarray(table, dtype=np.uint8) + ord("0")
+    raw = ascii_rows.tobytes()
+    return [raw[offset : offset + int(R)].decode("ascii") for offset in range(0, len(raw), int(R))]
 
 
 def find_contraction(
@@ -289,8 +308,185 @@ def normalize_contraction(contraction: dict, n: int | None = None) -> dict:
     return minimal_contraction(coeffs, inferred_n, contraction)
 
 
-def read_contractions(path: str | Path) -> list[dict]:
-    return load_json_records(path, "contraction", normalize_contraction)
+def _packed_tail_paths(path: str | Path) -> tuple[Path, Path]:
+    source = json_path(path, "contraction")
+    return (
+        source.with_name(f"{source.stem}-tail.packbits.zst"),
+        source.with_name(f"{source.stem}-tail.index.json"),
+    )
+
+
+def _packed_contractions_path(path: str | Path) -> Path:
+    source = json_path(path, "contraction")
+    return source.with_name(f"{source.stem}.packbits.zst")
+
+
+def _read_stream_exact(reader: Any, count: int) -> bytes:
+    chunks: list[bytes] = []
+    remaining = int(count)
+    while remaining:
+        chunk = reader.read(remaining)
+        if not chunk:
+            raise ValueError("packed contraction stream ended before the indexed bytes")
+        chunks.append(bytes(chunk))
+        remaining -= len(chunk)
+    return b"".join(chunks)
+
+
+class ContractionRecords(Sequence[dict]):
+    """Lazy contraction records reconstructed from an aligned packed stream."""
+
+    def __init__(
+        self,
+        prefix: Sequence[dict],
+        *,
+        n: int,
+        facet_rows: Sequence[Sequence[int]],
+        data_path: Path,
+        index: dict[str, Any],
+    ) -> None:
+        self._prefix = tuple(prefix)
+        self._n = int(n)
+        self._facet_start = int(index.get("facet_start", -1))
+        self._records = tuple(self._parse_records(index.get("records")))
+        self._data_path = data_path
+        self._raw_size = int(index.get("raw_size", -1))
+        self._raw_sha256 = str(index.get("raw_sha256", ""))
+        self._compressed_size = int(index.get("compressed_size", -1))
+        self._compressed_sha256 = str(index.get("compressed_sha256", ""))
+        if self._facet_start != len(self._prefix):
+            raise ValueError(
+                f"packed contraction stream starts at {self._facet_start}, expected prefix length {len(self._prefix)}"
+            )
+        if self._facet_start < 0 or self._raw_size < 0 or self._compressed_size < 0:
+            raise ValueError("packed contraction stream has invalid size metadata")
+        if int(index.get("record_count", -1)) != len(self._records):
+            raise ValueError("packed contraction stream record count does not match its records")
+        expected_facets = self._facet_start + len(self._records)
+        if len(facet_rows) != expected_facets:
+            raise ValueError(f"packed contraction records={expected_facets} but aligned facet rows={len(facet_rows)}")
+        self._facet_rows = tuple(
+            tuple(int(value) for value in facet_rows[self._facet_start + index]) for index in range(len(self._records))
+        )
+        if not self._data_path.is_file():
+            raise FileNotFoundError(self._data_path)
+        if self._data_path.stat().st_size != self._compressed_size:
+            raise ValueError("packed contraction stream compressed size does not match its manifest")
+        if len(self._raw_sha256) != 64 or len(self._compressed_sha256) != 64:
+            raise ValueError("packed contraction stream has invalid SHA-256 metadata")
+
+    @staticmethod
+    def _parse_records(value: object) -> list[tuple[int, int]]:
+        if not isinstance(value, list):
+            raise ValueError("packed contraction manifest records must be a list")
+        records: list[tuple[int, int]] = []
+        for entry in value:
+            if not isinstance(entry, list | tuple) or len(entry) != 2:
+                raise ValueError(f"invalid packed contraction shape record {entry!r}")
+            L, R = int(entry[0]), int(entry[1])
+            if L < 0 or R < 0:
+                raise ValueError(f"invalid packed contraction shape L={L}, R={R}")
+            records.append((L, R))
+        return records
+
+    def __len__(self) -> int:
+        return self._facet_start + len(self._records)
+
+    def __getitem__(self, index: int | slice) -> dict | list[dict]:
+        if isinstance(index, slice):
+            return list(iter(self))[index]
+        position = int(index)
+        if position < 0:
+            position += len(self)
+        if position < 0 or position >= len(self):
+            raise IndexError(position)
+        if position < self._facet_start:
+            return self._prefix[position]
+        for current, record in enumerate(self._iter_tail(), start=self._facet_start):
+            if current == position:
+                return record
+        raise IndexError(position)
+
+    def __iter__(self) -> Iterator[dict]:
+        yield from self._prefix
+        yield from self._iter_tail()
+
+    def _iter_tail(self) -> Iterator[dict]:
+        import zstandard as zstd
+
+        compressed_digest = hashlib.sha256()
+        with self._data_path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+                compressed_digest.update(chunk)
+        if compressed_digest.hexdigest() != self._compressed_sha256:
+            raise ValueError("packed contraction stream compressed SHA-256 mismatch")
+        with self._data_path.open("rb") as compressed:
+            with zstd.ZstdDecompressor().stream_reader(compressed) as reader:
+                digest = hashlib.sha256()
+                raw_size = 0
+                for offset, (L, R) in enumerate(self._records):
+                    bit_count = (1 << L) * R
+                    payload = _read_stream_exact(reader, (bit_count + 7) // 8)
+                    digest.update(payload)
+                    raw_size += len(payload)
+                    yield minimal_contraction(
+                        self._facet_rows[offset], self._n, {"images": _encoded_image_rows(payload, L, R)}
+                    )
+                if reader.read(1):
+                    raise ValueError("packed contraction stream has bytes beyond its indexed records")
+        if raw_size != self._raw_size:
+            raise ValueError(f"packed contraction stream raw size {raw_size} does not match {self._raw_size}")
+        if digest.hexdigest() != self._raw_sha256:
+            raise ValueError("packed contraction stream raw SHA-256 mismatch")
+
+
+def read_contractions(
+    path: str | Path,
+    *,
+    n: int | None = None,
+    facet_rows: Sequence[Sequence[int]] | None = None,
+) -> Sequence[dict]:
+    source = json_path(path, "contraction")
+    payload = load_json(source)
+    if isinstance(payload, dict) and payload.get("kind") == "packed-contractions":
+        if facet_rows is None:
+            raise ValueError("facet_rows are required to reconstruct packed contractions")
+        if n is None:
+            n = infer_n(len(facet_rows[0]))
+        if int(payload.get("schema_version", -1)) != 1:
+            raise ValueError(f"unsupported packed contraction manifest: {source}")
+        if int(payload.get("n", -1)) != int(n):
+            raise ValueError(f"packed contraction manifest n={payload.get('n')!r}, expected {n}")
+        packed_path = _packed_contractions_path(source)
+        if not packed_path.is_file():
+            raise FileNotFoundError(packed_path)
+        return ContractionRecords(
+            (),
+            n=int(n),
+            facet_rows=facet_rows,
+            data_path=packed_path,
+            index={**payload, "facet_start": 0},
+        )
+    if not isinstance(payload, list):
+        raise ValueError(f"expected a list of contractions or packed manifest in {source}")
+    prefix = [normalize_contraction(record) for record in payload]
+    packed_path, index_path = _packed_tail_paths(source)
+    if not index_path.exists() and not packed_path.exists():
+        return prefix
+    if not index_path.is_file() or not packed_path.is_file():
+        raise FileNotFoundError("packed contraction tail requires both its data and index files")
+    if facet_rows is None:
+        raise ValueError("facet_rows are required to reconstruct a packed contraction tail")
+    if n is None:
+        n = infer_n(len(facet_rows[0]))
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    if not isinstance(index, dict):
+        raise ValueError(f"packed contraction tail index is not an object: {index_path}")
+    if int(index.get("schema_version", -1)) != 1 or index.get("kind") != "packed-contraction-tail":
+        raise ValueError(f"unsupported packed contraction tail index: {index_path}")
+    if int(index.get("n", -1)) != int(n):
+        raise ValueError(f"packed contraction tail n={index.get('n')!r}, expected {n}")
+    return ContractionRecords(prefix, n=int(n), facet_rows=facet_rows, data_path=packed_path, index=index)
 
 
 def write_contractions(path: str | Path, contractions: Iterable[dict]) -> None:

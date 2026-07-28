@@ -11,6 +11,7 @@ dependencies = [
   "python-sat>=1.9.dev5",
   "pyscipopt>=6.2,<6.3",
   "scipy>=1.11",
+  "zstandard>=0.23",
 ]
 
 [dependency-groups]

@@ -37,5 +37,6 @@ def load_hec_data(n: int, kind: DataKind, *, root: str | Path | None = None) -> 
     if kind == "contractions":
         from .contractions import read_contractions
 
-        return read_contractions(path)
+        facets = read_integer_rows(data_path(n, "facets", root=root), n=n)
+        return read_contractions(path, n=n, facet_rows=facets)
     return read_integer_rows(path, n=n)
