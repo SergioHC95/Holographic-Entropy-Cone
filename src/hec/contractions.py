@@ -178,12 +178,20 @@ def minimal_contraction(coeffs: Sequence[int], n: int, contraction: dict) -> dic
     def label(term: frozenset[int]) -> str:
         return "".join(labels[index] for index in sorted(term))
 
+    raw_images = contraction.get("images", [])
+    if R == 0:
+        if raw_images != []:
+            raise ValueError("contraction is not in canonical stored form: images must be [] when the RHS is empty")
+        images = []
+    else:
+        images = _normalize_images(raw_images, L, R)
+
     return {
         "lhs": [[label(term), coefficient] for term, coefficient in zip(lhs_sets, alpha, strict=True)],
         "rhs": [
             [label(term), 1] for term, multiplicity in zip(rhs_sets, beta, strict=True) for _ in range(multiplicity)
         ],
-        "images": [] if R == 0 else _normalize_images(contraction.get("images", {}), L, R),
+        "images": images,
     }
 
 
@@ -200,9 +208,10 @@ def _term_from_label(label: str) -> frozenset[int]:
 
 def _term_and_coefficient(entry: object) -> tuple[frozenset[int], int]:
     if isinstance(entry, list | tuple) and len(entry) == 2:
-        coefficient = int(entry[1])
-        if isinstance(entry[1], bool) or coefficient <= 0:
-            raise ValueError(f"invalid contraction coefficient {entry[1]!r}")
+        raw_coefficient = entry[1]
+        if isinstance(raw_coefficient, bool) or not isinstance(raw_coefficient, int) or raw_coefficient <= 0:
+            raise ValueError(f"contraction is not in canonical stored form: invalid coefficient {raw_coefficient!r}")
+        coefficient = raw_coefficient
         if not isinstance(entry[0], str):
             raise ValueError(f"invalid term label {entry[0]!r}")
         return _term_from_label(entry[0]), coefficient
