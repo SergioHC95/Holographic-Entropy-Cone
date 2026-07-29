@@ -5,9 +5,10 @@ from __future__ import annotations
 import argparse
 import math
 import os
-from collections.abc import Iterable, Iterator
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Callable, Iterable, Iterator
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from pathlib import Path
+from typing import TypeVar
 
 from ._graph_validation import canonical_primitive_ray_graph
 from .contractions import check_contraction, contraction_coeffs, minimal_contraction
@@ -17,6 +18,9 @@ from .rank import check_support_rank_prepared, prepare_rank_candidates
 from .serialization import load_json
 from .symmetry import canonical_vector
 from .workers import generation_worker_count
+
+_Input = TypeVar("_Input")
+_Output = TypeVar("_Output")
 
 
 def check_worker_count() -> int:
@@ -48,6 +52,37 @@ def _selected_ns(root: str | Path | None, n: int | None) -> list[int]:
 def _stored(root: str | Path | None, *kinds: str, n: int | None = None) -> Iterator[tuple]:
     for current_n in _selected_ns(root, n):
         yield (current_n, *(load_hec_data(current_n, kind, root=root) for kind in kinds))
+
+
+def _bounded_parallel_map(
+    pool: ThreadPoolExecutor,
+    function: Callable[[_Input], _Output],
+    values: Iterable[_Input],
+    *,
+    max_pending: int,
+) -> Iterator[_Output]:
+    """Apply ``function`` without eagerly materializing the input iterable."""
+
+    iterator = iter(values)
+    pending: dict[Future[_Output], None] = {}
+
+    def submit_next() -> bool:
+        try:
+            value = next(iterator)
+        except StopIteration:
+            return False
+        pending[pool.submit(function, value)] = None
+        return True
+
+    for _ in range(max_pending):
+        if not submit_next():
+            break
+    while pending:
+        completed, _ = wait(pending, return_when=FIRST_COMPLETED)
+        for future in completed:
+            del pending[future]
+            yield future.result()
+            submit_next()
 
 
 def _is_primitive_row(row: tuple[int, ...]) -> bool:
@@ -121,19 +156,20 @@ def check_stored_contractions(root: str | Path | None = None, *, n: int | None =
             for index, (facet, contraction) in enumerate(zip(facets, contractions, strict=True))
         )
         workers = check_worker_count()
+        print(f"n={current_n}: validating {len(facets):,} contractions with {workers} workers", flush=True)
         if workers > 1:
             with ThreadPoolExecutor(max_workers=workers) as pool:
-                checks = pool.map(check_pair, pairs)
-                for index, check in checks:
+                checks = _bounded_parallel_map(pool, check_pair, pairs, max_pending=2 * workers)
+                for completed, (index, check) in enumerate(checks, start=1):
                     if not check["ok"]:
                         raise ValueError(f"n={current_n}, index={index}: {check['errors']}")
-                    if (index + 1) % 1000 == 0:
-                        print(f"n={current_n}: checked {index + 1:,}/{len(facets):,} contractions", flush=True)
+                    if completed % 100 == 0:
+                        print(f"n={current_n}: checked {completed:,}/{len(facets):,} contractions", flush=True)
         else:
             for index, check in map(check_pair, pairs):
                 if not check["ok"]:
                     raise ValueError(f"n={current_n}, index={index}: {check['errors']}")
-                if (index + 1) % 1000 == 0:
+                if (index + 1) % 100 == 0:
                     print(f"n={current_n}: checked {index + 1:,}/{len(facets):,} contractions", flush=True)
         yield f"n={current_n}: {len(facets)} ok"
 
