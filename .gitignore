@@ -19,6 +19,6 @@ experiments/
 *_run_*.out.log
 *_run_*.err.log
 
-# Large local caches used by downstream bucket construction.
+# Large local caches used by downstream data construction.
 data/n=*/facet-images-*
 data/n=*/saturating-ray-*
