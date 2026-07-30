@@ -95,9 +95,9 @@ Data updates:
 
 - 2026-07-30: computed and verified the complete n=6 facet-image total,
   287,558,243, for the 57,940 stored representatives.
-- 2026-07-28: added 52,211 retained IIICCC `newextremal` facet
-  representatives and their proved contraction certificates. Historical
-  representative values were preserved, and all n=1 through n=6 facet files
+- 2026-07-28: added 52,211 retained new facet representatives and their
+  proved contraction certificates. Historical representative values were
+  preserved, and all n=1 through n=6 facet files
   were sorted with lifts first and the remaining old/new rows mixed in
   row-lexicographic order. The 57,940 aligned n=6 contraction tables are
   stored as a 251.7 MiB zstd packbits stream (1.83 GiB raw), with exact
