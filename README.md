@@ -1,175 +1,116 @@
-# Holographic Entropy Cone (HEC) #
+# Holographic Entropy Cone
 
-The HEC is a family of polyhedral cones $H_n$ labelled by the number of parties $n \in \mathbb{N}$.  
-Each $H_n$ can be dually described by either its facet inequalities or its extreme rays.  
-A complete characterization of $H_n$ requires knowledge of both sets of extremal elements.  
-This has only been accomplished for $n \leq 5$, and results for $n \geq 6$ are only partial.  
+The Holographic Entropy Cone (HEC) is a family of polyhedral cones
+\(H_n\), labelled by the number of parties \(n\). Each cone has a dual
+description in terms of facet inequalities and extreme rays. The cones are
+known completely for \(n \leq 5\); the \(n=6\) data in this repository is
+partial.
 
+## Data
 
-## Description ##
+The repository contains one representative from each known full-symmetry orbit
+under \(S_{n+1}\). Data files live under `data/n=*/`:
 
-This repository collects all known extremal elements of $H_n$ for $n \leq 6$.  
-Each $H_n$ is invariant under the symmetric group of degree $n+1$.  
-Files contain one representative element per symmetry orbit.  
-Elements of $H_n$ obtained as lifts from $H_k$ for $k < n$ are listed first.
+- `facets.json` contains facet-inequality representatives.
+- `rays.json` contains extreme-ray representatives.
+- `graphs.json` contains exact graph realizations for the listed rays.
+- `contractions.json` contains contraction-map certificates for the listed
+  facets.
 
-Data files live under `data/n=*/`:
+Rows use primitive integer coefficients in cardinality-then-lexicographic
+subset order. Facet and ray files list lifts from lower-party cones first. The
+remaining facet rows—historical and newly added—are mixed and sorted
+row-lexicographically. The contraction record at each position proves the
+facet at that position.
 
-- `data/n=*/facets.json` contains facet-inequality orbit representatives.
-- `data/n=*/rays.json` contains extreme-ray orbit representatives.
-- `data/n=*/graphs.json` contains exact, monotone quality-gated graph
-  representatives for the listed rays.
-- `data/n=*/contractions.json` contains contraction-map certificates for the listed facets.
+Graphs contain only `edges` and `weights`. Contractions contain only `lhs`,
+`rhs`, and `images`.
 
-Facets and rays are integer rows in cardinality-then-lexicographic subset order.
-Graphs are records with only `edges` and `weights`. Contractions are minimal
-records with only `lhs`, `rhs`, and `images`.
+For n=6, `contractions.json` is a manifest for the aligned
+`contractions.packbits.zst` stream. The stream stores one binary contraction
+table per facet, in facet-file order, using little-endian row-major packbits.
+The manifest records dimensions, hashes, sizes, and ordering information so
+the complete stream can be checked without a solver.
 
+## Python package
 
-## Python package ##
+The `hec` package under `src/hec/` provides:
 
-The repository also contains a `hec` package under `src/hec/`.
+- contraction search and certificate checking;
+- facet and ray rank checks;
+- exact graph realization and verification;
+- loading and validating the repository data;
+- symmetry actions, canonicalization, and shared serialization utilities.
 
-- `hec.contractions` searches and verifies contraction maps for
-  inequalities.
-- `hec.rank` checks facet and extreme-ray rank from supporting orbit data.
-- `python -m hec.checks {graphs,contractions,facets,rays}` validates the
-  official repository data.
-- `hec.graphs` realizes entropy vectors by weighted graphs using the
-  Avis-Hernandez-Cuenca MILP construction. It combines exact preprocessing,
-  symmetry-reduced fixed-vertex search, a deterministic SCIP/HiGHS portfolio,
-  and solver-independent exact rational min-cut verification.
-- `hec.data` locates and reads official repository JSON data.
-- `hec.runs` manages timestamped output folders for generated graph and
-  contraction searches.
-- `hec.symmetry` provides permutation actions and symmetry-orbit filtering for
-  rays and inequalities.
-- `hec.coordinates`, `hec.bits`, and `hec.serialization` hold the
-  shared low-level machinery without a generic utilities bucket.
-
-Install into a Python environment created on the same operating system that will
-run the code.
-
-On macOS or Linux, install with:
+Install the locked dependencies in an environment on the operating system
+where the code will run:
 
 ```bash
 uv sync --locked --dev
-uv run python - <<'PY'
-from hec.contractions import find_contraction, check_contraction
-from hec.data import load_hec_data
-from hec.graphs import check_graph, find_graph
-from hec.contraction_solver import _SAT_BACKEND
-
-print(len(load_hec_data(6, "rays")))
-print(_SAT_BACKEND)
-
-certificate = find_contraction([1, 1, -1], 2)
-print(check_contraction([1, 1, -1], 2, certificate)["ok"])
-
-graph = find_graph([1, 1, 0], max_vertices=3)
-print(check_graph(graph["graph"], [1, 1, 0], graph["n"], match="ray")["ok"])
-PY
+uv run python -m hec.checks database
 uv run ruff check .
 ```
 
-The macOS/Linux contraction solver uses the direct Kissat C-symbol path exposed
-by PySAT. If that ABI is not present, import fails with an explicit solver
-installation error. The tracked Cython sources are built automatically in-place
-on first contraction-solver use when the compiled local extensions are absent.
+The contraction solver requires a PySAT build exposing Kissat and its raw C
+symbols. The tracked Cython sources are built automatically on first use when
+the local extensions are absent. On Windows, run the installation and checks
+from an x64 Visual C++ environment such as the “x64 Native Tools Command
+Prompt for VS”.
 
-On Windows, install the locked Python dependencies first and run from an x64
-Visual C++ build environment, such as the "x64 Native Tools Command Prompt for
-VS", so the automatic extension build can find a compiler:
-
-```powershell
-uv sync --locked --dev
-$env:DISTUTILS_USE_SDK = "1"
-$env:MSSdk = "1"
-@'
-from hec.contractions import find_contraction, check_contraction
-from hec.contraction_solver import _SAT_BACKEND
-
-print(_SAT_BACKEND)
-certificate = find_contraction([1, 1, -1], 2)
-print(check_contraction([1, 1, -1], 2, certificate)["ok"])
-'@ | uv run python -
-uv run ruff check .
-```
-
-The contraction solver uses the same direct Kissat/Cython backend on every
-platform. Import fails if the installed PySAT build does not provide the
-required Kissat solver and raw Kissat C symbols.
-
-The deterministic graph finder pins each solver to one thread and a fixed seed,
-trying equivalent SCIP indicator constraints before native HiGHS. A valid SCIP
-topology is polished by a fixed-selector continuous HiGHS solve when time remains.
-Every incumbent must satisfy the original one-hot model and exact rational
-minimum cuts; a polish is accepted only when it strictly improves (normalized
-total capacity, entropy multiplier, maximum weight, total weight, edge count).
-Limits and backend errors are never themselves treated as infeasibility.
-
-Generation scripts use process workers. Contraction generation defaults to
-`max(1, os.cpu_count() - 1)` workers. Graph generation defaults to at most four
-workers unless `HEC_GRAPH_WORKERS` is set, because each MILP solve is already
-CPU-heavy. Rank verification uses Numba threads and defaults to at most 16
-workers unless `HEC_CHECK_WORKERS` is set. Set `HEC_WORKERS`,
-`HEC_GRAPH_WORKERS`, or `HEC_CHECK_WORKERS` to a positive integer to make a
-run's worker count explicit:
+Set worker counts explicitly when desired:
 
 ```bash
-HEC_GRAPH_WORKERS=4 uv run python examples/find_ray_graphs.py
 HEC_WORKERS=8 uv run python examples/find_ineq_contractions.py
+HEC_GRAPH_WORKERS=4 uv run python examples/find_ray_graphs.py
 HEC_CHECK_WORKERS=16 uv run python -m hec.checks facets
 ```
 
+The corresponding PowerShell form is:
+
 ```powershell
-$env:HEC_GRAPH_WORKERS = "4"
-uv run python examples\find_ray_graphs.py
 $env:HEC_WORKERS = "8"
 uv run python examples\find_ineq_contractions.py
+$env:HEC_GRAPH_WORKERS = "4"
+uv run python examples\find_ray_graphs.py
 $env:HEC_CHECK_WORKERS = "16"
 uv run python -m hec.checks facets
-Remove-Item Env:\HEC_GRAPH_WORKERS
-Remove-Item Env:\HEC_WORKERS
-Remove-Item Env:\HEC_CHECK_WORKERS
 ```
 
-## Summary ##
+## Summary
 
-Orbit-representative and distinct-image counts:
-|  n  | facet reps (lifts) | facet images | ray reps (lifts) | ray images | status     |
-| :-: | :----------------: | :-------------------: | :--------------: | :-----------------: | :--------: |
-| 1   | 1 (0)              | 1                     | 1 (0)            | 1                   | complete   |
-| 2   | 1 (0)              | 3                     | 1 (1)            | 3                   | complete   |
-| 3   | 2 (1)              | 7                     | 2 (1)            | 7                   | complete   |
-| 4   | 2 (2)              | 20                    | 3 (2)            | 20                  | complete   |
-| 5   | 8 (3)              | 372                   | 19 (3)           | 2,267               | complete   |
-| 6   | 1,875 (11)          | 8,655,773             | 4,151 (19)        | 15,408,106          | incomplete |
+The table gives orbit-representative counts and the number of distinct images
+of those representatives. Stabilizer-related repeats within an orbit are
+counted once.
 
-Distinct image counts sum the actual $S_{n+1}$ orbit sizes of the listed
-representatives, so repeated images from stabilizer symmetries are counted once.
+| n | facet reps (lifts) | facet images | ray reps (lifts) | ray images | status |
+| :-: | ----------------: | -----------: | ---------------: | ----------: | :----- |
+| 1 | 1 (0) | 1 | 1 (0) | 1 | complete |
+| 2 | 1 (0) | 3 | 1 (1) | 3 | complete |
+| 3 | 2 (1) | 7 | 2 (1) | 7 | complete |
+| 4 | 2 (2) | 20 | 3 (2) | 20 | complete |
+| 5 | 8 (3) | 372 | 19 (3) | 2,267 | complete |
+| 6 | 57,940 (11) | 287,558,243 | 4,151 (19) | 15,408,106 | incomplete |
 
-Pinned sequential generation timing stats:
-| generated data | records | mean | median | max | sum |
-| :------------- | ------: | ---: | -----: | --: | -----------------: |
-| contractions   | 1,889   | 0.248 s | 0.164 s | 1.823 s | 468.519 s |
-| graphs (fixed-N replay) | 4,177 | 3.508 s | 0.435 s | 10,247.705 s | 14,654.463 s |
+Data updates:
 
-The graph row is a sequential one-worker fixed-N replay at each stored graph's
-vertex count, not a smallest-realization search. Candidates and stored graphs
-are independently normalized and checked by exact rational minimum cuts;
-promotion is monotone under the quality tuple above, with ties retaining the
-stored graph. All 4,177 representatives verify against their paired rays.
-Timings are host-specific: 4,176 rows were recomputed in 4,406.758 s, while the
-sole 15-vertex row reused its verified 10,247.705 s native-HiGHS result because
-the SCIP-only polishing change cannot affect that winning path.
+- 2026-07-30: computed and verified the complete n=6 facet-image total,
+  287,558,243, for the 57,940 stored representatives.
+- 2026-07-28: added 52,211 retained new facet representatives and their
+  proved contraction certificates. Historical representative values were
+  preserved, and all n=1 through n=6 facet files
+  were sorted with lifts first and the remaining old/new rows mixed in
+  row-lexicographic order. The 57,940 aligned n=6 contraction tables are
+  stored as a 251.7 MiB zstd packbits stream (1.83 GiB raw), with exact
+  dimensions and SHA-256 metadata.
 
-## Attribution ##
+## Attribution
 
-If you find this data useful for your research, please consider citing the following papers.
+If you use this data, please consider citing the following papers.
 
- * Complete description of $H_n$ for $n \leq 5$ from [arXiv:1903.09148](https://arxiv.org/abs/1903.09148):
-~~~bibtex
+* Complete description of \(H_n\) for \(n \leq 5\) from
+  [arXiv:1903.09148](https://arxiv.org/abs/1903.09148):
+
+  ```bibtex
   @article{n5hec,
       author         = "Hern\'andez Cuenca, Sergio",
       title          = "{The Holographic Entropy Cone for Five Regions}",
@@ -182,13 +123,14 @@ If you find this data useful for your research, please consider citing the follo
       number         = "2",
       pages          = "026004",
       year           = "2019",
-      note           = "Data available at \url{https://github.com/SergioHC95/Holographic-Entropy-Cone}"
+      note           = "Data available at https://github.com/SergioHC95/Holographic-Entropy-Cone"
   }
-~~~
+  ```
 
+* Partial description of \(H_6\) from
+  [arXiv:2309.06296](https://arxiv.org/abs/2309.06296):
 
- * Partial description of $H_n$ for $n=6$ from [arXiv:2309.06296](https://arxiv.org/abs/2309.06296):
-~~~bibtex
+  ```bibtex
   @article{n6hec,
       author         = "Hern\'andez-Cuenca, Sergio and Hubeny, Veronika E. and Jia, Frederic",
       title          = "{Holographic Entropy Inequalities and Multipartite Entanglement}",
@@ -198,6 +140,6 @@ If you find this data useful for your research, please consider citing the follo
       reportNumber   = "MIT-CTP/5610",
       month          = "9",
       year           = "2023",
-      note           = "Data available at \url{https://github.com/SergioHC95/Holographic-Entropy-Cone}"
+      note           = "Data available at https://github.com/SergioHC95/Holographic-Entropy-Cone"
   }
-~~~
+  ```
