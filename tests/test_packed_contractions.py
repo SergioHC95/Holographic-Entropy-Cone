@@ -42,6 +42,8 @@ class PackedContractionTests(unittest.TestCase):
             records = read_contractions(contractions, n=2, facet_rows=[facet])
             self.assertEqual(len(records), 1)
             self.assertEqual(records[0], minimal_contraction(facet, 2, source))
+            self.assertEqual(list(records.iter_selected(0, 2)), [(0, minimal_contraction(facet, 2, source))])
+            self.assertEqual(list(records.iter_selected(1, 2)), [])
 
 
 if __name__ == "__main__":

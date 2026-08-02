@@ -420,7 +420,23 @@ class ContractionRecords(Sequence[dict]):
         yield from self._prefix
         yield from self._iter_tail()
 
+    def iter_selected(self, shard_index: int, shard_count: int) -> Iterator[tuple[int, dict]]:
+        """Yield selected global records while scanning the packed stream once."""
+
+        if shard_count < 1:
+            raise ValueError(f"shard count must be positive, got {shard_count}")
+        if not 0 <= shard_index < shard_count:
+            raise ValueError(f"shard index must be in [0, {shard_count}), got {shard_index}")
+        for index, record in enumerate(self._prefix):
+            if index % shard_count == shard_index:
+                yield index, record
+        yield from self._iter_tail_indexed(shard_index, shard_count)
+
     def _iter_tail(self) -> Iterator[dict]:
+        for _index, record in self._iter_tail_indexed(0, 1):
+            yield record
+
+    def _iter_tail_indexed(self, shard_index: int, shard_count: int) -> Iterator[tuple[int, dict]]:
         import zstandard as zstd
 
         compressed_digest = hashlib.sha256()
@@ -438,9 +454,14 @@ class ContractionRecords(Sequence[dict]):
                     payload = _read_stream_exact(reader, (bit_count + 7) // 8)
                     digest.update(payload)
                     raw_size += len(payload)
-                    yield minimal_contraction(
-                        self._facet_rows[offset], self._n, {"images": _encoded_image_rows(payload, L, R)}
-                    )
+                    index = self._facet_start + offset
+                    if index % shard_count == shard_index:
+                        yield (
+                            index,
+                            minimal_contraction(
+                                self._facet_rows[offset], self._n, {"images": _encoded_image_rows(payload, L, R)}
+                            ),
+                        )
                 if reader.read(1):
                     raise ValueError("packed contraction stream has bytes beyond its indexed records")
         if raw_size != self._raw_size:
