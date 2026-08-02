@@ -63,7 +63,7 @@ jobs:
                   "graphs": len(json.loads((dataset / "graphs.json").read_text(encoding="utf-8"))),
                   "rays": len(json.loads((dataset / "rays.json").read_text(encoding="utf-8"))),
               }
-              targets = {"contractions": (15_000, 4), "facets": (8_000, 8)}
+              targets = {"contractions": (15_000, 4), "facets": (10_000, 8)}
               for kind in ("facets", "contractions", "database", "graphs", "rays"):
                   target, limit = targets.get(kind, (counts[kind], 1))
                   shard_count = min(limit, max(1, math.ceil(counts[kind] / target)))
