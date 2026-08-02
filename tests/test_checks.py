@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from hec.checks import check_stored_contractions, check_stored_graphs
+from hec.checks import check_stored_contractions, check_stored_facets, check_stored_graphs, check_stored_rays
 from hec.data import default_data_root
 
 
@@ -61,6 +61,15 @@ class StoredGraphCheckTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "not a terminal"):
             list(check_stored_graphs(temporary.name, n=1))
+
+
+class StoredRankCheckTests(unittest.TestCase):
+    def test_facets_and_rays_are_checked_in_both_rank_directions(self) -> None:
+        temporary, _target, _records = _temporary_dataset(1, "facets", "rays")
+        self.addCleanup(temporary.cleanup)
+
+        self.assertEqual(list(check_stored_facets(temporary.name, n=1)), ["n=1: 1 ok"])
+        self.assertEqual(list(check_stored_rays(temporary.name, n=1)), ["n=1: 1 ok"])
 
 
 if __name__ == "__main__":

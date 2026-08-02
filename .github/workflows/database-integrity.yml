@@ -61,7 +61,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        kind: [graphs, contractions, database]
+        # Every (kind, n) pair is independent, so Actions can schedule the
+        # exact checks on separate runners.  In particular, keep both rank
+        # directions in the matrix: facets must be facets of the ray cone and
+        # rays must be extreme relative to the stored facet list.
+        kind: [contractions, database, facets, graphs, rays]
         n: ${{ fromJSON(needs.discover.outputs.ns) }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
