@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import runpy
@@ -499,9 +500,22 @@ class GraphFinderModelTests(unittest.TestCase):
 class PublicGraphFinderTests(unittest.TestCase):
     def test_n6_pathological_incumbents_are_polished_to_small_exact_graphs(self) -> None:
         rays = load_hec_data(6, "rays")
-        for index, total_vertices in ((162, 11), (227, 9), (484, 11), (2813, 10)):
-            with self.subTest(index=index):
-                result = find_graph_fixed_n(rays[index], total_vertices)
+        # Use content fingerprints instead of row positions: the database is
+        # row-lexicographic, so adding a new representative must not silently
+        # retarget this solver regression test to another ray.
+        cases = (
+            ("c5cb8bf65b3ad299ab6a4ca307b6d3cbbd449da30b9c80590fd017fa5e3e76aa", 11, True),
+            ("6b9933a923d299a26d6c12e6089ad29186dabb16b498a9617d9c8da49769ccd1", 9, False),
+            ("4388ecb359d4478911f81ced52c033368d3753ac941657edace90389956525fd", 11, True),
+            ("ea49fdcd8e0d15ca4e5686fedbf14ae935863894b9d6b89d34c99a7ca52b6756", 10, False),
+        )
+        by_fingerprint = {
+            hashlib.sha256(json.dumps(list(ray), separators=(",", ":")).encode()).hexdigest(): ray for ray in rays
+        }
+        for fingerprint, total_vertices, expects_quality_improvement in cases:
+            with self.subTest(fingerprint=fingerprint):
+                self.assertIn(fingerprint, by_fingerprint)
+                result = find_graph_fixed_n(by_fingerprint[fingerprint], total_vertices)
                 self.assertEqual(result["status"], "realized")
                 self.assertTrue(result["check"]["ok"])
                 self.assertEqual(graph_total_vertices(result["graph"], 6), total_vertices)
@@ -518,7 +532,7 @@ class PublicGraphFinderTests(unittest.TestCase):
                 refinement = result["ahc"]["attempts"][-1]["refinement"]
                 self.assertEqual(refinement["status"], "refined")
                 self.assertEqual(refinement["exact_graph_validation"], "accepted")
-                if index in (162, 484):
+                if expects_quality_improvement:
                     self.assertLessEqual(abs(refinement["edge_sum_reduction"]), refinement["edge_sum_tolerance"])
                     original_quality = refinement["candidate_quality"]["scip-incumbent"]
                     refined_quality = refinement["candidate_quality"]["refined"]
