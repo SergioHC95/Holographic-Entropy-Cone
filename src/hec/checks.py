@@ -6,7 +6,7 @@ import argparse
 import math
 import os
 from collections.abc import Callable, Iterable, Iterator
-from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from concurrent.futures import FIRST_COMPLETED, Executor, Future, ProcessPoolExecutor, ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import TypeVar
 
@@ -55,7 +55,7 @@ def _stored(root: str | Path | None, *kinds: str, n: int | None = None) -> Itera
 
 
 def _bounded_parallel_map(
-    pool: ThreadPoolExecutor,
+    pool: Executor,
     function: Callable[[_Input], _Output],
     values: Iterable[_Input],
     *,
@@ -112,11 +112,28 @@ def _check_stored_rank(
             first = check_row(fixed_rows[0])
             if not first["ok"]:
                 raise ValueError(f"n={current_n}, index=0: rank {first['rank']} < {first['target_rank']}")
+
+            def check_indexed(pair: tuple[int, tuple[int, ...]]) -> tuple[int, dict]:
+                index, row = pair
+                return index, check_row(row)
+
+            print(
+                f"n={current_n}: validating {len(fixed_rows):,} {fixed_kind} ranks against "
+                f"{len(candidate_rows):,} {candidate_kind} rows with {workers} workers",
+                flush=True,
+            )
             with ThreadPoolExecutor(max_workers=workers) as pool:
-                checks = enumerate(pool.map(check_row, fixed_rows[1:]), start=1)
-                for index, check in checks:
+                checks = _bounded_parallel_map(
+                    pool,
+                    check_indexed,
+                    enumerate(fixed_rows[1:], start=1),
+                    max_pending=2 * workers,
+                )
+                for completed, (index, check) in enumerate(checks, start=1):
                     if not check["ok"]:
                         raise ValueError(f"n={current_n}, index={index}: rank {check['rank']} < {check['target_rank']}")
+                    if completed % 1_000 == 0:
+                        print(f"n={current_n}: checked {completed + 1:,}/{len(fixed_rows):,} {fixed_kind}", flush=True)
         else:
             for index, row in enumerate(fixed_rows):
                 check = check_row(row)
@@ -230,6 +247,17 @@ def check_stored_facet_database_format(root: str | Path | None = None, *, n: int
         yield f"n={current_n}: {len(facets)} standard facet/contraction records"
 
 
+def _check_graph_pair(pair: tuple[int, tuple[int, ...], dict, int]) -> tuple[int, str | None]:
+    """Validate one graph/ray pair in a process-safe worker."""
+
+    index, ray, graph, n = pair
+    if graph != canonical_primitive_ray_graph(graph, n):
+        return index, "graph is not in canonical stored form"
+    if not check_graph(graph, ray, n, match="ray")["ok"]:
+        return index, "graph/ray mismatch"
+    return index, None
+
+
 def check_stored_graphs(root: str | Path | None = None, *, n: int | None = None) -> Iterator[str]:
     for current_n in _selected_ns(root, n):
         rays = load_hec_data(current_n, "rays", root=root)
@@ -238,11 +266,22 @@ def check_stored_graphs(root: str | Path | None = None, *, n: int | None = None)
             raise ValueError(f"expected a list of graphs in {data_path(current_n, 'graphs', root=root)}")
         if len(rays) != len(graphs):
             raise ValueError(f"n={current_n}: {len(rays)} rays but {len(graphs)} graphs")
-        for index, (ray, graph) in enumerate(zip(rays, graphs, strict=True)):
-            if graph != canonical_primitive_ray_graph(graph, current_n):
-                raise ValueError(f"n={current_n}, index={index}: graph is not in canonical stored form")
-            if not check_graph(graph, ray, current_n, match="ray")["ok"]:
-                raise ValueError(f"n={current_n}, index={index}: graph/ray mismatch")
+        pairs = (
+            (index, tuple(ray), graph, current_n) for index, (ray, graph) in enumerate(zip(rays, graphs, strict=True))
+        )
+        workers = check_worker_count()
+        print(f"n={current_n}: validating {len(rays):,} graphs with {workers} workers", flush=True)
+        if workers > 1 and len(rays) >= 32:
+            with ProcessPoolExecutor(max_workers=workers) as pool:
+                checks = _bounded_parallel_map(pool, _check_graph_pair, pairs, max_pending=2 * workers)
+                for index, error in checks:
+                    if error is not None:
+                        raise ValueError(f"n={current_n}, index={index}: {error}")
+        else:
+            for pair in pairs:
+                index, error = _check_graph_pair(pair)
+                if error is not None:
+                    raise ValueError(f"n={current_n}, index={index}: {error}")
         yield f"n={current_n}: {len(rays)} ok"
 
 
