@@ -233,7 +233,14 @@ def check_stored_contractions(
                 raise ValueError(f"n={current_n}, index={index}: contraction lhs/rhs do not match stored facet")
             return index, check_contraction(coeffs, current_n, contraction)
 
-        pairs = ((index, tuple(facets[index]), contractions[index]) for index in selected)
+        # ContractionRecords is backed by a sequential packed stream.  Walk it
+        # once and filter global indices; random ``contractions[index]`` access
+        # would restart decompression from the beginning for every row.
+        pairs = (
+            (index, tuple(facet), contraction)
+            for index, (facet, contraction) in enumerate(zip(facets, contractions, strict=True))
+            if index % shard_count == shard_index
+        )
         workers = check_worker_count()
         print(f"n={current_n}{label}: validating {selected_count:,} contractions with {workers} workers", flush=True)
         if workers > 1 and selected_count >= 32:
