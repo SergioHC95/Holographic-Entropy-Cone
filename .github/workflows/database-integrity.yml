@@ -35,7 +35,7 @@ jobs:
     name: discover datasets
     runs-on: ubuntu-24.04
     outputs:
-      ns: ${{ steps.datasets.outputs.ns }}
+      matrix: ${{ steps.datasets.outputs.matrix }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - id: datasets
@@ -43,30 +43,57 @@ jobs:
         run: |
           python3 - <<'PY'
           import json
+          import math
           import os
           from pathlib import Path
 
           ns = sorted(int(path.name[2:]) for path in Path("data").glob("n=*") if path.name[2:].isdigit())
           if not ns:
               raise SystemExit("no data/n=* datasets found")
+          tasks = []
+          # Put the largest datasets first so long-running jobs enter the
+          # runner queue before the short smoke checks.
+          for n in reversed(ns):
+              dataset = Path("data") / f"n={n}"
+              facets = json.loads((dataset / "facets.json").read_text(encoding="utf-8"))
+              counts = {
+                  "contractions": len(facets),
+                  "database": len(facets),
+                  "facets": len(facets),
+                  "graphs": len(json.loads((dataset / "graphs.json").read_text(encoding="utf-8"))),
+                  "rays": len(json.loads((dataset / "rays.json").read_text(encoding="utf-8"))),
+              }
+              targets = {"contractions": (15_000, 4), "facets": (10_000, 8)}
+              for kind in ("facets", "contractions", "database", "graphs", "rays"):
+                  target, limit = targets.get(kind, (counts[kind], 1))
+                  shard_count = min(limit, max(1, math.ceil(counts[kind] / target)))
+                  for shard_index in range(shard_count):
+                      suffix = "" if shard_count == 1 else f", shard {shard_index + 1}/{shard_count}"
+                      tasks.append(
+                          {
+                              "kind": kind,
+                              "n": n,
+                              "shard_index": shard_index,
+                              "shard_count": shard_count,
+                              "label": f"{kind} (n={n}{suffix})",
+                          }
+                      )
+          matrix = {"include": tasks}
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              print(f"ns={json.dumps(ns, separators=(',', ':'))}", file=output)
+              print(f"matrix={json.dumps(matrix, separators=(',', ':'))}", file=output)
           PY
 
   validate:
     needs: discover
-    name: ${{ matrix.kind }} (n=${{ matrix.n }})
+    name: ${{ matrix.label }}
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     strategy:
       fail-fast: false
-      matrix:
-        # Every (kind, n) pair is independent, so Actions can schedule the
-        # exact checks on separate runners.  In particular, keep both rank
-        # directions in the matrix: facets must be facets of the ray cone and
-        # rays must be extreme relative to the stored facet list.
-        kind: [contractions, database, facets, graphs, rays]
-        n: ${{ fromJSON(needs.discover.outputs.ns) }}
+      # Split only the expensive row-wise checks.  Round-robin assignment in
+      # hec.checks keeps shards balanced even when individual rows have
+      # different early-stop costs; database remains one global check.
+      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -81,8 +108,11 @@ jobs:
         env:
           CHECK_KIND: ${{ matrix.kind }}
           CHECK_N: ${{ matrix.n }}
+          CHECK_SHARD_INDEX: ${{ matrix.shard_index }}
+          CHECK_SHARD_COUNT: ${{ matrix.shard_count }}
         run: |
-          uv run --no-sync python -m hec.checks "$CHECK_KIND" --n "$CHECK_N"
+          uv run --no-sync python -m hec.checks "$CHECK_KIND" --n "$CHECK_N" \
+            --shard-index "$CHECK_SHARD_INDEX" --shard-count "$CHECK_SHARD_COUNT"
 
   gate:
     name: database integrity
