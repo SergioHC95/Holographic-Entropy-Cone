@@ -1,6 +1,6 @@
 {
-  "compressed_sha256": "6f1379eb4b99922e340ce020b7d68c2d03dbd9c9fbf79db7bd7dd4a099a3ebae",
-  "compressed_size": 263925856,
+  "compressed_sha256": "fa16186dfb8634a9a65dc433d2e738ae01d099277d652ef4723625b93dddbcb1",
+  "compressed_size": 263927927,
   "encoding": {
     "compression": "zstd",
     "compression_level": 19,
@@ -12,9 +12,9 @@
   "lift_count": 11,
   "n": 6,
   "order": "same-as-facets-json",
-  "raw_sha256": "87d9c927229571fc234bebd91b51ce0e8c892cfcd90d73d73cadfd8b236771bc",
-  "raw_size": 1964913029,
-  "record_count": 57940,
+  "raw_sha256": "bf6ad5dab720c94e77e6ff7ca0208c413030408f9c7e390b7cbe2afe3b461a48",
+  "raw_size": 1964922245,
+  "record_count": 57941,
   "records": [
     [
       7,
@@ -21666,6 +21666,10 @@
     ],
     [
       13,
+      18
+    ],
+    [
+      12,
       18
     ],
     [
