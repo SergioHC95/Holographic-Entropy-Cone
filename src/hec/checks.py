@@ -338,16 +338,19 @@ def check_stored_facet_database_format(
         elif isinstance(raw, dict) and raw.get("kind") == "packed-contractions":
             if int(raw.get("schema_version", -1)) != 1 or int(raw.get("n", -1)) != current_n:
                 raise ValueError(f"n={current_n}: packed contraction manifest has the wrong schema or party count")
-            if int(raw.get("record_count", -1)) != len(facets):
-                raise ValueError(f"n={current_n}: packed contraction count does not match facets")
+            base_count = int(raw.get("record_count", -1))
+            if base_count < 0 or base_count > len(facets):
+                raise ValueError(f"n={current_n}: packed base contraction count is invalid")
             if raw.get("order") != "same-as-facets-json":
                 raise ValueError(f"n={current_n}: packed contractions do not declare facet-file order")
             records = raw.get("records")
-            if not isinstance(records, list) or len(records) != len(facets):
-                raise ValueError(f"n={current_n}: packed contraction index is not aligned with facets")
+            if not isinstance(records, list) or len(records) != base_count:
+                raise ValueError(f"n={current_n}: packed base contraction index is not aligned with its manifest")
             for record in records:
                 if not isinstance(record, list | tuple) or len(record) != 2 or int(record[0]) < 0 or int(record[1]) < 0:
                     raise ValueError(f"n={current_n}: packed contraction index contains an invalid table shape")
+            if len(load_hec_data(current_n, "contractions", root=root)) != len(facets):
+                raise ValueError(f"n={current_n}: packed contraction count does not match facets")
             # The contractions check streams and verifies every table; this
             # check validates the manifest/order contract without a duplicate
             # expensive proof pass.
