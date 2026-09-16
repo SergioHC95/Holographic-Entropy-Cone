@@ -1,0 +1,33 @@
+{
+  "canonical_sources_filtered": true,
+  "classification": "known-facet-cone-redundancy",
+  "facet_database": {
+    "facet_count": 59392,
+    "facet_image_count": 294562583,
+    "facet_sha256": "4f1d9134c8ebc92daef47e3f3ac722a31836273f6181510d40e1ee7cb6e2048f",
+    "path": "data/n=6/facets.json"
+  },
+  "generated_at": "2026-09-15T23:34:15Z",
+  "method": "KnownFacetRedundancyChecker.contains (known-facet orbit equality plus exact conic-membership LP)",
+  "n": 6,
+  "schema_version": 1,
+  "sources": {
+    "low-rank": {
+      "input_row_count": 37187,
+      "input_sha256": "516de3c03f6104211192b40b9c3b56a99f27f4dfa59db236191224eba6d8e578",
+      "path": "data/n=6/inconclusive/low-rank.json",
+      "remaining_row_count": 35578,
+      "remaining_sha256": "e70d0f888781b6a6835eafe7a0105f610badf8347d98dc51a5f944ea6740553b",
+      "removed_redundant_count": 1609
+    },
+    "noncontracting": {
+      "input_row_count": 116,
+      "input_sha256": "9763da96710e9f58c4fcd550761f1a90599bf7f68f4209663162e7f0b1aa6757",
+      "path": "data/n=6/inconclusive/noncontracting.json",
+      "remaining_row_count": 116,
+      "remaining_sha256": "9763da96710e9f58c4fcd550761f1a90599bf7f68f4209663162e7f0b1aa6757",
+      "removed_redundant_count": 0
+    }
+  },
+  "worker_count": 4
+}
