@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # Every checkout stays pointer-only. Only the centralized producer fetches.
+  GIT_LFS_SKIP_SMUDGE: "1"
+
 concurrency:
   group: database-integrity-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -20,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          lfs: true
+          lfs: false
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           version: "0.11.28"
@@ -36,10 +40,19 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.datasets.outputs.matrix }}
+      lfs_required: ${{ steps.lfs.outputs.required }}
+      lfs_key: ${{ steps.lfs.outputs.key }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          lfs: false
+      - id: lfs
+        name: Plan only active LFS proof streams
+        run: python3 .github/scripts/lfs_assets.py plan --github-output "$GITHUB_OUTPUT"
       - id: datasets
         name: Find stored party counts
+        env:
+          LFS_NS: ${{ steps.lfs.outputs.ns }}
         run: |
           python3 - <<'PY'
           import json
@@ -51,6 +64,7 @@ jobs:
           if not ns:
               raise SystemExit("no data/n=* datasets found")
           tasks = []
+          lfs_ns = set(json.loads(os.environ["LFS_NS"]))
           # Put the largest datasets first so long-running jobs enter the
           # runner queue before the short smoke checks.
           for n in reversed(ns):
@@ -76,6 +90,7 @@ jobs:
                               "shard_index": shard_index,
                               "shard_count": shard_count,
                               "label": f"{kind} (n={n}{suffix})",
+                              "lfs": n in lfs_ns and kind in ("contractions", "database"),
                           }
                       )
           matrix = {"include": tasks}
@@ -83,8 +98,46 @@ jobs:
               print(f"matrix={json.dumps(matrix, separators=(',', ':'))}", file=output)
           PY
 
-  validate:
+  prepare_lfs:
+    name: prepare shared proof cache
     needs: discover
+    if: ${{ needs.discover.outputs.lfs_required == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          lfs: false
+      - id: cache
+        name: Look up content-addressed active proofs without downloading
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: .hec-ci-lfs/objects
+          key: ${{ needs.discover.outputs.lfs_key }}
+          lookup-only: true
+      - name: Fetch missing active objects once and verify their hashes
+        if: ${{ steps.cache.outputs.cache-hit != 'true' }}
+        run: python3 .github/scripts/lfs_assets.py populate
+      - name: Save the verified shared cache
+        if: ${{ steps.cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: .hec-ci-lfs/objects
+          key: ${{ needs.discover.outputs.lfs_key }}
+      - id: handoff
+        name: Confirm the matrix can access the shared cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: .hec-ci-lfs/objects
+          key: ${{ needs.discover.outputs.lfs_key }}
+          lookup-only: true
+          fail-on-cache-miss: true
+
+  validate:
+    needs: [discover, prepare_lfs]
+    # Small JSON-only checks still run if the LFS quota/cache is unavailable.
+    # Checks needing proofs fail explicitly instead of passing with no data.
+    if: ${{ !cancelled() && needs.discover.result == 'success' }}
     name: ${{ matrix.label }}
     runs-on: ubuntu-24.04
     timeout-minutes: 360
@@ -97,7 +150,24 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          lfs: true
+          lfs: false
+      - name: Require the verified proof handoff when needed
+        if: ${{ matrix.lfs && needs.prepare_lfs.result != 'success' }}
+        run: |
+          echo 'The shared LFS proof cache is unavailable; no checks are being bypassed.'
+          exit 1
+      - name: Restore proofs without another LFS download
+        if: ${{ matrix.lfs }}
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: .hec-ci-lfs/objects
+          key: ${{ needs.discover.outputs.lfs_key }}
+          fail-on-cache-miss: true
+      - name: Install only this dataset's hash-verified proofs
+        if: ${{ matrix.lfs }}
+        env:
+          CHECK_N: ${{ matrix.n }}
+        run: python3 .github/scripts/lfs_assets.py install --n "$CHECK_N"
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           version: "0.11.28"
@@ -117,7 +187,7 @@ jobs:
   gate:
     name: database integrity
     if: ${{ always() }}
-    needs: [quality, discover, validate]
+    needs: [quality, discover, prepare_lfs, validate]
     runs-on: ubuntu-24.04
     steps:
       - name: Require every validation job
@@ -125,8 +195,9 @@ jobs:
           DISCOVER_RESULT: ${{ needs.discover.result }}
           QUALITY_RESULT: ${{ needs.quality.result }}
           VALIDATE_RESULT: ${{ needs.validate.result }}
+          LFS_RESULT: ${{ needs.prepare_lfs.result }}
         run: |
-          if [[ "$QUALITY_RESULT" != "success" || "$DISCOVER_RESULT" != "success" || "$VALIDATE_RESULT" != "success" ]]; then
-            echo "required checks failed: quality=$QUALITY_RESULT, discovery=$DISCOVER_RESULT, validation=$VALIDATE_RESULT"
+          if [[ "$QUALITY_RESULT" != "success" || "$DISCOVER_RESULT" != "success" || "$VALIDATE_RESULT" != "success" || ( "$LFS_RESULT" != "success" && "$LFS_RESULT" != "skipped" ) ]]; then
+            echo "required checks failed: quality=$QUALITY_RESULT, discovery=$DISCOVER_RESULT, validation=$VALIDATE_RESULT, lfs=$LFS_RESULT"
             exit 1
           fi
