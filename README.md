@@ -32,6 +32,14 @@ table per facet, in facet-file order, using little-endian row-major packbits.
 The manifest records dimensions, hashes, sizes, and ordering information so
 the complete stream can be checked without a solver.
 
+The next contraction format is specified in
+[Exact contraction proof standard](docs/contraction-proof-standard.md).
+`hec.count_proofs` defines exact rational count maps and compact certified
+full-cube constructions; `hec.proof_store` stores immutable, seekable LFS
+shards. This is a staged migration, not a backwards-compatible extension of
+the old reader. Original-cube audits, archived originals, and transformation
+receipts are required before the published dataset is cut over.
+
 ## Python package
 
 The `hec` package under `src/hec/` provides:

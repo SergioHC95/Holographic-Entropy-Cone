@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hec:count-proof:1",
+  "title": "Compact exact full-cube contraction count proof",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "inequality",
+    "function",
+    "clearing_scale"
+  ],
+  "properties": {
+    "format": {
+      "const": "hec-count-proof/1"
+    },
+    "inequality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "n",
+        "coefficients"
+      ],
+      "properties": {
+        "n": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "coefficients": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^(0|-?[1-9][0-9]*)$"
+          }
+        }
+      }
+    },
+    "function": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "rows"
+          ],
+          "properties": {
+            "kind": {
+              "const": "compatible-order-kernel/1"
+            },
+            "rows": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "encoding",
+                "count",
+                "data"
+              ],
+              "properties": {
+                "encoding": {
+                  "enum": [
+                    "bounded-integers/1",
+                    "reduced-rationals/1"
+                  ]
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "data": {
+                  "type": "string",
+                  "contentEncoding": "base64"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "terminals",
+            "nodes",
+            "roots"
+          ],
+          "properties": {
+            "kind": {
+              "const": "count-decision-dag/1"
+            },
+            "terminals": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^[1-9][0-9]*$"
+                  }
+                ]
+              }
+            },
+            "nodes": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "minItems": 3,
+                "maxItems": 3,
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              }
+            },
+            "roots": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            }
+          }
+        }
+      ]
+    },
+    "clearing_scale": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "minimal"
+      ],
+      "properties": {
+        "value": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        },
+        "minimal": {
+          "type": "boolean"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "function": {
+            "properties": {
+              "kind": {
+                "const": "count-decision-dag/1"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "clearing_scale": {
+            "properties": {
+              "minimal": {
+                "const": true
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "clearing_scale": {
+            "properties": {
+              "minimal": {
+                "const": false
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$comment": "Structure only. Strict decoding, geometry, DAG reduction, complete seed coverage, scales and exact mathematics are checked by hec.count_proofs. Enumerated tables are optional audits, never authoritative entries."
+}
