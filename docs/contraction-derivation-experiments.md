@@ -320,6 +320,27 @@ provenance. CPU totals are not inferred from overlapping per-case wall times.
 Fixture tests reject incomplete coverage, missing fresh checks, mismatched
 metadata, shard corruption, overlapping offsets and overwrites of old exports.
 
+### Checkpointed phase continuation
+
+`python -m corpus_derivations.continue_pipeline --output NEW_DIRECTORY prepare
+--source DERIVATION_RUN --python VENV_PYTHON` freezes a continuation implementation
+without changing the live source controller or starting another mathematical
+worker. Run its snapshotted module with `--output NEW_DIRECTORY run` in a
+detached session. It observes the existing first pass, then admits source-free
+verification, synthesis, alternative re-verification, and research packaging
+in that order. Later mathematical phases retain the two-worker and 64 GiB
+RSS limits; the observing process does not perform corpus mathematics.
+
+Each handoff requires complete checkpoint counts, no recorded errors, a free
+controller lock, and no surviving controller, native child or tracked process
+group. A missing incomplete first-pass controller requires intervention; the
+driver never signals or restarts it. Runtime, source-binding and frozen-code
+hashes prevent quietly changing implementations between stages. Failures stop
+the continuation without admitting another phase or overwriting old outputs.
+Fixture sequencing tests are not corpus mathematical coverage. A final
+packaged state still requires independent review and, if no genuinely smaller
+alternative was found, further synthesis work; it never marks the goal done.
+
 ## Reproduction
 
 Use the repository's locked dependencies. The native experiments support
