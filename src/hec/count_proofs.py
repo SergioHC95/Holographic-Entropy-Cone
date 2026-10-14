@@ -24,6 +24,7 @@ INTEGER_ROWS = "bounded-integers/1"
 RATIONAL_ROWS = "reduced-rationals/1"
 TABLE = "full-table/1"
 KERNEL = "compatible-order-kernel/1"
+TRANSPORT = "compatible-cancel-fill-kernel/1"
 DAG = "count-decision-dag/1"
 _DECIMAL = re.compile(r"(?:0|-?[1-9][0-9]*)\Z")
 
@@ -331,26 +332,36 @@ def make_count_proof(
     rows: Iterable[Sequence[int | Fraction]],
     *,
     kernel: bool = False,
+    transport: bool = False,
     integral: bool = True,
     audit_table: bool = False,
 ) -> dict:
-    if kernel and audit_table:
+    if kernel and transport:
+        raise ValueError("choose exactly one certified compact construction")
+    compact = kernel or transport
+    if compact and audit_table:
         raise ValueError("an enumerated audit cannot be a compact kernel definition")
     payload, scale = encode_rows(problem, rows, integral=integral)
     if scale == 1 and not integral:
         # Exactly one canonical payload encoding for integral functions/seeds.
         values = (numerators for _q, numerators in decode_rows(problem, payload))
         payload, scale = encode_rows(problem, values, integral=True)
-    function = {"kind": KERNEL if kernel else TABLE, "rows": payload}
-    if not kernel and not audit_table:
+    function = {"kind": TRANSPORT if transport else KERNEL if kernel else TABLE, "rows": payload}
+    if not compact and not audit_table:
         from ._count_dag import build
 
         function, scale = build(problem, list(decode_rows(problem, payload)))
+    if transport:
+        from ._count_transport import clearing_scale
+
+        scale = clearing_scale(problem, scale)
+    elif kernel:
+        scale = kernel_scale(problem, scale)
     proof = {
         "format": AUDIT_FORMAT if audit_table else FORMAT,
         "inequality": problem.inequality(),
         "function": function,
-        "clearing_scale": {"value": str(kernel_scale(problem, scale) if kernel else scale), "minimal": not kernel},
+        "clearing_scale": {"value": str(scale), "minimal": not compact},
     }
     check_count_proof(proof)  # Construction cannot create an unchecked certificate.
     return proof
@@ -396,7 +407,7 @@ def check_count_proof(proof: object, *, reference: bool = False) -> dict:
         return receipt
     function = _keys(proof["function"], {"kind", "rows"}, "function")
     kind = function["kind"]
-    if kind not in (TABLE, KERNEL):
+    if kind not in (TABLE, KERNEL, TRANSPORT):
         raise ValueError("unsupported full-map definition")
     _keys(function["rows"], {"encoding", "count", "data"}, "row payload")
     if kind == TABLE and not reference and function["rows"].get("encoding") == INTEGER_ROWS:
@@ -410,10 +421,11 @@ def check_count_proof(proof: object, *, reference: bool = False) -> dict:
             _check_scale(proof, 1, minimal=True)
             return _receipt(proof, problem, problem.vertices, edges, 1, kernel=False)
     rows = list(decode_rows(problem, function["rows"]))
-    vertices = list(compatible_vertices(problem)) if kind == KERNEL else range(problem.vertices)
+    compact = kind in (KERNEL, TRANSPORT)
+    vertices = list(compatible_vertices(problem)) if compact else range(problem.vertices)
     if len(rows) != len(vertices):
         raise ValueError("map/seed does not cover its entire declared domain")
-    locations = dict(zip(vertices, range(len(rows)), strict=True)) if kind == KERNEL else None
+    locations = dict(zip(vertices, range(len(rows)), strict=True)) if compact else None
     scale = 1
     for denominator, numerators in rows:
         if any(value > capacity * denominator for value, capacity in zip(numerators, problem.beta, strict=True)):
@@ -443,11 +455,19 @@ def check_count_proof(proof: object, *, reference: bool = False) -> dict:
             if distance > capacity * q * r:
                 raise ValueError(f"contraction edge violation at vertex {vertex}, axis {axis}")
             edges += 1
-    expected_scale = kernel_scale(problem, scale) if kind == KERNEL else scale
+    if kind == TRANSPORT:
+        from ._count_transport import clearing_scale
+
+        expected_scale = clearing_scale(problem, scale)
+    else:
+        expected_scale = kernel_scale(problem, scale) if kind == KERNEL else scale
     _check_scale(proof, expected_scale, minimal=kind == TABLE)
     if kind == TABLE and edges != problem.L * (problem.vertices // 2):
         raise ValueError("original-cube edge coverage mismatch")
-    return _receipt(proof, problem, len(rows), edges, expected_scale, kernel=kind == KERNEL)
+    result = _receipt(proof, problem, len(rows), edges, expected_scale, kernel=compact)
+    if kind == TRANSPORT:
+        result["constructor"] = TRANSPORT
+    return result
 
 
 def _check_scale(proof: dict, expected: int, *, minimal: bool) -> None:
@@ -488,6 +508,10 @@ def evaluate_count_proof(proof: dict, vertex: int, *, verify: bool = True) -> tu
         from ._count_dag import Diagram
 
         return Diagram(problem, proof["function"]).at(vertex)
+    if proof["function"]["kind"] == TRANSPORT:
+        from ._count_transport import SeedLookup, evaluate_transport
+
+        return evaluate_transport(problem, SeedLookup(problem, proof["function"]["rows"]), vertex)
     rows = list(decode_rows(problem, proof["function"]["rows"]))
     if proof["function"]["kind"] == TABLE:
         denominator, values = rows[vertex]

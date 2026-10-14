@@ -18,7 +18,9 @@ import zstandard as zstd
 
 from .count_proofs import (
     DAG,
+    FORMAT,
     KERNEL,
+    TRANSPORT,
     canonical_json,
     check_count_proof,
     inequality_id,
@@ -115,11 +117,13 @@ class ProofCatalog(Sequence[dict]):
             raise ValueError("proof frame exceeds the reader safety limit or has no declared size")
         raw = zstd.ZstdDecompressor().decompress(compressed, max_output_size=MAX_RECORD_BYTES, allow_extra_data=False)
         proof = parse_json(raw)
+        if proof.get("format") != FORMAT:
+            raise ValueError("authoritative catalogue accepts only the exact primary proof format")
         if canonical_json(proof) != raw or proof_id(proof) != entry["proof_id"]:
             raise ValueError("proof record is not canonical or differs from its identity")
         if inequality_id(proof_geometry(proof)) != entry["inequality_id"]:
             raise ValueError("proof differs from its indexed inequality")
-        if proof.get("function", {}).get("kind") not in (DAG, KERNEL):
+        if proof.get("format") != FORMAT or proof.get("function", {}).get("kind") not in (DAG, KERNEL, TRANSPORT):
             raise ValueError("authoritative catalogue accepts compact definitions, not audit tables")
         return proof
 
@@ -129,13 +133,25 @@ class ProofCatalog(Sequence[dict]):
         for index in range(shard, len(self), shards):
             yield index, self[index]
 
+    def shard_group_entries(self, group: int = 0, groups: int = 1) -> list[int]:
+        """Assign whole immutable shards; each payload belongs to one CI job."""
+        if (
+            type(group) is not int
+            or type(groups) is not int
+            or not 1 <= groups <= len(self.shards)
+            or not 0 <= group < groups
+        ):
+            raise ValueError("invalid physical proof shard group")
+        owned = set(sorted(self.shards)[group::groups])
+        return [index for index, entry in enumerate(self.entries) if entry["shard"] in owned]
+
     def verify(self) -> dict:
         checked_edges = 0
         cube_edges, seed_edges = 0, 0
         for proof in self:
             edges = check_count_proof(proof)["checked_edges"]
             checked_edges += edges
-            if proof["function"]["kind"] == KERNEL:
+            if proof["function"]["kind"] in (KERNEL, TRANSPORT):
                 seed_edges += edges
             else:
                 cube_edges += edges
@@ -202,7 +218,7 @@ def write_proof_catalog(
         blocks.clear()
 
     for proof in proofs:
-        if proof.get("function", {}).get("kind") not in (DAG, KERNEL):
+        if proof.get("format") != FORMAT or proof.get("function", {}).get("kind") not in (DAG, KERNEL, TRANSPORT):
             raise ValueError("authoritative catalogue accepts compact definitions, not audit tables")
         receipt = check_count_proof(proof)
         identity = receipt["proof_id"]

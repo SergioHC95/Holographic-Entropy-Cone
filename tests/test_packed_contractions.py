@@ -1,4 +1,5 @@
 import hashlib
+import importlib.util
 import json
 import tempfile
 import unittest
@@ -10,10 +11,16 @@ import zstandard as zstd
 from hec.contractions import (
     _image_table,
     minimal_contraction,
-    packed_contraction_tail_paths,
-    read_contractions,
-    write_packed_contraction_tail,
 )
+
+SPEC = importlib.util.spec_from_file_location(
+    "legacy_contractions", Path(__file__).parents[1] / "tools/_legacy_contractions.py"
+)
+LEGACY = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(LEGACY)
+packed_contraction_tail_paths = LEGACY.packed_contraction_tail_paths
+read_contractions = LEGACY.read_contractions
+write_packed_contraction_tail = LEGACY.write_packed_contraction_tail
 
 
 class PackedContractionTests(unittest.TestCase):

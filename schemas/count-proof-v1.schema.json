@@ -48,7 +48,7 @@
           ],
           "properties": {
             "kind": {
-              "const": "compatible-order-kernel/1"
+              "enum": ["compatible-order-kernel/1", "compatible-cancel-fill-kernel/1"]
             },
             "rows": {
               "type": "object",

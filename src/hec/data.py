@@ -25,7 +25,8 @@ def data_path(n: int, kind: DataKind, *, root: str | Path | None = None) -> Path
     if kind not in DATA_KINDS:
         raise ValueError(f"kind must be one of: {', '.join(sorted(DATA_KINDS))}")
     base = default_data_root() if root is None else Path(root)
-    return base / f"n={int(n)}" / f"{kind}.json"
+    name = "proofs" if kind == "contractions" else kind
+    return base / f"n={int(n)}" / f"{name}.json"
 
 
 def load_hec_data(n: int, kind: DataKind, *, root: str | Path | None = None) -> Any:
@@ -37,6 +38,5 @@ def load_hec_data(n: int, kind: DataKind, *, root: str | Path | None = None) -> 
     if kind == "contractions":
         from .contractions import read_contractions
 
-        facets = read_integer_rows(data_path(n, "facets", root=root), n=n)
-        return read_contractions(path, n=n, facet_rows=facets)
+        return read_contractions(path)
     return read_integer_rows(path, n=n)

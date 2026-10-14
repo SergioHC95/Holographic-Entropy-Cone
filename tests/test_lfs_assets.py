@@ -22,7 +22,7 @@ class LFSAssetsTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.git("init", "-q")
         self.root.joinpath(".gitattributes").write_text(
-            "data/n=*/contractions*.zst filter=lfs diff=lfs merge=lfs -text\n"
+            "data/n=*/proof-shards/*.proofpack filter=lfs diff=lfs merge=lfs -text\n"
             "data/n=*/archive*.zip filter=lfs diff=lfs merge=lfs -text\n"
         )
         self.binary = b"small compressed-map transfer fixture"
@@ -44,21 +44,21 @@ class LFSAssetsTests(unittest.TestCase):
             "fixture",
         )
 
-    def packed(self, n=6, *, tail=False, binary=None):
+    def shard(self, n=6, *, binary=None):
         binary = self.binary if binary is None else binary
         oid = hashlib.sha256(binary).hexdigest()
         directory = self.root / f"data/n={n}"
         directory.mkdir(parents=True, exist_ok=True)
-        manifest = {
-            "schema_version": 1,
-            "kind": "packed-contraction-tail" if tail else "packed-contractions",
-            "n": n,
-            "compressed_sha256": oid,
-            "compressed_size": len(binary),
-        }
-        index = directory / ("contractions-tail.index.json" if tail else "contractions.json")
+        index = directory / "proofs.json"
+        manifest = (
+            json.loads(index.read_text())
+            if index.exists()
+            else {"format": "hec-proof-catalog/1", "entries": [], "shards": {}}
+        )
+        manifest["shards"][oid] = {"bytes": len(binary)}
         index.write_text(json.dumps(manifest))
-        data = directory / ("contractions-tail.packbits.zst" if tail else "contractions.packbits.zst")
+        data = directory / "proof-shards" / f"{oid}.proofpack"
+        data.parent.mkdir(exist_ok=True)
         data.write_text(f"version https://git-lfs.github.com/spec/v1\noid sha256:{oid}\nsize {len(binary)}\n")
         return index, data
 
@@ -73,14 +73,14 @@ class LFSAssetsTests(unittest.TestCase):
     def test_plain_json_does_not_need_lfs(self):
         directory = self.root / "data/n=2"
         directory.mkdir(parents=True)
-        directory.joinpath("contractions.json").write_text("[]")
+        directory.joinpath("proofs.json").write_text('{"format":"hec-proof-catalog/1","entries":[],"shards":{}}')
         self.commit()
         plan = lfs.make_plan(self.root)
         self.assertEqual(plan["assets"], [])
         self.assertEqual(plan["bytes"], 0)
 
     def test_plan_selects_active_stream_not_archives_or_inconclusive_data(self):
-        self.packed()
+        self.shard()
         archive = self.root / "data/n=6/archive-unused.zip"
         archive.write_text(f"version https://git-lfs.github.com/spec/v1\noid sha256:{self.oid}\nsize 36\n")
         unrelated = self.root / "data/n=6/inconclusive/contractions.json"
@@ -88,19 +88,19 @@ class LFSAssetsTests(unittest.TestCase):
         unrelated.write_text("{}")
         self.commit()
         plan = lfs.make_plan(self.root)
-        self.assertEqual([item["path"] for item in plan["assets"]], ["data/n=6/contractions.packbits.zst"])
+        self.assertEqual([item["path"] for item in plan["assets"]], [f"data/n=6/proof-shards/{self.oid}.proofpack"])
         self.assertEqual(plan["required_ns"], [6])
         self.assertEqual(plan["bytes"], len(self.binary))
 
-    def test_append_only_tail_is_selected(self):
-        self.packed()
-        self.packed(tail=True, binary=b"additional proof segment")
+    def test_every_active_immutable_shard_is_selected(self):
+        self.shard()
+        self.shard(binary=b"additional proof segment")
         self.commit()
         self.assertEqual(len(lfs.make_plan(self.root)["objects"]), 2)
 
     def test_identical_objects_are_cached_once(self):
-        self.packed(2)
-        self.packed(6)
+        self.shard(2)
+        self.shard(6)
         self.commit()
         plan = lfs.make_plan(self.root)
         self.assertEqual(len(plan["assets"]), 2)
@@ -108,48 +108,47 @@ class LFSAssetsTests(unittest.TestCase):
         self.assertEqual(plan["bytes"], len(self.binary))
 
     def test_key_is_based_on_bytes_not_manifest_formatting(self):
-        index, _ = self.packed()
+        index, _ = self.shard()
         self.commit()
         initial = lfs.make_plan(self.root)["cache_key"]
         value = json.loads(index.read_text())
-        value["unrelated_annotation"] = "new note"
         index.write_text(json.dumps(value, indent=4))
         self.assertEqual(lfs.make_plan(self.root)["cache_key"], initial)
 
     def test_pointer_manifest_disagreement_fails_before_download(self):
-        index, _ = self.packed()
+        index, _ = self.shard()
         self.commit()
         value = json.loads(index.read_text())
-        value["compressed_sha256"] = "0" * 64
+        value["shards"][self.oid]["bytes"] += 1
         index.write_text(json.dumps(value))
         with self.assertRaisesRegex(ValueError, "differs from the proof manifest"):
             lfs.make_plan(self.root)
 
     def test_invalid_pointer_cannot_be_cached(self):
-        _, path = self.packed()
+        _, path = self.shard()
         path.write_text("not an LFS pointer")
         self.commit()
         with self.assertRaisesRegex(ValueError, "differs from the proof manifest"):
             lfs.make_plan(self.root)
 
     def test_noninteger_size_is_rejected(self):
-        index, _ = self.packed()
+        index, _ = self.shard()
         self.commit()
         value = json.loads(index.read_text())
-        value["compressed_size"] = float(len(self.binary))
+        value["shards"][self.oid]["bytes"] = float(len(self.binary))
         index.write_text(json.dumps(value))
         with self.assertRaisesRegex(ValueError, "must be an integer"):
             lfs.make_plan(self.root)
 
     def test_cache_safety_cap_is_enforced(self):
-        self.packed()
+        self.shard()
         self.commit()
         with patch.object(lfs, "MAX_CACHE_BYTES", 1):
             with self.assertRaisesRegex(ValueError, "safety cap"):
                 lfs.make_plan(self.root)
 
     def test_offline_populate_reuses_local_lfs_store(self):
-        self.packed()
+        self.shard()
         self.commit()
         self.seed_store()
         plan = lfs.make_plan(self.root)
@@ -159,13 +158,13 @@ class LFSAssetsTests(unittest.TestCase):
         self.assertEqual(lfs.populate(self.root, plan, offline=True), result)
 
     def test_missing_objects_cannot_trigger_offline_download(self):
-        self.packed()
+        self.shard()
         self.commit()
         with self.assertRaisesRegex(ValueError, "offline mode forbids"):
             lfs.populate(self.root, lfs.make_plan(self.root), offline=True)
 
     def test_one_filtered_fetch_and_no_recent_history(self):
-        self.packed()
+        self.shard()
         self.commit()
         plan = lfs.make_plan(self.root)
         original = subprocess.run
@@ -181,14 +180,27 @@ class LFSAssetsTests(unittest.TestCase):
         with patch.object(lfs.subprocess, "run", side_effect=fake_fetch):
             result = lfs.populate(self.root, plan)
         self.assertEqual(len(fetches), 1)
-        self.assertIn("--include=data/n=6/contractions.packbits.zst", fetches[0])
+        self.assertIn(f"--include=data/n=6/proof-shards/{self.oid}.proofpack", fetches[0])
         self.assertIn("--exclude=", fetches[0])
         self.assertIn("lfs.fetchrecentalways=false", fetches[0])
         self.assertEqual(fetches[0][-2:], ["origin", "HEAD"])
         self.assertEqual(result["requested_LFS_bytes"], len(self.binary))
 
+    def test_consumers_select_only_owned_payload_shards(self):
+        self.shard(binary=b"first shard")
+        self.shard(binary=b"second shard")
+        self.commit()
+        self.seed_store(b"first shard")
+        self.seed_store(b"second shard")
+        plan = lfs.make_plan(self.root)
+        lfs.populate(self.root, plan, offline=True)
+        self.assertEqual(lfs.install(self.root, plan, 6, 0, 2), 1)
+        self.assertEqual(lfs.install(self.root, plan, 6, 1, 2), 1)
+        with self.assertRaises(ValueError):
+            lfs.install(self.root, plan, 6, 2, 2)
+
     def test_consumer_installs_verified_bytes_without_network(self):
-        _, path = self.packed()
+        _, path = self.shard()
         self.commit()
         self.seed_store()
         plan = lfs.make_plan(self.root)
@@ -199,7 +211,7 @@ class LFSAssetsTests(unittest.TestCase):
         self.assertEqual(lfs.make_plan(self.root)["cache_key"], plan["cache_key"])
 
     def test_consumer_cache_miss_fails_without_network(self):
-        self.packed()
+        self.shard()
         self.commit()
         plan = lfs.make_plan(self.root)
         with patch.object(lfs.subprocess, "run", side_effect=AssertionError("consumer must not fetch")):
@@ -207,7 +219,7 @@ class LFSAssetsTests(unittest.TestCase):
                 lfs.install(self.root, plan, 6)
 
     def test_corrupt_cache_is_rejected_not_silently_repaired(self):
-        self.packed()
+        self.shard()
         self.commit()
         self.seed_store()
         plan = lfs.make_plan(self.root)
@@ -220,7 +232,7 @@ class LFSAssetsTests(unittest.TestCase):
             lfs.install(self.root, plan, 6)
 
     def test_symlink_cache_is_rejected(self):
-        self.packed()
+        self.shard()
         self.commit()
         source = self.seed_store()
         plan = lfs.make_plan(self.root)

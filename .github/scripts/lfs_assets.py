@@ -1,4 +1,4 @@
-"""Share only active, SHA256-verified packed proofs between CI validation jobs.
+"""Share only active, SHA256-verified compact proof shards between CI jobs.
 
 Only the producer may fetch LFS. Consumers fail closed on a missing/corrupt
 cache: they never retry an unrestricted download in every matrix job. Archive
@@ -68,35 +68,29 @@ def payload_entry(root: Path, path: Path, manifest: dict[str, Any], n: int) -> d
 def make_plan(root: Path) -> dict[str, Any]:
     root = root.resolve()
     assets = []
-    for source in sorted((root / "data").glob("n=*/contractions.json")):
+    for source in sorted((root / "data").glob("n=*/proofs.json")):
         if not source.parent.name[2:].isdigit():
             continue
         n = int(source.parent.name[2:])
         payload = json.loads(source.read_text(encoding="utf-8"))
-        if isinstance(payload, dict):
-            if payload.get("kind") != "packed-contractions" or payload.get("schema_version") != 1:
-                raise ValueError(f"unsupported contraction manifest: {source}")
-            if payload.get("n") != n:
-                raise ValueError(f"contraction manifest party count differs: {source}")
-            entry = payload_entry(root, source.with_name("contractions.packbits.zst"), payload, n)
+        if (
+            not isinstance(payload, dict)
+            or set(payload) != {"format", "entries", "shards"}
+            or payload.get("format") != "hec-proof-catalog/1"
+            or not isinstance(payload["shards"], dict)
+        ):
+            raise ValueError(f"unsupported exact proof catalog: {source}")
+        for key, shard in sorted(payload["shards"].items()):
+            if OID_RE.fullmatch(key) is None or not isinstance(shard, dict) or set(shard) != {"bytes"}:
+                raise ValueError(f"invalid proof shard identity: {source}")
+            item = {"compressed_sha256": key, "compressed_size": shard["bytes"]}
+            path = source.parent / "proof-shards" / f"{key}.proofpack"
+            entry = payload_entry(root, path, item, n)
             if entry is not None:
                 assets.append(entry)
-        elif not isinstance(payload, list):
-            raise ValueError(f"unsupported contractions dataset: {source}")
-        # The public reader can chain a packed base and an append-only tail.
-        tail = source.with_name("contractions-tail.index.json")
-        if tail.exists():
-            payload = json.loads(tail.read_text(encoding="utf-8"))
-            if (
-                not isinstance(payload, dict)
-                or payload.get("kind") != "packed-contraction-tail"
-                or payload.get("schema_version") != 1
-                or payload.get("n") != n
-            ):
-                raise ValueError(f"unsupported packed tail index: {tail}")
-            entry = payload_entry(root, source.with_name("contractions-tail.packbits.zst"), payload, n)
-            if entry is not None:
-                assets.append(entry)
+    for directory in (root / "data").glob("n=*"):
+        if directory.name[2:].isdigit() and not (directory / "proofs.json").is_file():
+            raise ValueError(f"dataset has no standardized proof catalog: {directory}")
     objects = {}
     for entry in assets:
         item = {"oid": entry["oid"], "size": entry["size"]}
@@ -113,7 +107,7 @@ def make_plan(root: Path) -> dict[str, Any]:
         "assets": assets,
         "objects": ordered,
         "bytes": size,
-        "cache_key": f"hec-active-lfs-v1-{fingerprint}",
+        "cache_key": f"hec-active-proofs-v2-{fingerprint}",
         "required_ns": sorted({entry["n"] for entry in assets}),
     }
 
@@ -209,9 +203,15 @@ def verify_cache(root: Path, plan: dict[str, Any]) -> None:
         verify_file(cache_path(root, item["oid"]), item)
 
 
-def install(root: Path, plan: dict[str, Any], n: int) -> int:
+def install(root: Path, plan: dict[str, Any], n: int, shard_index: int = 0, shard_count: int = 1) -> int:
     root = root.resolve()
     selected = [entry for entry in plan["assets"] if entry["n"] == n]
+    catalog = json.loads((root / f"data/n={n}/proofs.json").read_text())
+    keys = sorted(catalog["shards"])
+    if not 1 <= shard_count <= len(keys) or not 0 <= shard_index < shard_count:
+        raise ValueError("invalid physical proof shard group")
+    owned = set(keys[shard_index::shard_count])
+    selected = [entry for entry in selected if Path(entry["path"]).stem in owned]
     if not selected:
         raise ValueError(f"no LFS proof payload selected for n={n}")
     for entry in selected:
@@ -241,6 +241,8 @@ def main() -> None:
     parser.add_argument("--github-output", type=Path)
     parser.add_argument("--offline", action="store_true")
     parser.add_argument("--n", type=int)
+    parser.add_argument("--shard-index", type=int, default=0)
+    parser.add_argument("--shard-count", type=int, default=1)
     args = parser.parse_args()
     root = args.root.resolve()
     plan = make_plan(root)
@@ -252,7 +254,7 @@ def main() -> None:
     elif args.command == "install":
         if args.n is None:
             parser.error("install requires --n")
-        result = {"installed_payloads": install(root, plan, args.n)}
+        result = {"installed_payloads": install(root, plan, args.n, args.shard_index, args.shard_count)}
     else:
         result = plan
     if args.github_output is not None:

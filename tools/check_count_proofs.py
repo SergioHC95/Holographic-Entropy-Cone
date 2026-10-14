@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from hec.count_proofs import KERNEL, check_count_proof
+from hec.count_proofs import KERNEL, TRANSPORT, check_count_proof
 from hec.inequality_records import InequalityCatalog
 from hec.proof_store import ProofCatalog
 
@@ -22,7 +22,7 @@ def main():
     proofs, source_edges, seed_edges = 0, 0, 0
     for _index, proof in catalog.iter_selected(args.shard_index, args.shard_count):
         receipt = check_count_proof(proof)
-        if proof["function"]["kind"] == KERNEL:
+        if proof["function"]["kind"] in (KERNEL, TRANSPORT):
             seed_edges += receipt["checked_edges"]
         else:
             source_edges += receipt["checked_edges"]

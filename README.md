@@ -14,31 +14,36 @@ under \(S_{n+1}\). Data files live under `data/n=*/`:
 - `facets.json` contains facet-inequality representatives.
 - `rays.json` contains extreme-ray representatives.
 - `graphs.json` contains exact graph realizations for the listed rays.
-- `contractions.json` contains contraction-map certificates for the listed
-  facets.
+- `inequalities.json` binds primitive inequality identities to proof identities.
+- `proofs.json` indexes the exact compact contraction proofs.
+- `proof-shards/*.proofpack` contains immutable, independently seekable proof
+  definitions, stored in Git LFS.
 
 Rows use primitive integer coefficients in cardinality-then-lexicographic
 subset order. Facet and ray files list lifts from lower-party cones first. The
 remaining facet rows—historical and newly added—are mixed and sorted
-row-lexicographically. The contraction record at each position proves the
-facet at that position.
+row-lexicographically. Proofs bind to inequalities by content identity, not
+by their position in the facet file. Database checks require exactly the
+listed facets and their complete proof bindings.
 
-Graphs contain only `edges` and `weights`. Contractions contain only `lhs`,
-`rhs`, and `images`.
+Graphs contain only `edges` and `weights`. A contraction proof defines an
+exact rational count map on every vertex of the original source cube.
+Repeated RHS terms are grouped; clearing scales are explicit. Enumerated
+Boolean tables are optional audit exports rather than the active interface.
 
-For n=6, `contractions.json` is a manifest for the aligned
-`contractions.packbits.zst` stream. The stream stores one binary contraction
-table per facet, in facet-file order, using little-endian row-major packbits.
-The manifest records dimensions, hashes, sizes, and ordering information so
-the complete stream can be checked without a solver.
-
-The next contraction format is specified in
+The authoritative format is specified in
 [Exact contraction proof standard](docs/contraction-proof-standard.md).
 `hec.count_proofs` defines exact rational count maps and compact certified
 full-cube constructions; `hec.proof_store` stores immutable, seekable LFS
-shards. This is a staged migration, not a backwards-compatible extension of
-the old reader. Original-cube audits, archived originals, and transformation
-receipts are required before the published dataset is cut over.
+shards. The reader accepts only this standard. Exact historical artifacts
+and proof-preserving transformation receipts remain recoverable under
+`archives/contractions/legacy-v1/`, but are not a runtime fallback.
+
+CI independently reconstructs the full maps from the active definitions and
+checks exact bounds, party/purifier images, and every weighted cube edge.
+Decision diagrams use exact symbolic edge coverage. Missing LFS data fails
+the gate; byte hashes and migration receipts never substitute for mathematics.
+CI fetches only active proof shards, not the historical archive.
 
 ## Python package
 
@@ -55,7 +60,10 @@ where the code will run:
 
 ```bash
 uv sync --locked --dev
-uv run python -m hec.checks database
+git lfs pull --include="data/**/proof-shards/*.proofpack" --exclude=""
+hec_verify_dir=$(mktemp -d)
+c++ -O3 -std=c++17 -Wall -Wextra -Werror tools/verify_count_proofs.cpp -o "$hec_verify_dir/check"
+HEC_COUNT_VERIFIER="$hec_verify_dir/check" HEC_CHECK_WORKERS=2 uv run python -m hec.checks database
 uv run ruff check .
 ```
 
@@ -68,19 +76,19 @@ Prompt for VS”.
 Set worker counts explicitly when desired:
 
 ```bash
-HEC_WORKERS=8 uv run python examples/find_ineq_contractions.py
+HEC_WORKERS=2 uv run python examples/find_ineq_contractions.py
 HEC_GRAPH_WORKERS=4 uv run python examples/find_ray_graphs.py
-HEC_CHECK_WORKERS=16 uv run python -m hec.checks facets
+HEC_CHECK_WORKERS=2 uv run python -m hec.checks facets
 ```
 
 The corresponding PowerShell form is:
 
 ```powershell
-$env:HEC_WORKERS = "8"
+$env:HEC_WORKERS = "2"
 uv run python examples\find_ineq_contractions.py
 $env:HEC_GRAPH_WORKERS = "4"
 uv run python examples\find_ray_graphs.py
-$env:HEC_CHECK_WORKERS = "16"
+$env:HEC_CHECK_WORKERS = "2"
 uv run python -m hec.checks facets
 ```
 
@@ -97,10 +105,19 @@ counted once.
 | 3 | 2 (1) | 7 | 2 (1) | 7 | complete |
 | 4 | 2 (2) | 20 | 3 (2) | 20 | complete |
 | 5 | 8 (3) | 372 | 19 (3) | 2,267 | complete |
-| 6 | 72,318 (11) | 358,901,018 | 4,161 (19) | 15,455,986 | incomplete |
+| 6 | 80,213 (11) | — | 4,161 (19) | 15,455,986 | incomplete |
 
 Data updates:
 
+- 2026-10-13: migrated all 80,213 n=6 proofs and the 14 n=1 through n=5
+  proofs to the exact compact standard. The n=6 definitions occupy
+  301,248,490 bytes in 18 LFS shards, compared with 678,582,172 bytes for the
+  old compressed stream. Migration audited all 9,501,700,040 original edges
+  and all reconstructed edges; the database gate repeats the full-map audit
+  from the new payloads alone. Historical tables and receipts are archived.
+  Facet coefficients, ordering, ray data, and graph data are unchanged by
+  this migration. The n=6 facet-image column omits the outdated total for
+  72,318 representatives.
 - 2026-07-30: computed and verified the complete n=6 facet-image total,
   287,558,243, for the 57,940 stored representatives.
 - 2026-07-28: added 52,211 retained new facet representatives and their

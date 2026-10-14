@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import math
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -68,8 +67,6 @@ def _clean_int(value: object) -> int:
         raise ValueError("integer rows cannot contain booleans")
     if isinstance(value, int):
         return value
-    if isinstance(value, float) and math.isfinite(value) and value.is_integer():
-        return int(value)
     raise ValueError(f"expected an integer value, got {value!r}")
 
 

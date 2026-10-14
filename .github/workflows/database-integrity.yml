@@ -11,6 +11,7 @@ permissions:
 env:
   # Every checkout stays pointer-only. Only the centralized producer fetches.
   GIT_LFS_SKIP_SMUDGE: "1"
+  HEC_CHECK_WORKERS: "2"
 
 concurrency:
   group: database-integrity-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -47,7 +48,7 @@ jobs:
         with:
           lfs: false
       - id: lfs
-        name: Plan only active LFS proof streams
+        name: Plan only active exact proof shards
         run: python3 .github/scripts/lfs_assets.py plan --github-output "$GITHUB_OUTPUT"
       - id: datasets
         name: Find stored party counts
@@ -71,7 +72,7 @@ jobs:
               dataset = Path("data") / f"n={n}"
               facets = json.loads((dataset / "facets.json").read_text(encoding="utf-8"))
               counts = {
-                  "contractions": len(facets),
+                  "contractions": len(json.loads((dataset / "proofs.json").read_text())["entries"]),
                   "database": len(facets),
                   "facets": len(facets),
                   "graphs": len(json.loads((dataset / "graphs.json").read_text(encoding="utf-8"))),
@@ -81,6 +82,10 @@ jobs:
               for kind in ("facets", "contractions", "database", "graphs", "rays"):
                   target, limit = targets.get(kind, (counts[kind], 1))
                   shard_count = min(limit, max(1, math.ceil(counts[kind] / target)))
+                  if kind == "contractions":
+                      shard_count = min(shard_count, len(json.loads((dataset / "proofs.json").read_text())["shards"]))
+                      if shard_count < 1:
+                          raise SystemExit(f"n={n} has no authoritative proof shards")
                   for shard_index in range(shard_count):
                       suffix = "" if shard_count == 1 else f", shard {shard_index + 1}/{shard_count}"
                       tasks.append(
@@ -143,9 +148,8 @@ jobs:
     timeout-minutes: 360
     strategy:
       fail-fast: false
-      # Split only the expensive row-wise checks.  Round-robin assignment in
-      # hec.checks keeps shards balanced even when individual rows have
-      # different early-stop costs; database remains one global check.
+      # Proof jobs own complete immutable payload shards. Database also runs
+      # its own global exact proof audit; no hashes or receipts confer validity.
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -167,13 +171,26 @@ jobs:
         if: ${{ matrix.lfs }}
         env:
           CHECK_N: ${{ matrix.n }}
-        run: python3 .github/scripts/lfs_assets.py install --n "$CHECK_N"
+          CHECK_KIND: ${{ matrix.kind }}
+          CHECK_SHARD_INDEX: ${{ matrix.shard_index }}
+          CHECK_SHARD_COUNT: ${{ matrix.shard_count }}
+        run: |
+          if [[ "$CHECK_KIND" == "contractions" ]]; then
+            python3 .github/scripts/lfs_assets.py install --n "$CHECK_N" --shard-index "$CHECK_SHARD_INDEX" --shard-count "$CHECK_SHARD_COUNT"
+          else
+            python3 .github/scripts/lfs_assets.py install --n "$CHECK_N"
+          fi
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           version: "0.11.28"
           python-version: "3.13.14"
           enable-cache: true
       - run: uv sync --locked --no-dev --python 3.13.14
+      - name: Build independent exact full-cube verifier
+        if: ${{ matrix.kind == 'contractions' || matrix.kind == 'database' }}
+        run: |
+          c++ -O3 -std=c++17 -Wall -Wextra -Werror tools/verify_count_proofs.cpp -o "$RUNNER_TEMP/hec-count-verifier"
+          echo "HEC_COUNT_VERIFIER=$RUNNER_TEMP/hec-count-verifier" >> "$GITHUB_ENV"
       - name: Validate ${{ matrix.kind }} for n=${{ matrix.n }}
         env:
           CHECK_KIND: ${{ matrix.kind }}

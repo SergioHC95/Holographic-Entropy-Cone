@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import TypeVar
 
 from ._graph_validation import canonical_primitive_ray_graph
-from .contractions import check_contraction, contraction_coeffs, minimal_contraction
 from .data import available_ns, data_path, load_hec_data
 from .graphs import check_graph
 from .rank import check_support_rank_prepared, prepare_rank_candidates
@@ -206,6 +205,20 @@ def check_stored_rays(
     )
 
 
+def _proof_bindings(current_n: int, root: str | Path | None):
+    from .count_proofs import geometry, inequality_id
+    from .inequality_records import InequalityCatalog
+
+    facets = load_hec_data(current_n, "facets", root=root)
+    proofs = load_hec_data(current_n, "contractions", root=root)
+    inequalities = InequalityCatalog(data_path(current_n, "contractions", root=root).with_name("inequalities.json"))
+    inequalities.check_bindings(proofs)
+    expected = {inequality_id(geometry(current_n, tuple(row))) for row in facets}
+    if len(expected) != len(facets) or expected != set(inequalities.entries):
+        raise ValueError(f"n={current_n}: facet and inequality/proof identity sets are not exactly aligned")
+    return facets, proofs
+
+
 def check_stored_contractions(
     root: str | Path | None = None,
     *,
@@ -213,64 +226,51 @@ def check_stored_contractions(
     shard_index: int = 0,
     shard_count: int = 1,
 ) -> Iterator[str]:
+    import threading
+
+    from ._count_verify import FullMapVerifier
+    from .count_proofs import proof_geometry
+
     for current_n in _selected_ns(root, n):
-        facets = load_hec_data(current_n, "facets", root=root)
-        contractions = load_hec_data(current_n, "contractions", root=root)
-        if len(facets) != len(contractions):
-            raise ValueError(f"n={current_n}: {len(facets)} facets but {len(contractions)} contractions")
-        selected = _shard_indices(len(facets), shard_index, shard_count)
+        _facets, proofs = _proof_bindings(current_n, root)
+        selected = proofs.shard_group_entries(shard_index, shard_count)
         selected_count = len(selected)
         label = _shard_label(shard_index, shard_count)
+        workers = min(2, check_worker_count())
+        local = threading.local()
+        verifiers = []
+        lock = threading.Lock()
 
-        def check_pair(pair: tuple[int, tuple[int, ...], dict], *, current_n=current_n) -> tuple[int, dict]:
-            index, facet, contraction = pair
-            if set(contraction) != {"lhs", "rhs", "images"}:
-                raise ValueError(f"n={current_n}, index={index}: contraction is not a minimal record")
-            if minimal_contraction(facet, current_n, contraction) != contraction:
-                raise ValueError(f"n={current_n}, index={index}: contraction is not in canonical stored form")
-            coeffs, inferred_n = contraction_coeffs(contraction, current_n)
-            if inferred_n != current_n or tuple(coeffs) != tuple(facet):
-                raise ValueError(f"n={current_n}, index={index}: contraction lhs/rhs do not match stored facet")
-            return index, check_contraction(coeffs, current_n, contraction)
+        def check_pair(pair, *, current_n=current_n, local=local, lock=lock, verifiers=verifiers):
+            index, proof = pair
+            if proof_geometry(proof).n != current_n:
+                raise ValueError(f"n={current_n}, index={index}: proof party count differs")
+            if not hasattr(local, "verifier"):
+                local.verifier = FullMapVerifier()
+                with lock:
+                    verifiers.append(local.verifier)
+            return index, local.verifier.verify(proof)
 
-        # ContractionRecords is backed by a sequential packed stream.  Let it
-        # scan once while decoding only this shard; random ``contractions[index]``
-        # access would restart decompression from the beginning for every row.
-        iter_selected = getattr(contractions, "iter_selected", None)
-        if iter_selected is not None:
-            pairs = (
-                (index, tuple(facets[index]), contraction)
-                for index, contraction in iter_selected(shard_index, shard_count)
-            )
-        else:
-            pairs = (
-                (index, tuple(facet), contraction)
-                for index, (facet, contraction) in enumerate(zip(facets, contractions, strict=True))
-                if index % shard_count == shard_index
-            )
-        workers = check_worker_count()
-        print(f"n={current_n}{label}: validating {selected_count:,} contractions with {workers} workers", flush=True)
-        if workers > 1 and selected_count >= 32:
+        pairs = ((index, proofs[index]) for index in selected)
+        print(
+            f"n={current_n}{label}: exact full-map audit of {selected_count:,} proofs with {workers} workers",
+            flush=True,
+        )
+        edges = 0
+        try:
             with ThreadPoolExecutor(max_workers=workers) as pool:
-                checks = _bounded_parallel_map(pool, check_pair, pairs, max_pending=2 * workers)
-                for completed, (index, check) in enumerate(checks, start=1):
-                    if not check["ok"]:
-                        raise ValueError(f"n={current_n}, index={index}: {check['errors']}")
-                    if completed % 1_000 == 0:
-                        print(
-                            f"n={current_n}{label}: checked {completed:,}/{selected_count:,} contractions",
-                            flush=True,
-                        )
-        else:
-            for completed, (index, check) in enumerate(map(check_pair, pairs), start=1):
-                if not check["ok"]:
-                    raise ValueError(f"n={current_n}, index={index}: {check['errors']}")
-                if completed % 1_000 == 0:
-                    print(
-                        f"n={current_n}{label}: checked {completed:,}/{selected_count:,} contractions",
-                        flush=True,
-                    )
-        yield f"n={current_n}{label}: {selected_count} ok"
+                for completed, (index, check) in enumerate(
+                    _bounded_parallel_map(pool, check_pair, pairs, max_pending=2 * workers), start=1
+                ):
+                    if check.get("ok") is not True:
+                        raise ValueError(f"n={current_n}, index={index}: exact full-map verification failed")
+                    edges += check["checked_edges"]
+                    if completed % 1000 == 0:
+                        print(f"n={current_n}{label}: audited {completed:,}/{selected_count:,} proofs", flush=True)
+        finally:
+            for verifier in verifiers:
+                verifier.close()
+        yield f"n={current_n}{label}: {selected_count} mathematically valid full maps; {edges} original cube edges"
 
 
 def check_stored_facet_database_format(
@@ -280,12 +280,12 @@ def check_stored_facet_database_format(
     shard_index: int = 0,
     shard_count: int = 1,
 ) -> Iterator[str]:
-    """Check the shared facet/order/contraction representation contract.
+    """Check exact facet/inequality/proof bindings and mathematical validity.
 
     Historical representative values are intentionally preserved.  The
     ordering invariant is lifts first, followed by one row-lexicographically
-    sorted mix of all remaining old and new representatives; each contraction
-    record is aligned with the facet at the same position.
+    sorted mix of all remaining old and new representatives. Proofs are
+    linked by exact inequality identity, not by a positional legacy record.
     """
 
     _shard_indices(1, shard_index, shard_count)
@@ -325,38 +325,11 @@ def check_stored_facet_database_format(
         if facets != expected:
             raise ValueError(f"n={current_n}: facets are not ordered lifts-first, then row-lexicographically")
 
-        contractions_path = data_path(current_n, "contractions", root=root)
-        raw = load_json(contractions_path)
-        if isinstance(raw, list):
-            if len(raw) != len(facets):
-                raise ValueError(f"n={current_n}: raw contraction count does not match facets")
-            for index, record in enumerate(raw):
-                if not isinstance(record, dict) or set(record) != {"lhs", "rhs", "images"}:
-                    raise ValueError(f"n={current_n}, index={index}: contraction is not a minimal record")
-                if minimal_contraction(facets[index], current_n, record) != record:
-                    raise ValueError(f"n={current_n}, index={index}: contraction is not in standard minimal form")
-        elif isinstance(raw, dict) and raw.get("kind") == "packed-contractions":
-            if int(raw.get("schema_version", -1)) != 1 or int(raw.get("n", -1)) != current_n:
-                raise ValueError(f"n={current_n}: packed contraction manifest has the wrong schema or party count")
-            base_count = int(raw.get("record_count", -1))
-            if base_count < 0 or base_count > len(facets):
-                raise ValueError(f"n={current_n}: packed base contraction count is invalid")
-            if raw.get("order") != "same-as-facets-json":
-                raise ValueError(f"n={current_n}: packed contractions do not declare facet-file order")
-            records = raw.get("records")
-            if not isinstance(records, list) or len(records) != base_count:
-                raise ValueError(f"n={current_n}: packed base contraction index is not aligned with its manifest")
-            for record in records:
-                if not isinstance(record, list | tuple) or len(record) != 2 or int(record[0]) < 0 or int(record[1]) < 0:
-                    raise ValueError(f"n={current_n}: packed contraction index contains an invalid table shape")
-            if len(load_hec_data(current_n, "contractions", root=root)) != len(facets):
-                raise ValueError(f"n={current_n}: packed contraction count does not match facets")
-            # The contractions check streams and verifies every table; this
-            # check validates the manifest/order contract without a duplicate
-            # expensive proof pass.
-        else:
-            raise ValueError(f"n={current_n}: unsupported contraction storage format")
-        yield f"n={current_n}: {len(facets)} standard facet/contraction records"
+        _proof_bindings(current_n, root)
+        # Standalone database integrity is mathematical, not a hash-only or
+        # shape-only check. It audits the same authoritative definitions.
+        yield from check_stored_contractions(root, n=current_n)
+        yield f"n={current_n}: {len(facets)} exact facet/proof bindings and complete full-map audits"
 
 
 def _check_graph_pair(pair: tuple[int, tuple[int, ...], dict, int]) -> tuple[int, str | None]:

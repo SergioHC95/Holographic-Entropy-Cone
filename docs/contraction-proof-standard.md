@@ -9,9 +9,10 @@ ray, or facet rank certificates.
 
 The implementation is in `hec.count_proofs` and `hec.proof_store`. Their readers
 accept only the new format. Historical JSON and bit tables enter through an
-offline importer, never through a fallback in the new verifier. The existing
-published dataset is not cut over until its complete migration and LFS
-publication have passed; adding these tools does not silently replace it.
+offline importer, never through a fallback in the new verifier. All 80,213
+n=6 baseline proofs and the 14 n=1 through n=5 proofs have been migrated and
+fully audited. Publication requires every referenced LFS payload to be
+available and the new database-integrity gate to pass.
 
 ## Inequality and coordinate conventions
 
@@ -270,6 +271,65 @@ the actual seed vertex and edge counts. It does not report those edges as a
 fresh exhaustive full-cube evaluation. Migration source audits have a separate
 scope and count.
 
+## Deterministic cancel fill construction
+
+`compatible-cancel-fill-kernel/1` is a distinct certified constructor. It uses
+the same complete compatible-domain seed, independently rebuilt coverage,
+exact row bounds, occurrence images, and compatible-edge checks as the order
+kernel. It does not change the meaning of `compatible-order-kernel/1`.
+
+Start with integer masses `k_i=alpha_i*x_i`. Process disjoint source-axis pairs
+in lexicographic order, subtracting `min(k_i,k_j)` from both masses. The pair
+map is `(max(a-b,0),max(b-a,0))`; its L1 distance between two inputs is
+`|(a-b)-(a'-b')|`, bounded by the input L1 distance. A single pass eliminates
+every disjoint conflict because masses only decrease.
+
+Then process **all** proper inclusion pairs `(i,j)` in lexicographic axis
+order, moving `min(k_i,alpha_j-k_j)` from the subset to the superset. The pair
+map is `(max(a+b-alpha_j,0),min(a+b,alpha_j))`. Its components are monotone
+in their sum, so its output L1 distance is the difference between the two
+input sums and cannot exceed the input L1 distance. Moving positive mass to
+a superset preserves pairwise intersection of active supports.
+
+Cardinality-lexicographic axes put every proper subset before its superset.
+All incoming transfers to axis `i` therefore precede its outgoing transfers.
+If `i` retains mass after its outgoing pairs, every strict superset is full.
+That full upward family cannot later empty: transfers out of it can only go
+to another full strict superset. One pass consequently gives
+`k_i>0 => k_j=alpha_j` on every proper inclusion.
+
+Normalize `q_i=k_i/alpha_i` and use the common threshold
+`Y_i(x,t)=1[q_i>=t]`, for `0<t<=1`. Each threshold is compatible. Coupling the
+same threshold at two inputs gives expected source distance
+`sum alpha_i |q_i(x)-q_i(y)| = sum |k_i(x)-k_i(y)| <= d_alpha(x,y)`.
+The seed's global bound and the triangle inequality for an exact expectation
+prove the full map `F(x)=integral_0^1 F_C(Y(x,t)) dt` is nonexpansive.
+This integral is a finite rational sum, not Monte Carlo sampling. Compatible
+inputs are fixed by every operation, preserving the seed and boundaries;
+convexity preserves output count bounds.
+
+The derived sufficient clearing scale is
+`D_seed * lcm(alpha_i)`. With uniform source capacities, masses stay zero or
+their common capacity, so `D_seed` alone suffices. This constructor always
+marks its clearing guarantee nonminimal; exhaustive audits may record a
+smaller observed denominator in a separate receipt without changing the
+definition's semantics.
+
+Integral seed queries use exact compatible-domain ranking. Descending source
+axes force future zeros: choosing zero forbids subsets and choosing one
+forbids disjoint supports. Cached completion counts select the packed row
+without enumerating the domain or retaining a vertex dictionary. Rational
+rows have the same mathematical semantics and exact reduced encoding.
+
+The October 13, 2026 full-baseline run reconstructed all 80,213 maps, directly
+audited 9,501,700,040 original and 9,501,700,040 reconstructed cube edges,
+checked 1,320,807,803 compatible edges, and differentially compared the native
+implementation with Python on 2,373,852 query vertices. Source artifacts and
+the exact verifier snapshots were retained. That source audit preceded the
+repository cutover; it did not change the production solver. The active
+database gate now repeats the full reconstructed-cube check independently
+from compact seeds, without reading source tables or migration receipts.
+
 ## Immutable LFS shards and inequality indexes
 
 `hec-proof-catalog/1` indexes content-addressed `.proofpack` shards. It accepts
@@ -293,9 +353,11 @@ shard bytes and hashes, canonical proof identity, and inequality binding.
 Mathematical verification is still required; hashes are not proofs.
 
 LFS quota failure is a publication failure, not mathematical evidence or a
-reason to weaken checks. Keep verified local staging and the old active
-dataset intact until every referenced shard is retrievable and CI passes.
-Do not commit an active catalogue pointing at unavailable payloads.
+reason to weaken checks. A fully verified local branch may retain its
+catalogues and all payloads while publishing is blocked. Do not publish or
+merge the cutover until every active shard and retained archive object is
+retrievable; missing payloads must fail CI. Existing published artifacts
+remain unchanged until that cutover is merged.
 
 ## Proof preserving migration and archive
 
@@ -328,15 +390,33 @@ bounded-memory independent 64/128-bit source-table auditor. Its arithmetic
 limits fail closed; they are not restrictions on rational certificate math.
 An explicit wider auditor is required for wider historical tables.
 
-The 80,213-record published n=6 packed stream and the additional original-scale
-campaign maps still require their own complete staged migration before the
-old public reader and old active payload can be retired. Their current files
-must not be rewritten as an unaudited "format cleanup."
+The complete 80,213-record n=6 baseline migration is recorded in
+`data/n=6/migration.json`. Its original stream, small-n source documents,
+and transformation receipts live under `archives/contractions/legacy-v1/`.
+The archive index records source hashes and the original Git revision.
+Exact audit-source snapshots are retained as inactive `.txt` files in its
+`verification-source/` directory; their index binds the original byte hashes.
+Additional original-scale campaign maps are outside this baseline cutover;
+they require their own full source audit before publication.
 
 ## Running the checks
 
 ```bash
 PYTHONPATH=src python -m unittest discover -s tests -p 'test_count*.py'
+hec_verify_dir=$(mktemp -d)
+c++ -O3 -std=c++17 -Wall -Wextra -Werror tools/verify_count_proofs.cpp -o "$hec_verify_dir/check"
+HEC_COUNT_VERIFIER="$hec_verify_dir/check" HEC_CHECK_WORKERS=2 \
+  PYTHONPATH=src python -m hec.checks database
+```
+
+The database command checks complete inequality/proof bindings, facet order
+and orbit uniqueness, and the full mathematical maps. Rank and graph checks
+remain separate mandatory CI jobs. Unsupported large constructions require
+an exact verification backend; they fail closed rather than using sampling.
+
+The offline importer writes a new staging directory, not the active dataset:
+
+```bash
 c++ -O3 -std=c++17 tools/audit_counts.cpp -o /absolute/scratch/audit_counts
 PYTHONPATH=src python tools/migrate_count_proofs.py /absolute/new/staging \
   legacy-json data --n 1 --n 2 --n 3 --n 4 --n 5
