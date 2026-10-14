@@ -199,6 +199,45 @@ terms, huge unsupported dimensions, unsupported versions/fields, and forged
 verification claims. Syntactically valid constant formulas with wrong boundary
 images are rejected mathematically. Budget exhaustion is labelled incomplete.
 
+## Full-corpus extension (October 14, 2026 PDT)
+
+The next experiment inventories **84,690 unique proofs**, not a rounded 85,000:
+80,213 baseline n=6 proofs, 4,387 newer primitive campaign proofs, 76 scaled
+exact proofs, and 14 n=1 through n=5 proofs. This is proof coverage, not an
+assertion that every inequality has an independently certified facet rank.
+The full-corpus pass and subsequent alternative-map synthesis are distinct
+phases. The earlier 182-proof results above remain historical pilot figures.
+
+`tools/corpus_derivations` adds an exact compatible-domain scalar decision DAG
+with shared terminals and subexpressions. Its missing branches are don't-cares
+only outside the complete compatible domain; the fixed cancel/fill constructor
+still defines every original source vertex. Rational terminal counts use an
+explicit, independently checked minimal common denominator. The frozen integer
+closure and DNF formats retain their original limits; a larger or rational
+case is not falsely labelled an integer-pilot success. An explicit compatible
+seed remains a measured fallback when a mathematical DAG is not smaller.
+
+The independent wide auditor accepts source dimensions through 25, exact
+64-bit output numerators, and 128-bit coupled distance accumulators. It derives
+the complete compatible domain independently, reconstructs the full map, and
+checks every original vertex bound, occurrence boundary, and weighted cube
+edge. Overflow and unsupported geometry fail closed. The original Boolean
+audit supports rows wider than 64 bits and cannot be replaced by a grouped
+count audit. The older narrow checker is unchanged.
+
+As a preflight control, exact-corpus index 62 (L=21, G=22) used seed denominator
+30,291,545,345,228,800 and full-map clearing scale 908,746,360,356,864,000.
+Both initial and source-free saved-recipe audits checked all 22,020,096 cube
+edges. Its DAG was larger than its explicit seed, so it is not a DAG storage
+success. This one control is not full-corpus completion.
+
+The offline runner snapshots source identities, code and native binaries;
+SQLite commits preserve each accepted recipe and receipt. It uses at most two
+processing workers, live controller/descendant RSS guards at 64 GiB, and
+bounded native table allocations. A separate fresh-process phase reconstructs
+all saved winners without source tables. The PR-ready worktree, original
+artifacts, completed production proofs and LFS state remain unchanged.
+
 ## Reproduction
 
 Use the repository's locked dependencies. The native experiments support
