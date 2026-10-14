@@ -692,6 +692,36 @@ support `pause-after-inflight.json` to stop admission, drain and commit current
 work before a later rollout. The active operational pointer records the
 actual handoff/generation; the three-case benchmark report remains historical.
 
+### Reusing a bound compact input seed (experiment, not yet deployed)
+
+`source_seed_benchmark` tests an additional source-construction optimization.
+For catalogue-backed inputs only, an original compact compatible-count proof
+already contains the seed from which the first derivation pass generated its
+sparse recipe. Reading that seed can avoid running the closure decoder again.
+This is not permission to read the primitive campaign's original Boolean
+archives, and the prototype explicitly refuses those inputs.
+
+Five hand-picked controls (68492, 80022, 47976, 8380 and 18) compared all
+855,264 compatible cells against the saved-recipe decoder. All matched exactly.
+The four larger controls took 3.58--4.52 s for saved-recipe reconstruction and
+0.30--0.40 s for warm compact-input reads: 12.05x aggregate observed decode wall
+time. The first cold catalogue/shard-validated read took 1.13 s. The experiment
+includes proof/catalogue identity checks and records cold versus amortized
+costs separately. It is neither a representative sample nor a whole-campaign
+speedup. Its report is
+`/Users/sergio/.hec/contraction-source-seed-speed-20261014.1PCH8r/result.json`,
+SHA256 `3477a102e84546dbfb067a5e452a98b6a9449240b1f2fa4c07d9f2df44d712cf`.
+
+No new cube audit was executed by this lossless-input comparison. Before a
+production rollout, the loader must explicitly bind input proof/catalogue IDs,
+the previously executed compatible-value equivalence, saved-source recipe
+hash and frozen source implementation. It must remain a construction input
+optimization, not an acceptance cache. Every synthesized winner must still
+receive the exact original-cube check and a separate source-free saved-recipe
+audit; that fresh phase must NOT use original compact inputs. Only the common
+compatible seed is reused: an older input's extension outside that domain is
+not silently substituted for the current fixed full-map extension.
+
 The highest validated representation return is a cost-aware choice between
 logical cuts and sparse derivation tapes. Production integration still needs
 a standard-schema constructor, explicit derived scaling, complete corpus
