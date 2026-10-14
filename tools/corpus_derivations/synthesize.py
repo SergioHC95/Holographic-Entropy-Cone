@@ -79,8 +79,13 @@ class VerifiedSource:
             # No competing source writer, or adoption of a live verification job.
             fcntl.flock(self.lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             self.binding = parse_json((self.root / "run-binding.json").read_bytes())
-            if self.binding["total"] != _expected_total or self.binding["workers"] != 2:
+            derivations.worker_count(self.binding)
+            if self.binding["total"] != _expected_total:
                 raise ValueError("source scope or worker target differs from the full approved corpus")
+            if "checkpoint_parent" in self.binding:
+                from .parallelize import validate_inheritance
+
+                validate_inheritance(self.root, self.binding)
             if self.binding["scope_counts"] != expected_counts:
                 raise ValueError("source population counts differ from the full approved corpus")
             if derivations.digest(self.root / "manifest.json") != self.binding["manifest_sha256"]:
@@ -297,7 +302,7 @@ def prepare(args):
             "source_manifest_sha256": source.binding["manifest_sha256"],
             "source_total": EXPECTED_TOTAL,
             "prepared_utc": datetime.now(UTC).isoformat(),
-            "workers": 2,
+            "workers": derivations.worker_count(source.binding),
             "rss_limit_bytes": 64 * 1024**3,
             "sweeps": args.sweeps,
             "max_work": args.max_work,
@@ -326,7 +331,7 @@ def database(output):
     return db
 
 
-def progress(db, output, phase, active, started):
+def progress(db, output, phase, active, started, workers=2, reserved_budget=0, pending_budget=0):
     totals = dict(db.execute("SELECT status,COUNT(*) FROM attempts GROUP BY status"))
     attempted = sum(totals.values())
     accepted = totals.get("accepted_strictly_smaller_alternative", 0)
@@ -343,7 +348,10 @@ def progress(db, output, phase, active, started):
         "fresh_alternatives_verified": fresh_count,
         "remaining_alternative_fresh_checks": accepted - fresh_count,
         "active_tasks": sorted(active),
-        "workers": 2,
+        "workers": workers,
+        "admission_policy": "bounded-corpus-memory-reservations-v1",
+        "reserved_task_budget_bytes": reserved_budget,
+        "pending_admission_budget_bytes": pending_budget,
         "rss_bytes": rss,
         "rss_limit_bytes": 64 * 1024**3,
         "processes": processes,
@@ -361,7 +369,8 @@ def execute(args):
     lock = (output / "controller.lock").open("a+")
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     settings = parse_json((output / "run-binding.json").read_bytes())
-    if settings["workers"] != 2 or settings["source_total"] != EXPECTED_TOTAL or settings["method"] != METHOD:
+    workers = derivations.worker_count(settings)
+    if settings["source_total"] != EXPECTED_TOTAL or settings["method"] != METHOD:
         raise ValueError("frozen synthesis scope or method changed")
     for relative, sha in settings["implementation"].items():
         if derivations.digest(output / "implementation" / relative) != sha:
@@ -370,7 +379,10 @@ def execute(args):
         if derivations.digest(info["path"]) != info["sha256"]:
             raise ValueError("frozen synthesis native binary changed")
     source = VerifiedSource(settings["source"])
-    if source.records_sha256 != settings["source_records_sha256"]:
+    if (
+        source.records_sha256 != settings["source_records_sha256"]
+        or derivations.worker_count(source.binding) != workers
+    ):
         source.close()
         raise ValueError("completed source ledger changed since synthesis preparation")
     db = database(output)
@@ -412,26 +424,45 @@ def execute(args):
         if args.limit < 1:
             raise ValueError("explicit invocation limit must be positive")
         items = itertools.islice(items, args.limit)
-    executor = ProcessPoolExecutor(max_workers=2, initializer=initialize, initargs=(settings,))
+    executor = ProcessPoolExecutor(max_workers=workers, initializer=initialize, initargs=(settings,))
     active, started, last_guard, last_sample, exhausted = {}, time.monotonic(), 0, 0, False
+    reserved, pending_item = {}, None
     try:
         while active or not exhausted:
             if time.monotonic() - last_guard >= 2:
                 derivations.enforce_rss_limit(output)
                 last_guard = time.monotonic()
-            while not exhausted and len(active) < 2:
-                try:
-                    item = next(items)
-                except StopIteration:
-                    exhausted = True
+            while not exhausted and len(active) < workers:
+                if pending_item is None:
+                    try:
+                        pending_item = next(items)
+                    except StopIteration:
+                        exhausted = True
+                        break
+                proposed = derivations.task_memory_budget(pending_item, source.manifest)
+                if not derivations.admission_fits(reserved, proposed):
+                    if not active:
+                        raise MemoryError("individual synthesis task exceeds the staged admission budget")
                     break
-                active[executor.submit(action, item)] = item[0]
+                item, pending_item = pending_item, None
+                future = executor.submit(action, item)
+                active[future], reserved[future] = item[0], proposed
             if time.monotonic() - last_sample >= 30:
-                progress(db, output, args.phase, active.values(), started)
+                progress(
+                    db,
+                    output,
+                    args.phase,
+                    active.values(),
+                    started,
+                    workers,
+                    sum(reserved.values()),
+                    derivations.task_memory_budget(pending_item, source.manifest) if pending_item else 0,
+                )
                 last_sample = time.monotonic()
             ready, _ = wait(active, timeout=1, return_when=FIRST_COMPLETED)
             for future in ready:
                 task = active.pop(future)
+                reserved.pop(future)
                 try:
                     value = future.result()
                     if args.phase == "synthesize":
@@ -460,7 +491,7 @@ def execute(args):
                     db.commit()
                     print(json.dumps({"failed_not_a_proof": task, "error": error}), flush=True)
                     raise
-        progress(db, output, args.phase, (), started)
+        progress(db, output, args.phase, (), started, workers)
         print(json.dumps({"phase_invocation_ended": args.phase, "full_goal_complete": False}), flush=True)
     finally:
         executor.shutdown(wait=True, cancel_futures=True)

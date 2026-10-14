@@ -28,7 +28,9 @@ class ContinuationTests(unittest.TestCase):
           CREATE TABLE attempts(task INTEGER PRIMARY KEY,status TEXT);
           CREATE TABLE errors(phase TEXT,task INTEGER,error TEXT);
         """)
-        self.driver = pipeline.Continuation(self.root, {"initial_source_process_groups": [], "python": sys.executable})
+        self.driver = pipeline.Continuation(
+            self.root, {"initial_source_process_groups": [], "python": sys.executable, "workers": 2}
+        )
 
     def tearDown(self):
         self.db.close()

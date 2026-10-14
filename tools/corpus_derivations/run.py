@@ -1,4 +1,4 @@
-"""Full-scope two-worker research with immutable inputs and durable receipts.
+"""Full-scope memory-bounded research with immutable inputs and durable receipts.
 
 prepare snapshots code and inventories all sources; derive benchmarks exact
 recipes; fresh independently checks saved winners without reading source maps.
@@ -65,6 +65,36 @@ SETTINGS = {}
 CATALOGS = {}
 NARROW = None
 WIDE = None
+
+
+def worker_count(settings):
+    """Explicit approved cohorts; resource limits and mathematical checks stay fixed."""
+    count = settings["workers"]
+    if type(count) is not int or count not in (2, 4, 8):
+        raise ValueError("worker configuration must be an explicitly bound two-, four- or eight-worker cohort")
+    return count
+
+
+def task_memory_budget(item, manifest=None):
+    """Bounded admission budgets for this fixed corpus, never acceptance claims.
+
+    Exact76's measured geometry is at most L=25,G=28,C=133958. Its native
+    full-cube table is <=7.5 GiB; 12 GiB includes Python seed/candidate copies.
+    Baseline/small-n stay within the frozen L<=17,R<=63 narrow envelope.
+    Primitive geometry is explicit in the hash-bound manifest.
+    """
+    entry = item if isinstance(item, dict) else manifest[item[0]]
+    if entry["group"] == "exact":
+        return 12 * 1024**3
+    if entry["group"] == "primitive":
+        problem = geometry(6, tuple(map(int, entry["coefficients"])))
+        table = problem.vertices * (problem.G * 8 + 4)
+        return max(1024**3, table + 2 * 1024**3)
+    return 1024**3
+
+
+def admission_fits(reserved, proposed):
+    return sum(reserved.values()) + proposed + 2 * 1024**3 <= 64 * 1024**3
 
 
 def digest(path):
@@ -180,7 +210,7 @@ def prepare(args):
         "source_catalogs": catalogs,
         "implementation": implementation,
         "binaries": binaries,
-        "workers": 2,
+        "workers": args.workers,
         "rss_limit_bytes": 64 * 1024**3,
         "synthesis_started": False,
         "scope": "proofs; not a universal facet-rank certification",
@@ -407,7 +437,7 @@ def enforce_rss_limit(output):
     raise MemoryError("live RSS cap exceeded; own native search interrupted when identity matched; no new admission")
 
 
-def snapshot(db, output, phase, total, running, started):
+def snapshot(db, output, phase, total, running, started, workers=2, reserved_budget=0, pending_budget=0):
     stats = db.execute(
         "SELECT COUNT(*),COALESCE(SUM(edges),0),COALESCE(SUM(json_bytes),0),"
         "COALESCE(SUM(source_json_bytes),0) FROM results"
@@ -426,7 +456,10 @@ def snapshot(db, output, phase, total, running, started):
         "original_cube_edges_checked": stats[1],
         "selected_recipe_json_bytes": stats[2],
         "source_definition_json_bytes": stats[3],
-        "configured_workers": 2,
+        "configured_workers": workers,
+        "admission_policy": "bounded-corpus-memory-reservations-v1",
+        "reserved_task_budget_bytes": reserved_budget,
+        "pending_admission_budget_bytes": pending_budget,
         "active_tasks": sorted(running),
         "controller_plus_workers_rss_bytes": rss,
         "rss_limit_bytes": 64 * 1024**3,
@@ -458,8 +491,13 @@ def run(args):
         if digest(info["path"]) != info["sha256"]:
             raise ValueError("frozen native binary has changed")
     manifest = parse_json((output / "manifest.json").read_bytes())
-    if len(manifest) != 84690 or binding["workers"] != 2:
+    workers = worker_count(binding)
+    if len(manifest) != 84690:
         raise ValueError("scope/worker configuration changed")
+    if "checkpoint_parent" in binding:
+        from .parallelize import validate_inheritance
+
+        validate_inheritance(output, binding)
     db = sqlite3.connect(output / "checkpoint.sqlite3")
     db.execute("PRAGMA journal_mode=WAL")
     db.execute("PRAGMA synchronous=FULL")
@@ -506,27 +544,47 @@ def run(args):
 
         items = itertools.islice(items, args.limit)
     started, last_sample, last_guard, active, completed = time.monotonic(), 0, 0, {}, 0
-    executor = ProcessPoolExecutor(max_workers=2, initializer=initialize, initargs=(binding,))
+    reserved, pending_item = {}, None
+    executor = ProcessPoolExecutor(max_workers=workers, initializer=initialize, initargs=(binding,))
     try:
         exhausted = False
         while active or not exhausted:
             if time.monotonic() - last_guard >= 2:
                 enforce_rss_limit(output)
                 last_guard = time.monotonic()
-            while not exhausted and len(active) < 2:
-                try:
-                    item = next(items)
-                except StopIteration:
-                    exhausted = True
+            while not exhausted and len(active) < workers:
+                if pending_item is None:
+                    try:
+                        pending_item = next(items)
+                    except StopIteration:
+                        exhausted = True
+                        break
+                proposed = task_memory_budget(pending_item, manifest)
+                if not admission_fits(reserved, proposed):
+                    if not active:
+                        raise MemoryError("individual task exceeds the staged admission budget")
                     break
+                item, pending_item = pending_item, None
                 task = item["task"] if isinstance(item, dict) else item[0]
-                active[executor.submit(action, item)] = task
+                future = executor.submit(action, item)
+                active[future], reserved[future] = task, proposed
             if time.monotonic() - last_sample >= 30:
-                snapshot(db, output, args.phase, len(manifest), active.values(), started)
+                snapshot(
+                    db,
+                    output,
+                    args.phase,
+                    len(manifest),
+                    active.values(),
+                    started,
+                    workers,
+                    sum(reserved.values()),
+                    task_memory_budget(pending_item, manifest) if pending_item else 0,
+                )
                 last_sample = time.monotonic()
             ready, _ = wait(active, timeout=1, return_when=FIRST_COMPLETED)
             for future in ready:
                 task = active.pop(future)
+                reserved.pop(future)
                 try:
                     value = future.result()
                     if args.phase == "derive":
@@ -557,7 +615,7 @@ def run(args):
                     print(json.dumps({"failed_not_a_proof": task, "phase": args.phase, "error": detail}), flush=True)
                     if not args.continue_on_error:
                         raise
-        snapshot(db, output, args.phase, len(manifest), (), started)
+        snapshot(db, output, args.phase, len(manifest), (), started, workers)
         print(
             json.dumps(
                 {
@@ -586,6 +644,7 @@ def main():
     inventory.add_argument("--closure", type=Path, required=True)
     inventory.add_argument("--narrow", type=Path, required=True)
     inventory.add_argument("--wide", type=Path, required=True)
+    inventory.add_argument("--workers", type=int, choices=(2, 4, 8), default=8)
     execute = commands.add_parser("run")
     execute.add_argument("--phase", choices=("derive", "fresh"), default="derive")
     execute.add_argument("--group", choices=("all", "baseline", "exact", "primitive"), default="all")

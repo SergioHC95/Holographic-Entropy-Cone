@@ -343,6 +343,22 @@ alternative was found, further synthesis work; it never marks the goal done.
 
 ## Reproduction
 
+On October 14 the user explicitly replaced the two-worker research limit with
+eight workers while leaving other jobs running. New generations bind that
+cohort in their metadata; historical two-worker runs are unchanged. The
+`corpus_derivations.parallelize` handoff requires the old controller and its
+workers/session to have exited, preserves a SQLite backup and every completed
+receipt byte-for-byte, and records the old/new binding chain. It refuses changes
+to mathematical functions, seed/recipe decoders, or native verifier binaries.
+All inherited definitions still require the full separate source-free audit.
+
+The eight-worker controllers admit small baseline cases concurrently, reserving
+2 GiB of control headroom inside the unchanged 64 GiB aggregate cap. The largest
+exact cases reserve 12 GiB each; explicit primitive geometry determines its
+full-cube table reservation. Large-case concurrency can therefore be below
+eight. Live aggregate/per-worker RSS guards remain active. Admission budgets
+are scheduling bounds, not mathematical acceptance or proof-coverage claims.
+
 Use the repository's locked dependencies. The native experiments support
 n<=6, L<=17, total RHS capacity<=63, and source capacities<=32; wider cases
 fail closed. Keep generated runs outside the authoritative dataset.

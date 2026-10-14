@@ -176,7 +176,7 @@ def export(
         binding = parse_json((synthesis_root / "run-binding.json").read_bytes())
         if (
             binding["source_total"] != _expected_total
-            or binding["workers"] != 2
+            or derivations.worker_count(binding) != derivations.worker_count(source.binding)
             or binding["method"] != METHOD
             or binding["source_records_sha256"] != source.records_sha256
         ):
@@ -315,7 +315,8 @@ def export(
             "phase_one_winners": dict(winners),
             "phase_one_method_statuses": {k: dict(v) for k, v in methods.items()},
             "packaging_integrity_checked_frames": len(reader),
-            "processing_worker_limit": 2,
+            "processing_worker_limit": derivations.worker_count(binding),
+            "source_checkpoint_parent": source.binding.get("checkpoint_parent"),
             "rss_limit_bytes": 64 * 1024**3,
             "original_archived_tables_overwritten": False,
             "comparison_scope": "canonical mathematical definition bytes; original enumerated audit downloads excluded",

@@ -165,7 +165,7 @@ class Continuation:
         value = {
             "sample_utc": datetime.now(UTC).isoformat(),
             "phase": phase,
-            "processing_worker_limit": 2,
+            "processing_worker_limit": derivations.worker_count(self.binding),
             "rss_limit_bytes": 64 * 1024**3,
             "full_goal_complete": False,
             **details,
@@ -229,7 +229,7 @@ class Continuation:
         if (
             synthesis_binding["source"] != str(source)
             or synthesis_binding["source_manifest_sha256"] != self.binding["source_manifest_sha256"]
-            or synthesis_binding["workers"] != 2
+            or derivations.worker_count(synthesis_binding) != derivations.worker_count(self.binding)
             or synthesis_binding["source_total"] != EXPECTED_TOTAL
             or synthesis_binding["rss_limit_bytes"] != 64 * 1024**3
         ):
@@ -272,7 +272,7 @@ def prepare(args):
     source_binding = read_json(source / "run-binding.json")
     if (
         source_binding["total"] != EXPECTED_TOTAL
-        or source_binding["workers"] != 2
+        or derivations.worker_count(source_binding) not in (2, 4, 8)
         or source_binding["scope_counts"] != EXPECTED_COUNTS
         or source_binding["rss_limit_bytes"] != 64 * 1024**3
     ):
@@ -303,7 +303,7 @@ def prepare(args):
         "source_manifest_sha256": source_binding["manifest_sha256"],
         "python": python,
         "python_sha256": derivations.digest(python),
-        "workers": 2,
+        "workers": derivations.worker_count(source_binding),
         "rss_limit_bytes": 64 * 1024**3,
         "total": EXPECTED_TOTAL,
         "initial_source_process_groups": groups,
@@ -320,7 +320,7 @@ def execute(args):
         binding = read_json(output / "run-binding.json")
         if (
             binding["format"] != FORMAT
-            or binding["workers"] != 2
+            or derivations.worker_count(binding) not in (2, 4, 8)
             or binding["total"] != EXPECTED_TOTAL
             or binding["rss_limit_bytes"] != 64 * 1024**3
         ):
