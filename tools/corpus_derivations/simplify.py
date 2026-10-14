@@ -1,7 +1,8 @@
 """Exact, source-guided simpler-map synthesis reference (not an acceptance gate).
 
-A tight edge with equal values in one coordinate forces both endpoints to move
-together in that coordinate. We collect such components, then intersect ALL
+With other coordinates fixed, a tight edge with equal values in one coordinate
+forces both endpoints to move together in that coordinate. We collect such
+components, then intersect ALL
 coupled residual-budget intervals on their cut edges. Moving a whole component
 to a value in that intersection preserves every compatible edge and boundary.
 The resulting full-map recipe must still receive independent original-cube

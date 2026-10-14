@@ -242,8 +242,9 @@ artifacts, completed production proofs and LFS state remain unchanged.
 
 `corpus_derivations.simplify` is an arbitrary-precision mathematical reference
 for subsequent synthesis, not a replacement for independent acceptance. It
-starts from a complete verified compatible seed. On a tight edge whose two
-values in coordinate g agree, those values are moved together. Connected
+starts from a complete verified compatible seed. With other coordinates fixed,
+on a tight edge whose two values in coordinate g agree, those values are moved
+together. Connected
 components of such equalities are constant in g; any component containing an
 occurrence boundary stays fixed.
 
