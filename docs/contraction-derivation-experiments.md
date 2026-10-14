@@ -391,6 +391,142 @@ Run bindings record source catalogue, implementation, and binary hashes;
 per-case records retain exact identities, timing, failure, and acceptance
 scope. Historical runs are never overwritten.
 
+## One general reconstruction pipeline
+
+`hec.reconstruction` factors the successful research representations into one
+proposed function kind inside the existing `hec-count-proof/1` envelope:
+
+```text
+exact inequality/frame
+  -> derive the COMPLETE compatible domain C from supports
+  -> evaluate one seed program S : C -> rational grouped counts
+  -> fixed cancel/fill/common-threshold expectation E
+  -> full map F = E(S) on EVERY original cube vertex
+  -> independent exact full-cube audit
+```
+
+The seed program has four closed, versioned primitive kinds: exact count
+lookup, a shared scalar decision DAG, logical threshold-cut formulas, and
+integer interval closure with sparse exceptional choices. These are seed
+languages, not four incompatible full-map formats. Geometry, domains,
+boundary conventions, extension, scaling and verification are shared.
+Proof documents cannot select Python code, native binary paths, solvers,
+source archives, fold order, or unverified extension operators.
+
+For example, a complete MMI reconstruction is:
+
+```json
+{
+  "format": "hec-count-proof/1",
+  "inequality": {"n": 3, "coefficients": ["-1", "-1", "-1", "1", "1", "1", "-1"]},
+  "function": {
+    "kind": "compatible-reconstruction-pipeline/1",
+    "seed": {
+      "kind": "integer-cut-dnf/1",
+      "terms": [["1", "0"], ["2", "0"], ["3", "4"], ["4", "0"], ["5", "2"], ["6", "1"]],
+      "groups": [[[2]], [[4]], [[5]], [[0, 1, 3]]]
+    },
+    "extension": {"kind": "cancel-fill-common-threshold/1"}
+  },
+  "clearing_scale": {"value": "1", "minimal": false}
+}
+```
+
+The corresponding syntax contract is
+`schemas/reconstruction-pipeline-v1.schema.json`. It reuses the existing
+inequality and exact-row schemas. The reader separately enforces complete
+coverage, canonical/shared DAG objects, exact group capacities, minimal seed
+denominators and the derived full-map clearing guarantee. DAG nodes are
+canonically relabelled bottom-up by axis and child IDs. Configurable resource
+limits are implementation capabilities, not extra mathematical assumptions.
+
+### Shared extension and semantic identity
+
+Let K(x) be the fixed integer cancel/fill mass transport and
+q_i(x)=K_i(x)/alpha_i. Sort its distinct positive threshold levels as
+0=lambda_0<...<lambda_m=1 and set
+y_j(x)_i=1[q_i(x)>=lambda_j]. Then every y_j(x) is compatible, and
+
+```text
+F(x) = sum_j (lambda_j-lambda_{j-1}) * S(y_j(x)).
+```
+
+Thus any two seed programs that give exactly the same rational counts on C
+give exactly the same full map, even if their syntax and file sizes differ.
+Conversely E fixes C, so different compatible values give different maps.
+This is a useful semantic normal form for this extension, not an assertion
+that every possible contraction has a unique short program.
+
+This also gives completeness **up to proof-preserving canonicalization** in
+the exact rational-count model. Restrict any already valid full-cube map to
+C. Its exact bounds and occurrence images are preserved, and all compatible
+edges still contract. Conversely, the isometry of C and the certified
+extension theorem turn any seed satisfying that contract into a valid full
+map. The explicit-seed primitive can always encode that restriction; sparse
+closure programs, cut formulas and DAGs are optional improvements, not
+assumptions needed for representability.
+
+This does not assert exact preservation of an arbitrary old function outside
+C. For example, a valid weighted map can have F(11)=1 whereas the fixed
+extension of its compatible restriction has F(11)=1/2. Both prove the same
+inequality. An exact-encoding receipt and a proof-preserving transformation
+receipt must therefore remain distinct. Nor does general representability
+imply a universally small seed or an inequality-only search algorithm.
+
+`materialize_seed()` derives C independently of supplied row positions,
+requires a minimal exact common denominator, and checks every compatible weighted
+edge and occurrence boundary. Its seed fingerprint binds the inequality frame,
+denominator and every ordered exact count. `semantic_identity()` additionally
+binds the fixed extension version. Encoding IDs still identify actual stored
+documents. Neither fingerprint is itself mathematical acceptance.
+
+Pure representation conversion can therefore be justified by complete seed
+equality and identical extension semantics; it does not require pretending a
+third original-cube audit occurred. `corpus_derivations.pipeline_import`
+actually compares all compatible values and records that restricted scope.
+It rejects silently replacing an order-projection extension by cancel/fill:
+that is a proof-preserving change of function, not an exact encoding change.
+
+### One verification interface, no legacy fallback
+
+Every seed kind exposes the same exact seed interface. `program.evaluate(x)`
+uses the same extension for arbitrary original-cube queries, without allocating
+an entire exponential table. `program.audit_reference()` directly checks every
+actual output and every weighted cube edge using arbitrary-precision fractions
+for bounded small cases. Larger cases require an explicit independent exact
+backend; no resource limit changes a full audit into sampling.
+
+`program.audit(NativePipelineAuditor(binary, expected_sha256))` executes the
+existing independent wide C++ auditor after complete seed reconstruction.
+The same backend handles every seed kind. Coverage, geometry, seed scale,
+clearing scale and full-cube scope must all match. The native backend's
+arbitrary-precision query differentials are controls in addition to its
+exhaustive mathematical edge coverage, not replacements for it.
+
+Old experimental documents enter only through the offline importer. The new
+pipeline reader has no version guessing or legacy fallback. The proposed
+function kind remains opt-in: the existing production reader deliberately
+rejects it until complete-corpus translation/equivalence and integration QA
+are finished. The running, frozen eight-worker verification and subsequent
+synthesis workflow are not changed by this refactor.
+
+The control suite exercises all four seed primitives, encoding-independent
+identity, all-vertex agreement, weighted thresholds, arbitrary precision,
+wide coupled sums, empty maps, malformed DAGs, missing rows, forged acceptance
+claims, wrong boundaries, incompatible extensions and audit resource limits.
+Controls are not a claim that all 84,690 recipes have already been converted.
+In particular the closure choices remain source-guided in general; the new
+abstraction is not an inequality-only solver or a universal speedup claim.
+
+The October 14 controls additionally converted five real stored recipes
+(tasks 18, 24, 80052, 80286 and 81838), covering every winning seed family and
+28,688 complete compatible vertices. The rational control had L=19, G=24 and
+denominator 16,777,216; the larger integral DAG control had L=18, G=19. All
+exact seed values and fixed-extension semantics were preserved. These were
+five conversion-equivalence controls, not five new full-cube audit claims or
+a completed full-corpus conversion. The nineteen unit controls separately
+include direct reference and independent native full-cube checks on fixtures.
+
 ## Next mathematical priorities
 
 The highest validated representation return is a cost-aware choice between
