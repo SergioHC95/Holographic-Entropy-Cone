@@ -296,6 +296,30 @@ fixture-only workflow tests cover the scope/lock/hash/coverage gates, frame
 length safety, strict-size rejection, actual mathematical rejection and a
 successful changed-map fixture. Those tests are not corpus coverage.
 
+### Final packaging and coverage report
+
+`python -m corpus_derivations.package_results` requires complete source
+verification, an explicit synthesis disposition for every source identity,
+and a source-free full-cube receipt for every retained alternative. It selects
+exactly one definition per inequality, keeping the verified source whenever
+there is no strictly smaller verified alternative. Original artifacts remain
+unchanged.
+
+The research catalog uses independently seekable frames in immutable,
+content-addressed 16 MiB shards. Every sealed frame, identity, offset and
+coverage interval is re-read before the final report is emitted. This is
+packaging integrity, not a substitute for mathematical verification. The
+catalog is explicitly experimental and is not accepted by the production
+reader or silently installed in the PR-ready worktree.
+
+The report distinguishes canonical mathematical-definition bytes from frame
+compression and archived enumerated tables. It records full-scope source and
+alternative verification counts, original-cube edge totals, method capability
+and budget failures, source dimensions and denominator sizes, and selection
+provenance. CPU totals are not inferred from overlapping per-case wall times.
+Fixture tests reject incomplete coverage, missing fresh checks, mismatched
+metadata, shard corruption, overlapping offsets and overwrites of old exports.
+
 ## Reproduction
 
 Use the repository's locked dependencies. The native experiments support
