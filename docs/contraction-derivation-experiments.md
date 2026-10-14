@@ -527,6 +527,37 @@ five conversion-equivalence controls, not five new full-cube audit claims or
 a completed full-corpus conversion. The nineteen unit controls separately
 include direct reference and independent native full-cube checks on fixtures.
 
+### Complete-corpus selection and conversion gate
+
+`corpus_derivations.selected_corpus.VerifiedSelection` provides one read-only,
+locked source for the subsequent full-corpus converter. Its default scope is
+all 84,690 identities. It requires all source-free source audits, a supported
+synthesis disposition for every identity, and a separate successful fresh
+full-cube audit for every retained alternative. Source, manifest, frozen code,
+binary and synthesis bindings must agree. A live controller, native child,
+unfinished phase or recorded error prevents admission of conversion work.
+
+Every selected definition carries its own exact saved recipe and audit-receipt
+hash. A changed alternative cannot inherit its source's audit. Non-retained
+or budget-limited attempts select the fully verified source; they do not
+become new proofs. Receipt checks distinguish exact integer coverage counts
+from booleans, partial checks and compatible-seed-only scopes.
+
+`pipeline_convert.convert_definition` applies the unified encoding to such a
+record, checks all compatible values through the offline importer, and emits
+an exact-conversion receipt binding the target proof, semantic identity and
+actual selected mathematical audit. It explicitly records that no new cube
+audit was executed. Canonical wrapper overhead is reported even when it
+increases an individual definition's size; standardization is not disguised
+as a storage improvement.
+
+This selection/conversion core does not launch a cohort. Full-corpus parallel
+scheduling, durable conversion checkpoints and final unified packaging remain
+the next integration step after the running frozen workflow. They must retain
+the approved eight-worker target, memory-aware admission and 64 GiB caps.
+The gate was also checked against the actual live source cohort: it refused
+competing conversion and started zero workers, leaving verification unchanged.
+
 ## Next mathematical priorities
 
 The highest validated representation return is a cost-aware choice between
