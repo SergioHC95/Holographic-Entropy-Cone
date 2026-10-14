@@ -622,6 +622,56 @@ is still live.
 
 ## Next mathematical priorities
 
+### Bounded speed experiments (October 14)
+
+`corpus_derivations.speedups` is an opt-in prototype, not a live-cohort change.
+It removes four redundant full-seed replays per candidate-selection call:
+construct all descriptions, compare canonical byte costs, and replay only the
+winner. Previously every trial was decoded and the winner was decoded again
+by its caller (five replays in the measured eligible controls). Non-winning
+encodings are explicitly labelled unaccepted. The winning serialized recipe
+must still match EVERY intended compatible count, followed by unchanged
+independent original-cube acceptance and the later separate fresh audit.
+An uncompetitive winner may skip replay altogether; it produces no accepted
+alternative and the verified source remains authoritative.
+
+The prototype also evaluates integer cut formulas as exact Python-integer
+bitsets over the complete compatible domain. OR computes each threshold set;
+integer NumPy accumulation sums its Boolean layers. This replaces a separate
+term-by-term Python query at every compatible vertex. Syntax, literal-mask
+bounds, complete-domain coverage and capacity-limited integer arithmetic are
+preserved. The original scalar evaluator remains the equivalence reference.
+
+A source/implementation/binary-bound single-process experiment used tasks
+18, 24 and 84667, two alternating-order timing pairs, and exact equality of
+all compatible values and selected serialized bytes. The 11,760-vertex,
+L=17 control (task 84667) improved saved-source decoding from 1.880 s to
+0.0635 s (29.6x). Its candidate-selection-plus-caller-replay stage improved
+from 16.77/18.55 s to 5.33/5.90 s: 3.15x aggregate paired wall time and
+2.54x measured Python-plus-reaped-closure-child CPU. These stage timings do
+not establish the same improvement for smoothing, verification or the whole
+campaign.
+
+The small controls' aggregate selection ratios were 2.09x and 1.13x; one
+tiny optimized timing was slower, and an unchanged closure-source decoder
+also had a slower individual observation. Host contention and millisecond
+startup costs prevent universal-speedup claims. All three identical winners
+passed an actually executed independent audit: 1,114,196 original-cube edges
+in total. These are three controls, not additional corpus coverage or newly
+imported production proofs. The largest sampled experiment RSS was 283.5 MiB;
+sampled experiment-plus-live-cohort RSS stayed below 1.78 GiB, not a measured
+peak or a memory reservation guarantee.
+
+Nine unit controls include 100 randomized exact cut programs, non-byte-aligned
+domains, empty outputs, fractional seeds using the unchanged decoder,
+winner-only replay, uncompetitive candidates and corrupt winning values.
+The experiment's immutable local report is under
+`/Users/sergio/.hec/contraction-speedups-20261014.gJB6Zu/report.json` (SHA256
+`e5178656c2a6979aaac13f254c5d3016261478099f7adb904cdb4329ff569a1c`).
+The frozen eight-worker corpus implementation is unchanged. Wider differential
+controls and a separately reviewed, checkpoint-preserving handoff would be
+required before deploying the prototype; neither is claimed here.
+
 The highest validated representation return is a cost-aware choice between
 logical cuts and sparse derivation tapes. Production integration still needs
 a standard-schema constructor, explicit derived scaling, complete corpus
