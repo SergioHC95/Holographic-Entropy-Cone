@@ -145,13 +145,15 @@ class SeedProgram:
         if reached != set(range(count + len(nodes))):
             raise ValueError("unreachable scalar DAG objects")
 
+        scale = self.scale
+
         def at(vertex):
             result = []
             for ref in roots:
                 while ref >= count:
                     axis, low, high = nodes[ref - count]
                     ref = high if vertex >> axis & 1 else low
-                result.append(Fraction(terminals[ref], self.scale))
+                result.append(Fraction(terminals[ref], scale))
             return tuple(result)
 
         self.at = at
@@ -220,17 +222,18 @@ class SeedProgram:
             previous = position
         if backend is None or getattr(backend, "primitive", None) != CLOSURE:
             raise ValueError("exact interval-closure backend required; no source-table fallback")
-        self.scale, self._closure_rows = 1, None
+        self.scale = 1
+        problem, domain, cached = self.problem, self.domain, []
 
         def at(vertex):
-            if self._closure_rows is None:
-                rows = backend.decode(self.problem, f)
-                if len(rows) != self.domain.count or any(
-                    len(row) != self.problem.G or any(type(value) is not int for value in row) for row in rows
+            if not cached:
+                rows = backend.decode(problem, f)
+                if len(rows) != domain.count or any(
+                    len(row) != problem.G or any(type(value) is not int for value in row) for row in rows
                 ):
                     raise ValueError("closure backend returned an incomplete or non-integral seed")
-                self._closure_rows = tuple(tuple(row) for row in rows)
-            return tuple(Fraction(value) for value in self._closure_rows[self.domain.rank(vertex)])
+                cached.append(tuple(tuple(row) for row in rows))
+            return tuple(Fraction(value) for value in cached[0][domain.rank(vertex)])
 
         self.at = at
 

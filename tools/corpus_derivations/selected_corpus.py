@@ -189,6 +189,37 @@ class VerifiedSelection:
                     receipt_raw,
                 )
 
+    def source_definition(self, task):
+        """Audited baseline variant, including when an alternative was selected.
+
+        Downstream formats must compare source/alternative costs in the SAME
+        encoding instead of inheriting a size ranking from another language.
+        """
+        if type(task) is not int or not 0 <= task < self.expected:
+            raise ValueError("source variant task is outside the complete manifest")
+        row = self.source.db.execute(
+            "SELECT inequality_id,recipe_sha256,json_bytes,compressed FROM results WHERE task=?", (task,)
+        ).fetchone()
+        if row is None:
+            raise ValueError("source variant is missing from its verified ledger")
+        iid, sha, size, data = row
+        raw = self.source.validate_record(task, iid, sha, size, data)
+        receipt_row = self.source.db.execute("SELECT report FROM fresh WHERE task=? AND ok=1", (task,)).fetchone()
+        if receipt_row is None:
+            raise ValueError("source variant lacks its own successful cube audit")
+        receipt_raw = receipt_row[0].encode()
+        check_audit(parse_json(receipt_raw), task, sha, geometry_only(parse_json(raw)))
+        return SelectedDefinition(
+            task,
+            iid,
+            sha,
+            raw,
+            "verified-source",
+            str(self.source.root),
+            hashlib.sha256(receipt_raw).hexdigest(),
+            receipt_raw,
+        )
+
     def close(self):
         if self.db is not None:
             self.db.close()

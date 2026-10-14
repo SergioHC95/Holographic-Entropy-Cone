@@ -1,6 +1,7 @@
 """One seed/extension contract; controls are not full-corpus coverage."""
 
 import copy
+import gc
 import hashlib
 import json
 import os
@@ -10,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import weakref
 from fractions import Fraction
 from pathlib import Path
 from unittest.mock import patch
@@ -199,6 +201,20 @@ class ReconstructionPipelineTests(unittest.TestCase):
         exported["function"]["seed"]["rows"]["data"] = ""
         self.assertEqual((program.identity, program.evaluate(3)), (identity, image))
 
+    def test_dag_seed_is_released_without_waiting_for_cyclic_gc(self):
+        program = ReconstructionProgram(
+            make_pipeline(self.p, canonical_dag(diagrams.build(self.p, self.vertices, 1, self.rows)["function"]))
+        )
+        enabled = gc.isenabled()
+        gc.disable()
+        try:
+            reference = weakref.ref(program._seed)
+            del program
+            self.assertIsNone(reference())
+        finally:
+            if enabled:
+                gc.enable()
+
     def test_unknown_execution_paths_and_forged_acceptance_fields_fail_closed(self):
         document = make_pipeline(self.p, table(self.p, self.rows))
         for location, key, value in (
@@ -336,6 +352,23 @@ class ClosurePipelineTests(unittest.TestCase):
             ReconstructionProgram(target)
         with self.assertRaisesRegex(ValueError, "binary changed"):
             NativeClosure(self.binary, "0" * 64)
+
+    def test_decoded_closure_rows_are_released_without_cyclic_gc(self):
+        p = geometry(3, (-1, -1, -1, 3, 3, 3, -1))
+        source = choice_recipe(p, closure_call(self.binary, p, mode="encode", rows=mmi(p)))
+        backend = NativeClosure(self.binary, self.sha256)
+        target, _ = import_recipe(source, closure_backend=backend)
+        program = ReconstructionProgram(target, closure_backend=backend)
+        program.materialize_seed()
+        enabled = gc.isenabled()
+        gc.disable()
+        try:
+            reference = weakref.ref(program._seed)
+            del program
+            self.assertIsNone(reference())
+        finally:
+            if enabled:
+                gc.enable()
 
 
 @unittest.skipUnless(shutil.which("c++"), "independent pipeline control needs a C++17 compiler")

@@ -524,7 +524,7 @@ The October 14 controls additionally converted five real stored recipes
 denominator 16,777,216; the larger integral DAG control had L=18, G=19. All
 exact seed values and fixed-extension semantics were preserved. These were
 five conversion-equivalence controls, not five new full-cube audit claims or
-a completed full-corpus conversion. The nineteen unit controls separately
+a completed full-corpus conversion. The pipeline unit controls separately
 include direct reference and independent native full-cube checks on fixtures.
 
 ### Complete-corpus selection and conversion gate
@@ -551,12 +551,64 @@ audit was executed. Canonical wrapper overhead is reported even when it
 increases an individual definition's size; standardization is not disguised
 as a storage improvement.
 
-This selection/conversion core does not launch a cohort. Full-corpus parallel
-scheduling, durable conversion checkpoints and final unified packaging remain
-the next integration step after the running frozen workflow. They must retain
-the approved eight-worker target, memory-aware admission and 64 GiB caps.
-The gate was also checked against the actual live source cohort: it refused
-competing conversion and started zero workers, leaving verification unchanged.
+The per-record core does not launch a cohort. `pipeline_batch` provides the
+full-scope frozen runner: it inherits the approved worker count, snapshots
+implementations/runtime/primitive identities, and binds every selected input
+and audit in an immutable manifest. Completed conversions commit individually
+to a WAL/FULL SQLite ledger. Resume validates their canonical target and
+provenance before skipping them; original proofs are never replaced. There
+is no CLI subset/limit switch. Private two-case fixtures do not satisfy the
+default 84,690-case scope.
+
+The runner reserves memory for compatible-seed/Fraction/JSON copies rather
+than incorrectly allocating an original-cube table for conversion. It shares
+the two-GiB control reserve, 64 GiB aggregate/per-worker guards and approved
+worker target. Mathematical failures stop admission; they do not become
+converted proofs. The actual live-source gate refused competing conversion
+and started zero workers, leaving the existing verification unchanged.
+The complete first-pass inventory has maximum seed size 133,958 vertices and
+3,482,908 grouped count cells, with a maximum stored recipe of 16,058,490 raw
+JSON bytes. These fit the configurable pipeline limits; they are corpus
+inventory figures, not new audit coverage. Seed-evaluator ownership is also
+checked with cyclic GC disabled so decoded arrays do not await cyclic cleanup.
+
+### Comparable costs and a unified export
+
+A representation change can reverse which of two maps is shorter. For every
+previously retained alternative, the runner therefore converts BOTH it and
+its independently audited source into the same pipeline profile. It checks
+that their exact map semantics differ, compares canonical bytes on equal
+terms, and retains the alternative only if it is strictly smaller there too.
+Otherwise the verified source wins. Both conversion/evidence references stay
+in the provenance ledger. This does not resynthesize a map or invent another
+full-cube audit.
+
+`pipeline_export` requires complete error-free conversion coverage and checks
+the actual selected source/alternative bindings again. It writes one pipeline
+definition per inequality into immutable shards, alongside a content-addressed
+compressed provenance stream. Every sealed proof frame and every provenance
+record is re-read. The report separates same-profile synthesis savings,
+wrapper/encoding overhead, compressed sizes and reused executed edge coverage.
+It states zero newly executed cube audits for pure conversion. An export is
+not production registration or goal completion; no surviving strictly smaller
+alternative means further synthesis is still needed.
+
+After the existing frozen workflow ends, the full-scope commands are:
+
+```bash
+PYTHONPATH=src:tools VENV_PYTHON -m corpus_derivations.pipeline_batch \
+  --output NEW_CONVERSION_RUN prepare --source COMPLETED_SOURCE --synthesis COMPLETED_SYNTHESIS
+PYTHONPATH=NEW_CONVERSION_RUN/implementation/src:NEW_CONVERSION_RUN/implementation/tools \
+  VENV_PYTHON -m corpus_derivations.pipeline_batch --output NEW_CONVERSION_RUN run
+PYTHONPATH=NEW_CONVERSION_RUN/implementation/src:NEW_CONVERSION_RUN/implementation/tools \
+  VENV_PYTHON -m corpus_derivations.pipeline_export --run NEW_CONVERSION_RUN --output NEW_EXPORT
+```
+
+The named values are absolute paths chosen for the completed source, synthesis,
+new immutable outputs and locked Python runtime. Existing run directories must
+not be reused as new outputs. The running source/synthesis cohort remains on
+its original frozen implementation; these commands are not started while it
+is still live.
 
 ## Next mathematical priorities
 
