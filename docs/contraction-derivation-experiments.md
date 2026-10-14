@@ -692,7 +692,7 @@ support `pause-after-inflight.json` to stop admission, drain and commit current
 work before a later rollout. The active operational pointer records the
 actual handoff/generation; the three-case benchmark report remains historical.
 
-### Reusing a bound compact input seed (experiment, not yet deployed)
+### Reusing a bound compact input seed
 
 `source_seed_benchmark` tests an additional source-construction optimization.
 For catalogue-backed inputs only, an original compact compatible-count proof
@@ -721,6 +721,27 @@ receive the exact original-cube check and a separate source-free saved-recipe
 audit; that fresh phase must NOT use original compact inputs. Only the common
 compatible seed is reused: an older input's extension outside that domain is
 not silently substituted for the current fixed full-map extension.
+
+The reviewed `compact_source.Reader` now implements that construction-only
+provenance contract. It binds the frozen source run and ordered manifest,
+actual input proof/catalogue/shard identities, saved recipe SHA, executed
+first-pass equality report and the source recipe's own fresh full-cube audit.
+Only integral sparse-closure sources with catalogue-backed seed tables use
+the shortcut. Primitive Boolean archives and non-table input constructors do
+not. Missing optional compact inputs fall back to the saved standalone recipe;
+changed hashes or contradictory provenance fail closed. No acceptance result
+is cached, and every candidate still goes through smoothing's exact checks,
+winner replay, independent full-cube acceptance and separate source-free fresh
+verification. The fresh function does not call this reader.
+
+The same five controls passed all 855,264 count comparisons through the actual
+reviewed reader, not just the earlier direct-input prototype. Its gate is
+`/Users/sergio/.hec/contraction-compact-source-gate-20261014.2Y09XW/result.json`.
+The combined suite passed 161 tests, including catalogue/manifest tampering,
+false equivalence identity, missing fresh evidence, archive exclusion,
+optional-input fallback and independent acceptance after seed reuse. The
+standing user authorization permits a checkpoint-preserving production
+rollout; the active operational pointer records the released generation.
 
 The highest validated representation return is a cost-aware choice between
 logical cuts and sparse derivation tapes. Production integration still needs

@@ -19,6 +19,7 @@ from pathlib import Path
 from hec.count_proofs import canonical_json, parse_json
 
 from . import run as derivations
+from .compact_source import POLICY as INPUT_POLICY
 from .continue_pipeline import idle
 from .parallelize import function_hashes
 from .simplify import METHOD
@@ -113,7 +114,11 @@ def fork(parent, output, *, parent_pgid, _expected_total=EXPECTED_TOTAL, _expect
             frozen = parent / "implementation" / relative
             if derivations.digest(frozen) != expected:
                 raise ValueError("old frozen synthesis implementation changed")
-            if relative != "tools/corpus_derivations/synthesize.py" and derivations.digest(root / relative) != expected:
+            if (
+                relative
+                not in {"tools/corpus_derivations/synthesize.py", "tools/corpus_derivations/speedup_rollout.py"}
+                and derivations.digest(root / relative) != expected
+            ):
                 raise ValueError("speedup rollout changed non-scheduling mathematical/decoder code: " + relative)
         relative = "tools/corpus_derivations/synthesize.py"
         if relative in old["implementation"]:
@@ -180,6 +185,11 @@ def fork(parent, output, *, parent_pgid, _expected_total=EXPECTED_TOTAL, _expect
             optimization=OPTIMIZATION,
             implementation=implementation,
             binaries=binaries,
+            source_seed_input={
+                "policy": INPUT_POLICY,
+                "source_binding_sha256": derivations.digest(Path(old["source"]) / "run-binding.json"),
+                "source_manifest_sha256": source_binding["manifest_sha256"],
+            },
             checkpoint_parent={
                 "root": str(parent),
                 "binding_sha256": receipt["parent_binding_sha256"],

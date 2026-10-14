@@ -219,7 +219,17 @@ def attempt(item):
         raise ValueError("source definition does not match the completed verification ledger")
     optimized = SETTINGS.get("optimization") == OPTIMIZATION
     decoder = speedups.reconstruct if optimized else derivations.reconstruct
-    p, vertices, d, rows = decoder(parse_json(source_raw))
+    decode_started = time.monotonic_ns()
+    document, reuse = parse_json(source_raw), None
+    if optimized and SETTINGS.get("source_seed_input") is not None:
+        from .compact_source import decode
+
+        reuse = decode(item, document, SETTINGS)
+    if reuse is None:
+        p, vertices, d, rows = decoder(document)
+    else:
+        (p, vertices, d, rows), input_provenance = reuse
+    source_decode_microseconds = (time.monotonic_ns() - decode_started) // 1000
     if inequality_id(p) != iid:
         raise ValueError("source recipe differs from the manifest inequality")
     start = time.monotonic_ns()
@@ -234,6 +244,8 @@ def attempt(item):
     }
     if optimized:
         report["optimization"] = OPTIMIZATION
+        report["source_decode_microseconds"] = source_decode_microseconds
+        report["construction_seed_input"] = "saved-recipe" if reuse is None else input_provenance
     try:
         new_d, new_rows, statistics = smooth(
             p, vertices, d, rows, sweeps=SETTINGS["sweeps"], max_work=SETTINGS["max_work"]
@@ -432,6 +444,17 @@ def execute(args):
     ):
         source.close()
         raise ValueError("completed source ledger changed since synthesis preparation")
+    input_config = settings.get("source_seed_input")
+    if input_config is not None:
+        from .compact_source import POLICY
+
+        if (
+            input_config.get("policy") != POLICY
+            or derivations.digest(source.root / "run-binding.json") != input_config.get("source_binding_sha256")
+            or source.binding["manifest_sha256"] != input_config.get("source_manifest_sha256")
+        ):
+            source.close()
+            raise ValueError("bound compact construction-input source changed")
     db = database(output)
     (output / "controller.json").write_bytes(
         canonical_json(
@@ -439,6 +462,7 @@ def execute(args):
                 "pid": os.getpid(),
                 "phase": args.phase,
                 "optimization": settings.get("optimization"),
+                "source_seed_input_policy": input_config.get("policy") if input_config is not None else None,
                 "binding_sha256": derivations.digest(output / "run-binding.json"),
                 "birth": subprocess.check_output(["ps", "-p", str(os.getpid()), "-o", "lstart="], text=True).strip(),
             }
