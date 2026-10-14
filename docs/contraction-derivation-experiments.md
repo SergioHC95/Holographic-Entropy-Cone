@@ -672,6 +672,26 @@ The frozen eight-worker corpus implementation is unchanged. Wider differential
 controls and a separately reviewed, checkpoint-preserving handoff would be
 required before deploying the prototype; neither is claimed here.
 
+The subsequent rollout gate compares the largest stored cut recipe in each
+of the eleven observed source-dimension categories: 1,070,179 exact compatible
+count cells agree with the scalar decoder. These are deliberate stress
+controls, not whole-corpus equivalence coverage and not another cube audit.
+The complete regression suite then passed 152 tests, including optimized
+attempt/fresh verification, immutable inherited rows, live-controller refusal,
+and committing all in-flight results on a cooperative drain request.
+
+After the user's explicit authorization to replace production with properly
+validated speedups, `speedup_rollout` provides a quiescent generation handoff.
+It changes only the bound execution optimization; smoothing, source identities,
+worker count, memory caps and independent native binaries remain fixed.
+Every committed attempt, proof blob and fresh receipt is preserved byte for
+byte in an immutable inherited checkpoint and checked on resume/export.
+The first old-generation interrupt may require retrying up to eight
+uncommitted attempts; they are not completed recorded proofs. New generations
+support `pause-after-inflight.json` to stop admission, drain and commit current
+work before a later rollout. The active operational pointer records the
+actual handoff/generation; the three-case benchmark report remains historical.
+
 The highest validated representation return is a cost-aware choice between
 logical cuts and sparse derivation tapes. Production integration still needs
 a standard-schema constructor, explicit derived scaling, complete corpus

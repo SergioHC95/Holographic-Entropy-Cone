@@ -42,6 +42,7 @@ from .simplify import METHOD, WorkLimit, smooth
 EXPECTED_TOTAL = 84690
 EXPECTED_COUNTS = {"baseline": 80213, "small-n": 14, "exact": 76, "primitive": 4387}
 SETTINGS = {}
+OPTIMIZATION = "exact-bitset-cuts-deferred-winner-replay/1"
 
 
 def decode_frame(data, expected_size=None):
@@ -211,10 +212,14 @@ def choose_definition(problem, vertices, scale, rows, *, closure=None):
 
 
 def attempt(item):
+    from . import speedups
+
     task, source_raw, source_sha, iid = item
     if hashlib.sha256(source_raw).hexdigest() != source_sha:
         raise ValueError("source definition does not match the completed verification ledger")
-    p, vertices, d, rows = derivations.reconstruct(parse_json(source_raw))
+    optimized = SETTINGS.get("optimization") == OPTIMIZATION
+    decoder = speedups.reconstruct if optimized else derivations.reconstruct
+    p, vertices, d, rows = decoder(parse_json(source_raw))
     if inequality_id(p) != iid:
         raise ValueError("source recipe differs from the manifest inequality")
     start = time.monotonic_ns()
@@ -227,6 +232,8 @@ def attempt(item):
         "original_archived_maps_read": False,
         "alternative_json_bytes": None,
     }
+    if optimized:
+        report["optimization"] = OPTIMIZATION
     try:
         new_d, new_rows, statistics = smooth(
             p, vertices, d, rows, sweeps=SETTINGS["sweeps"], max_work=SETTINGS["max_work"]
@@ -238,18 +245,31 @@ def attempt(item):
     if not statistics["changed_cells"]:
         report["status"] = "unchanged_source_no_alternative"
         return report, None
-    selected, raw, methods, definition = choose_definition(
-        p, vertices, new_d, new_rows, closure=SETTINGS["binaries"]["closure"]["path"]
-    )
+    closure = SETTINGS["binaries"]["closure"]["path"]
+    if optimized:
+        choice = speedups.choose_definition(
+            p, vertices, new_d, new_rows, closure=closure, source_json_bytes=len(source_raw)
+        )
+        selected, raw, methods = choice.winner, choice.raw, choice.methods
+    else:
+        selected, raw, methods, definition = choose_definition(p, vertices, new_d, new_rows, closure=closure)
     report.update(winner=selected, encodings=methods, alternative_json_bytes=len(raw))
     if len(raw) >= len(source_raw):
         report["status"] = "changed_seed_without_strict_description_improvement_not_retained"
         return report, None
     # Reconstruct the saved candidate, with no source seed supplied to the decoder.
-    rp, rv, rd, rr = derivations.reconstruct(parse_json(raw))
+    if optimized:
+        if choice.decoded is None:
+            raise ValueError("a retained optimized winner requires complete exact seed replay")
+        rp, rv, rd, rr = choice.decoded
+        definition = derivations.standard(rp, rd, rr)
+    else:
+        rp, rv, rd, rr = derivations.reconstruct(parse_json(raw))
     acceptance = derivations.accept(rp, rv, rd, rr, definition)
     if acceptance.get("ok") is not True:
         raise ValueError("new alternative did not pass independent full-cube acceptance")
+    if optimized:
+        methods[selected]["status"] = "exact_seed_replay_and_independent_full_cube_verified"
     report.update(
         status="accepted_strictly_smaller_alternative",
         full_cube_acceptance=acceptance,
@@ -259,6 +279,27 @@ def attempt(item):
         wall_microseconds=(time.monotonic_ns() - start) // 1000,
     )
     return report, zstd.ZstdCompressor(level=9, write_checksum=True).compress(raw)
+
+
+def optimized_fresh(item):
+    """Saved-artifact reconstruction; unchanged independent complete cube audit."""
+    from .speedups import reconstruct
+
+    task, raw, expected_sha, expected_iid = item
+    if hashlib.sha256(raw).hexdigest() != expected_sha:
+        raise ValueError("saved alternative changed before its separate fresh audit")
+    p, vertices, scale, rows = reconstruct(parse_json(raw))
+    if inequality_id(p) != expected_iid:
+        raise ValueError("saved alternative changed its immutable inequality")
+    result = derivations.accept(p, vertices, scale, rows, derivations.standard(p, scale, rows))
+    return {
+        "task": task,
+        "ok": True,
+        "recipe_sha256": expected_sha,
+        "source_tables_read": False,
+        "full_cube_acceptance": result,
+        "optimization": OPTIMIZATION,
+    }
 
 
 def prepare(args):
@@ -370,6 +411,12 @@ def execute(args):
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     settings = parse_json((output / "run-binding.json").read_bytes())
     workers = derivations.worker_count(settings)
+    if settings.get("optimization") not in (None, OPTIMIZATION):
+        raise ValueError("unsupported bound synthesis optimization")
+    if "checkpoint_parent" in settings:
+        from .speedup_rollout import validate_inheritance
+
+        validate_inheritance(output, settings)
     if settings["source_total"] != EXPECTED_TOTAL or settings["method"] != METHOD:
         raise ValueError("frozen synthesis scope or method changed")
     for relative, sha in settings["implementation"].items():
@@ -391,6 +438,8 @@ def execute(args):
             {
                 "pid": os.getpid(),
                 "phase": args.phase,
+                "optimization": settings.get("optimization"),
+                "binding_sha256": derivations.digest(output / "run-binding.json"),
                 "birth": subprocess.check_output(["ps", "-p", str(os.getpid()), "-o", "lstart="], text=True).strip(),
             }
         )
@@ -419,7 +468,8 @@ def execute(args):
                 raw = decode_frame(data)
                 yield task, raw, sha, iid
 
-        items, action = saved_alternatives(), derivations.fresh
+        action = optimized_fresh if settings.get("optimization") == OPTIMIZATION else derivations.fresh
+        items = saved_alternatives()
     if args.limit is not None:
         if args.limit < 1:
             raise ValueError("explicit invocation limit must be positive")
@@ -427,11 +477,14 @@ def execute(args):
     executor = ProcessPoolExecutor(max_workers=workers, initializer=initialize, initargs=(settings,))
     active, started, last_guard, last_sample, exhausted = {}, time.monotonic(), 0, 0, False
     reserved, pending_item = {}, None
+    draining = False
     try:
         while active or not exhausted:
             if time.monotonic() - last_guard >= 2:
                 derivations.enforce_rss_limit(output)
                 last_guard = time.monotonic()
+            if (output / "pause-after-inflight.json").exists():
+                draining, exhausted = True, True
             while not exhausted and len(active) < workers:
                 if pending_item is None:
                     try:
@@ -492,7 +545,12 @@ def execute(args):
                     print(json.dumps({"failed_not_a_proof": task, "error": error}), flush=True)
                     raise
         progress(db, output, args.phase, (), started, workers)
-        print(json.dumps({"phase_invocation_ended": args.phase, "full_goal_complete": False}), flush=True)
+        print(
+            json.dumps(
+                {"phase_invocation_ended": args.phase, "drained_for_handoff": draining, "full_goal_complete": False}
+            ),
+            flush=True,
+        )
     finally:
         executor.shutdown(wait=True, cancel_futures=True)
         db.close()

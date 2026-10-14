@@ -1,0 +1,205 @@
+"""Quiescent, checkpoint-preserving rollout of the validated exact speedups.
+
+No signals, adoption or competing controllers are issued here. The caller must
+resolve live identities and drain the old cohort first. Every committed row
+and blob remains byte-identical; missing uncommitted tasks are not proofs.
+"""
+
+from __future__ import annotations
+
+import argparse
+import fcntl
+import hashlib
+import shutil
+import sqlite3
+from contextlib import closing
+from datetime import UTC, datetime
+from pathlib import Path
+
+from hec.count_proofs import canonical_json, parse_json
+
+from . import run as derivations
+from .continue_pipeline import idle
+from .parallelize import function_hashes
+from .simplify import METHOD
+from .synthesize import EXPECTED_COUNTS, EXPECTED_TOTAL, OPTIMIZATION
+
+FORMAT = "hec-exact-speedup-checkpoint-handoff/1"
+TABLES = ("attempts", "fresh", "errors")
+
+
+def records(db):
+    digest, counts = hashlib.sha256(), {}
+    for table in TABLES:
+        count = 0
+        for row in db.execute(f"SELECT * FROM {table} ORDER BY " + ("phase,task" if table == "errors" else "task")):
+            bound = [
+                {"blob_bytes": len(value), "sha256": hashlib.sha256(value).hexdigest()}
+                if isinstance(value, bytes)
+                else value
+                for value in row
+            ]
+            digest.update(canonical_json([table, bound]) + b"\n")
+            count += 1
+        counts[table] = count
+    return counts, digest.hexdigest()
+
+
+def validate_inheritance(output, binding):
+    output = Path(output)
+    parent = binding["checkpoint_parent"]
+    receipt_path = output / "inheritance.json"
+    if derivations.digest(receipt_path) != parent["receipt_sha256"]:
+        raise ValueError("immutable optimization handoff receipt changed")
+    receipt = parse_json(receipt_path.read_bytes())
+    if (
+        receipt["format"] != FORMAT
+        or receipt["optimization"] != OPTIMIZATION
+        or binding.get("optimization") != OPTIMIZATION
+        or derivations.digest(Path(parent["root"]) / "run-binding.json") != receipt["parent_binding_sha256"]
+        or parent["binding_sha256"] != receipt["parent_binding_sha256"]
+        or binding["source_records_sha256"] != receipt["source_records_sha256"]
+        or derivations.worker_count(binding) != receipt["workers"]
+        or binding["rss_limit_bytes"] != 64 * 1024**3
+    ):
+        raise ValueError("optimization handoff changed its source, worker cohort or mathematical binding")
+    snapshot = output / "inherited-checkpoint.sqlite3"
+    if derivations.digest(snapshot) != receipt["inherited_snapshot_sha256"]:
+        raise ValueError("immutable inherited optimization checkpoint changed")
+    with closing(sqlite3.connect(f"file:{snapshot}?mode=ro", uri=True)) as saved:
+        counts, sha = records(saved)
+        if counts != receipt["inherited_counts"] or sha != receipt["inherited_records_sha256"]:
+            raise ValueError("inherited optimization rows differ from their receipt")
+        with closing(sqlite3.connect(f"file:{output / 'checkpoint.sqlite3'}?mode=ro", uri=True)) as live:
+            for table in TABLES:
+                for row in saved.execute(f"SELECT * FROM {table}"):
+                    where, keys = ("phase=? AND task=?", row[:2]) if table == "errors" else ("task=?", row[:1])
+                    if live.execute(f"SELECT * FROM {table} WHERE {where}", keys).fetchone() != row:
+                        raise ValueError("a completed inherited optimization row/blob was removed or overwritten")
+    return receipt
+
+
+def fork(parent, output, *, parent_pgid, _expected_total=EXPECTED_TOTAL, _expected_counts=None):
+    parent, output = Path(parent).resolve(), Path(output).resolve()
+    root = Path(__file__).resolve().parents[2]
+    if (
+        output.is_relative_to(parent)
+        or parent.is_relative_to(output)
+        or output.is_relative_to(root)
+        or root.is_relative_to(output)
+    ):
+        raise ValueError("use a new generation outside the protected old run/worktree")
+    if type(parent_pgid) is not int or parent_pgid < 1:
+        raise ValueError("verified old process group identity required")
+    if not idle(parent, {parent_pgid}):
+        raise BlockingIOError("old synthesis controller, worker or native child remains; no competing rollout")
+    with (parent / "controller.lock").open("r") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        old = parse_json((parent / "run-binding.json").read_bytes())
+        counts = EXPECTED_COUNTS if _expected_counts is None else _expected_counts
+        source_binding = parse_json((Path(old["source"]) / "run-binding.json").read_bytes())
+        if (
+            old["source_total"] != _expected_total
+            or source_binding["total"] != _expected_total
+            or source_binding["scope_counts"] != counts
+            or old["method"] != METHOD
+            or old["rss_limit_bytes"] != 64 * 1024**3
+            or derivations.worker_count(old) != derivations.worker_count(source_binding)
+        ):
+            raise ValueError("rollout cannot change source scope, mathematics, workers or memory caps")
+        if output.exists() and any(output.iterdir()):
+            raise ValueError("choose an empty new optimization generation; never overwrite a run")
+        for relative, expected in old["implementation"].items():
+            frozen = parent / "implementation" / relative
+            if derivations.digest(frozen) != expected:
+                raise ValueError("old frozen synthesis implementation changed")
+            if relative != "tools/corpus_derivations/synthesize.py" and derivations.digest(root / relative) != expected:
+                raise ValueError("speedup rollout changed non-scheduling mathematical/decoder code: " + relative)
+        relative = "tools/corpus_derivations/synthesize.py"
+        if relative in old["implementation"]:
+            before, after = function_hashes(parent / "implementation" / relative), function_hashes(root / relative)
+            if any(after.get(name) != sha for name, sha in before.items() if name not in {"attempt", "execute"}):
+                raise ValueError("speedup rollout changed an unrelated existing synthesis function")
+        for info in old["binaries"].values():
+            if derivations.digest(info["path"]) != info["sha256"]:
+                raise ValueError("independent exact primitive binary changed")
+        output.mkdir(parents=True, exist_ok=True)
+        implementation, binaries = {}, {}
+        for folder in ("src/hec", "tools/corpus_derivations", "tools/derivation_pilot"):
+            for path in sorted((root / folder).rglob("*")):
+                if path.is_file() and path.suffix in (".py", ".cpp"):
+                    relative = path.relative_to(root)
+                    target = output / "implementation" / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(path, target)
+                    implementation[str(relative)] = derivations.digest(target)
+        for relative, expected in old["implementation"].items():
+            if relative not in implementation:
+                target = output / "implementation" / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(parent / "implementation" / relative, target)
+                implementation[relative] = expected
+        for name, info in old["binaries"].items():
+            target = output / name
+            shutil.copy2(info["path"], target)
+            binaries[name] = {"path": str(target), "sha256": derivations.digest(target)}
+        snapshot = output / "inherited-checkpoint.sqlite3"
+        with closing(sqlite3.connect(f"file:{parent / 'checkpoint.sqlite3'}?mode=ro", uri=True)) as original:
+            if original.execute("PRAGMA quick_check").fetchone() != ("ok",):
+                raise ValueError("old checkpoint integrity check failed")
+            if original.execute("SELECT COUNT(*) FROM errors").fetchone()[0]:
+                raise ValueError("resolve recorded synthesis errors before rollout")
+            with closing(sqlite3.connect(snapshot)) as saved:
+                original.backup(saved)
+        with closing(sqlite3.connect(f"file:{snapshot}?mode=ro", uri=True)) as saved:
+            inherited, sha = records(saved)
+            with closing(sqlite3.connect(output / "checkpoint.sqlite3")) as target:
+                saved.backup(target)
+        receipt = {
+            "format": FORMAT,
+            "created_utc": datetime.now(UTC).isoformat(),
+            "parent": str(parent),
+            "parent_binding_sha256": derivations.digest(parent / "run-binding.json"),
+            "parent_pgid": parent_pgid,
+            "source_records_sha256": old["source_records_sha256"],
+            "optimization": OPTIMIZATION,
+            "workers": derivations.worker_count(old),
+            "inherited_counts": inherited,
+            "inherited_records_sha256": sha,
+            "inherited_snapshot_sha256": derivations.digest(snapshot),
+            "independent_binaries_unchanged": True,
+            "smoothing_mathematics_unchanged": True,
+            "completed_proofs_overwritten": False,
+            "inflight_uncommitted_attempts": "Not counted as proofs; only missing durable tasks are retried.",
+            "authorization": "User explicitly authorized replacing production with properly validated speedups.",
+        }
+        derivations.save_new(output / "inheritance.json", receipt)
+        settings = dict(
+            old,
+            prepared_utc=datetime.now(UTC).isoformat(),
+            optimization=OPTIMIZATION,
+            implementation=implementation,
+            binaries=binaries,
+            checkpoint_parent={
+                "root": str(parent),
+                "binding_sha256": receipt["parent_binding_sha256"],
+                "receipt_sha256": derivations.digest(output / "inheritance.json"),
+            },
+        )
+        derivations.save_new(output / "run-binding.json", settings)
+        (output / "controller.lock").touch(exist_ok=False)
+        validate_inheritance(output, settings)
+        return receipt
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--parent", required=True, type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--parent-pgid", required=True, type=int)
+    args = parser.parse_args()
+    print(canonical_json(fork(args.parent, args.output, parent_pgid=args.parent_pgid)).decode(), flush=True)
+
+
+if __name__ == "__main__":
+    main()

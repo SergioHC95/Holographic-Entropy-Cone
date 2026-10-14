@@ -104,6 +104,10 @@ class VerifiedSelection:
             for info in self.binding["binaries"].values():
                 if derivations.digest(info["path"]) != info["sha256"]:
                     raise ValueError("frozen synthesis primitive binary changed")
+            if "checkpoint_parent" in self.binding:
+                from .speedup_rollout import validate_inheritance
+
+                validate_inheritance(self.root, self.binding)
             self.db = sqlite3.connect(f"file:{self.root / 'checkpoint.sqlite3'}?mode=ro", uri=True)
             self.db.execute("BEGIN")
             self.statuses = dict(self.db.execute("SELECT status,COUNT(*) FROM attempts GROUP BY status"))
