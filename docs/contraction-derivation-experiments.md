@@ -238,6 +238,37 @@ bounded native table allocations. A separate fresh-process phase reconstructs
 all saved winners without source tables. The PR-ready worktree, original
 artifacts, completed production proofs and LFS state remain unchanged.
 
+### Prepared alternative-map primitive
+
+`corpus_derivations.simplify` is an arbitrary-precision mathematical reference
+for subsequent synthesis, not a replacement for independent acceptance. It
+starts from a complete verified compatible seed. On a tight edge whose two
+values in coordinate g agree, those values are moved together. Connected
+components of such equalities are constant in g; any component containing an
+occurrence boundary stays fixed.
+
+For a component U with old coordinate value a, each cut edge (u,v), u in U,
+imposes an exact interval on its proposed common value t:
+
+```text
+B = alpha_axis * D - sum_{h != g} |s_h(u) - s_h(v)|
+s_g(v) - B <= t <= s_g(v) + B.
+```
+
+The intersection also includes 0 <= t <= beta_g * D. Internal edge loads are
+unchanged by the shared move; cut-edge loads are updated exactly, then all
+compatible loads are recomputed independently. A deterministic choice favors
+coarser exact denominator grids and fewer count discontinuities. These are
+search objectives, not a claim that the final stored definition is shorter.
+An alternative requires a measured description improvement and exhaustive
+original-cube acceptance before it can be retained.
+
+Eight small synthetic-control tests cover fractional-to-integral simplification,
+thirty randomly chosen feasible maps, deterministic replay, protected boundary
+components, budget exhaustion and malformed input. Their accepted candidate
+maps receive exhaustive arbitrary-precision full-cube checks. This preparation
+does not start corpus synthesis before the full verification phase ends.
+
 ## Reproduction
 
 Use the repository's locked dependencies. The native experiments support
