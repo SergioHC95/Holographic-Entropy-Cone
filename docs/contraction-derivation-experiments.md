@@ -270,6 +270,32 @@ components, budget exhaustion and malformed input. Their accepted candidate
 maps receive exhaustive arbitrary-precision full-cube checks. This preparation
 does not start corpus synthesis before the full verification phase ends.
 
+### Full-scope synthesis workflow
+
+`python -m corpus_derivations.synthesize` provides a separate checkpointed
+workflow. Its `prepare` command requires the source run to contain all 84,690
+derivation results, all 84,690 successful source-free full-cube receipts, and
+zero recorded errors. It checks every recipe hash, canonical definition,
+inequality identity, receipt binding and original-cube coverage count. It
+refuses a locked source controller rather than competing with a live job.
+The testing-only small-scope parameters are not exposed by the CLI.
+
+After preparation, `run --phase synthesize` uses exactly two processing workers
+and the same live 64 GiB RSS guard. It tries large and rational definitions
+first without dropping any source identity. Each outcome has a distinct
+durable disposition: unchanged source, incomplete work budget, changed seed
+without description improvement, mathematical failure, or a retained strictly
+smaller verified alternative. Strictness is measured on uncompressed canonical
+definition bytes, not zstd frames or the archived enumerated map.
+
+A retained alternative must change at least one exact compatible count and
+pass independent exhaustive original-cube verification after reconstruction
+from its saved definition. `run --phase fresh` then repeats acceptance from
+the saved alternatives in new workers without original source maps. Eleven
+fixture-only workflow tests cover the scope/lock/hash/coverage gates, frame
+length safety, strict-size rejection, actual mathematical rejection and a
+successful changed-map fixture. Those tests are not corpus coverage.
+
 ## Reproduction
 
 Use the repository's locked dependencies. The native experiments support
