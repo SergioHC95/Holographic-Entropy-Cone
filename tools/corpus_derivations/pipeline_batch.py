@@ -267,6 +267,8 @@ def validate_result(task, iid, sha, identity, semantic, size, data, receipt, exp
         receipt = parse_json(saved_receipt)
         if canonical_json(receipt) != saved_receipt:
             raise ValueError("converted checkpoint receipt is not canonical")
+    if not isinstance(receipt, dict):
+        raise ValueError("converted checkpoint receipt must be an object")
     if (
         type(task) is not int
         or task != expected_input["task"]
@@ -278,6 +280,7 @@ def validate_result(task, iid, sha, identity, semantic, size, data, receipt, exp
         or inequality_id(proof_geometry(document)) != iid
         or document["function"].get("kind") != PIPELINE
         or document["function"].get("extension") != {"kind": EXTENSION}
+        or receipt.get("format") != "hec-pipeline-variant-selection/1"
         or receipt.get("input") != expected_input
         or receipt.get("task") != task
         or receipt.get("inequality_id") != iid
@@ -304,15 +307,28 @@ def validate_result(task, iid, sha, identity, semantic, size, data, receipt, exp
     p = proof_geometry(document)
     domain_count = CompatibleRank(p).count
     for variant, source in zip(variants, candidates, strict=True):
+        if not isinstance(variant, dict):
+            raise ValueError("converted variant receipt must be an object")
         audit = variant.get("source_mathematical_audit", {})
         equivalence = variant.get("equivalence", {})
         if (
-            variant.get("task") != task
+            not isinstance(audit, dict)
+            or not isinstance(equivalence, dict)
+            or variant.get("format") != "hec-exact-pipeline-conversion/1"
+            or variant.get("scope") != "exact-representation-conversion-with-identical-fixed-extension"
+            or type(variant.get("task")) is not int
+            or variant["task"] != task
             or variant.get("inequality_id") != iid
             or variant.get("source_recipe_sha256") != source["recipe_sha256"]
             or variant.get("source_origin") != source["origin"]
+            or variant.get("source_tables_read") is not False
+            or type(variant.get("source_json_bytes")) is not int
+            or variant["source_json_bytes"] < 1
             or audit.get("root") != source["audit_root"]
             or audit.get("receipt_sha256") != source["audit_receipt_sha256"]
+            or audit.get("table") != "fresh"
+            or type(audit.get("task")) is not int
+            or audit["task"] != task
             or audit.get("scope") != "original-cube-all-edges"
             or type(audit.get("checked_vertices")) is not int
             or audit["checked_vertices"] != p.vertices
@@ -323,11 +339,17 @@ def validate_result(task, iid, sha, identity, semantic, size, data, receipt, exp
             or equivalence["checked_compatible_vertices"] != domain_count
             or equivalence.get("source_definition_sha256") != source["recipe_sha256"]
             or equivalence.get("target_proof_id") != variant.get("target_proof_id")
+            or equivalence.get("semantic_map_id") != variant.get("semantic_map_id")
+            or equivalence.get("new_exhaustive_original_cube_audit_executed") is not False
+            or equivalence.get("source_mathematical_acceptance_still_required") is not True
+            or equivalence.get("source_tables_read") is not False
             or type(variant.get("target_json_bytes")) is not int
             or variant["target_json_bytes"] < 1
             or variant.get("new_exhaustive_original_cube_audit_executed") is not False
         ):
             raise ValueError("variant comparison has incomplete equivalence or mismatched executed audit evidence")
+    if len(variants) == 2 and variants[0]["semantic_map_id"] == variants[1]["semantic_map_id"]:
+        raise ValueError("changed alternative/source comparison has identical map semantics")
     if (
         type(receipt.get("baseline_pipeline_json_bytes")) is not int
         or type(receipt.get("candidate_pipeline_json_bytes")) is not int
@@ -347,6 +369,7 @@ def validate_result(task, iid, sha, identity, semantic, size, data, receipt, exp
         or chosen.get("target_recipe_sha256") != sha
         or chosen.get("target_proof_id") != identity
         or chosen.get("semantic_map_id") != semantic
+        or chosen.get("target_json_bytes") != size
         or chosen.get("new_exhaustive_original_cube_audit_executed") is not False
         or audit.get("receipt_sha256") != origin["audit_receipt_sha256"]
         or audit.get("root") != origin["audit_root"]
@@ -369,7 +392,11 @@ def validate_result(task, iid, sha, identity, semantic, size, data, receipt, exp
     ):
         raise ValueError("invalid unified selection disposition")
     elif expected_input["baseline"] is not None:
-        if receipt["candidate_pipeline_json_bytes"] < receipt["baseline_pipeline_json_bytes"] or chosen != variants[-1]:
+        if (
+            receipt["status"] != "verified_source_alternative_not_smaller_in_pipeline"
+            or receipt["candidate_pipeline_json_bytes"] < receipt["baseline_pipeline_json_bytes"]
+            or chosen != variants[-1]
+        ):
             raise ValueError("unified selection discarded a genuinely smaller verified pipeline alternative")
     elif receipt["status"] != "verified_source_no_retained_alternative":
         raise ValueError("source-only conversion has an inconsistent disposition")

@@ -593,6 +593,16 @@ It states zero newly executed cube audits for pure conversion. An export is
 not production registration or goal completion; no surviving strictly smaller
 alternative means further synthesis is still needed.
 
+Resume and export also validate the nested provenance claims themselves:
+source-free flags, the `fresh` audit table and exact task, conversion versions
+and scopes, semantic-identity links, absence of invented cube audits, and the
+chosen definition's actual byte count. Corruption controls change both copies
+of a nested receipt together, so agreement between duplicated fields alone
+cannot pass the gate. A changed alternative/source pair must retain distinct
+map identities and its correct same-profile selection disposition. These
+checks protect checkpoint/report integrity; they are not new mathematical
+acceptance or new corpus coverage.
+
 After the existing frozen workflow ends, the full-scope commands are:
 
 ```bash

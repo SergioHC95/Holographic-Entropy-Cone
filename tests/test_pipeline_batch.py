@@ -130,6 +130,72 @@ class PipelineBatchTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "bound task, target or provenance"):
             batch.execute(self.output, **self.options)
 
+    @staticmethod
+    def result_row(receipt, data):
+        return (
+            receipt["task"],
+            receipt["inequality_id"],
+            receipt["target_recipe_sha256"],
+            receipt["target_proof_id"],
+            receipt["semantic_map_id"],
+            receipt["target_json_bytes"],
+            data,
+            canonical_json(receipt).decode(),
+        )
+
+    def test_coherent_nested_receipt_corruption_is_rejected_not_only_duplicate_mismatches(self):
+        with self.fixture.selection() as selected:
+            pair = next(pair for pair in batch.inputs(selected) if pair[1] is None)
+        original, data = batch.convert_pair(pair)
+        expected = batch.input_binding(pair)
+        batch.validate_result(*self.result_row(original, data), expected)
+        corruptions = {
+            "conversion version": lambda value: value.update(format="hec-exact-pipeline-conversion/999"),
+            "conversion scope": lambda value: value.update(scope="seed-only"),
+            "source table read": lambda value: value.update(source_tables_read=True),
+            "source byte count": lambda value: value.update(source_json_bytes=True),
+            "fresh audit table": lambda value: value["source_mathematical_audit"].update(table="results"),
+            "audit task type": lambda value: value["source_mathematical_audit"].update(task=bool(value["task"])),
+            "semantic binding": lambda value: value["equivalence"].update(semantic_map_id="0" * 64),
+            "invented cube audit": lambda value: value["equivalence"].update(
+                new_exhaustive_original_cube_audit_executed=True
+            ),
+            "waived source acceptance": lambda value: value["equivalence"].update(
+                source_mathematical_acceptance_still_required=False
+            ),
+            "equivalence source table read": lambda value: value["equivalence"].update(source_tables_read=True),
+            "chosen byte count": lambda value: value.update(target_json_bytes=value["target_json_bytes"] + 1),
+        }
+        for name, corrupt in corruptions.items():
+            with self.subTest(name=name):
+                receipt = json.loads(canonical_json(original))
+                corrupt(receipt["variants"][0])
+                # Deliberately keep the duplicate consistent. Rejection must
+                # check the claim, not merely chosen-versus-variants equality.
+                receipt["chosen_conversion"] = json.loads(canonical_json(receipt["variants"][0]))
+                receipt["candidate_pipeline_json_bytes"] = receipt["variants"][0]["target_json_bytes"]
+                receipt["baseline_pipeline_json_bytes"] = receipt["variants"][0]["target_json_bytes"]
+                with self.assertRaises(ValueError):
+                    batch.validate_result(*self.result_row(receipt, data), expected)
+        receipt = json.loads(canonical_json(original))
+        receipt["format"] = "hec-pipeline-variant-selection/999"
+        with self.assertRaisesRegex(ValueError, "bound task, target or provenance"):
+            batch.validate_result(*self.result_row(receipt, data), expected)
+
+    def test_checkpoint_variant_pair_must_still_have_distinct_map_semantics(self):
+        with self.fixture.selection() as selected:
+            pair = next(pair for pair in batch.inputs(selected) if pair[1] is not None)
+        receipt, data = batch.convert_pair(pair)
+        same = receipt["variants"][1]["semantic_map_id"]
+        for value in receipt["variants"]:
+            value["semantic_map_id"] = same
+            value["equivalence"]["semantic_map_id"] = same
+        receipt["chosen_conversion"]["semantic_map_id"] = same
+        receipt["chosen_conversion"]["equivalence"]["semantic_map_id"] = same
+        receipt["semantic_map_id"] = same
+        with self.assertRaisesRegex(ValueError, "identical map semantics"):
+            batch.validate_result(*self.result_row(receipt, data), batch.input_binding(pair))
+
     def test_same_profile_size_comparison_can_reject_an_old_format_winner(self):
         with self.fixture.selection() as selected:
             alternative = next(record for record in selected.items() if record.origin == "verified-alternative")
