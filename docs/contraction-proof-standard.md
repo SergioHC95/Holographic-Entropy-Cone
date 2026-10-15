@@ -1,5 +1,15 @@
 # Exact contraction proof standard
 
+Migration status, October 15, 2026: all 84,690 selected definitions have been
+converted to the single `compatible-reconstruction-pipeline/1` profile and
+staged. A NEW exhaustive staged-data audit is running; this is not yet a
+primary-reader/data/CI cutover. The individual full-map kinds below document
+the historical pre-unification profile, not fallbacks in the unified reader.
+The target language has four seed primitives feeding ONE fixed extension;
+see [the general pipeline specification](contraction-derivation-experiments.md#one-general-reconstruction-pipeline).
+After complete mathematical QA, the active specification and entry points
+must be cut over together rather than leave multiple authoritative formats.
+
 The authoritative certificate is an exact definition of a function on the
 entire original source cube. It has one rational count per distinct RHS
 support. Explicit Boolean tables are optional audit exports, not the standard
@@ -76,9 +86,57 @@ sum_g |D*F_g(x)-D*F_g(y)| <= D*d_alpha(x,y).
 ```
 
 Thus a rational count map gives a positively scaled Boolean proof of the
-same homogeneous inequality. Integral counts have scale one. A scaled proof
+same homogeneous inequality. An integer-valued full map admits a scale-one
+realization, although a constructor may record a larger sufficient scale
+explicitly marked nonminimal; that is not evidence of nonintegrality. A scaled proof
 must not be labelled an unscaled Boolean-output map. The source dimension
 remains `L`; scaling does not manufacture extra source coordinates.
+
+### Why scaling does not require an expanded source cube
+
+The source metric is weighted on one coordinate per distinct positive
+entropy support. RHS multiplicities, in contrast, are realized by repeated
+Boolean output positions. This distinction agrees with the
+[weighted-input convention in Section 2 of Bao and Naskar](https://arxiv.org/html/2403.13283v2#S2).
+Our grouped rational-count contract has the following direct cut-cost proof.
+
+Choose an optimal graph cut `U_i` for each distinct LHS support `I_i`, and
+label each graph vertex by `x_i(v)=1[v in U_i]`. Let `D` clear all values of
+the complete count map. For each RHS support `J_g`, form `D*beta_g` candidate
+cuts with indicators
+
+```text
+z_(g,k)(v) = 1[D*F_g(x(v)) >= k],   1 <= k <= D*beta_g.
+```
+
+The occurrence conditions give every candidate the correct boundary region.
+For each graph edge `(u,v)`, prefix Hamming distance and contraction give
+
+```text
+sum_(g,k) |z_(g,k)(u)-z_(g,k)(v)|
+  = D * sum_g |F_g(x(u))-F_g(x(v))|
+ <= D * sum_i alpha_i |x_i(u)-x_i(v)|.
+```
+
+Multiply by nonnegative graph-edge weights and sum. Minimality of the RHS
+cuts and optimality of the chosen LHS cuts imply
+
+```text
+D * sum_g beta_g S(J_g)
+ <= sum_(g,k) cost(z_(g,k))
+ <= D * sum_i alpha_i S(I_i).
+```
+
+Dividing by `D` proves the original graph-model inequality. No arbitrary input bitstrings
+on an imagined `sum_i D*alpha_i`-dimensional cube are assumed or checked.
+The declared full source cube is precisely `{0,1}^L` with its explicit
+`alpha` metric. This argument concerns inequality validity, not facethood.
+
+The compatible-domain extension theorem below explains why the same full-map
+rule works for every seed representation. It is not a claim that syntax,
+hashes, or seed-only checks substitute for the exhaustive per-map migration
+audit: the running staged-data pass still executes all original-cube bounds,
+occurrence images, and weighted edges on every saved definition.
 
 Decision diagrams record their minimal common denominator. The kernel construction
 records a derived sufficient clearing scale, explicitly marked nonminimal.
