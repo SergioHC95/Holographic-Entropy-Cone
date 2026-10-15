@@ -8,6 +8,7 @@ and blob remains byte-identical; missing uncommitted tasks are not proofs.
 from __future__ import annotations
 
 import argparse
+import ast
 import fcntl
 import hashlib
 import shutil
@@ -27,6 +28,82 @@ from .synthesize import EXPECTED_COUNTS, EXPECTED_TOTAL, OPTIMIZATION
 
 FORMAT = "hec-exact-speedup-checkpoint-handoff/1"
 TABLES = ("attempts", "fresh", "errors")
+PRESERVE_FROM_PARENT = {"src/hec/reconstruction.py"}
+
+
+def review_idle_change(before_path, after_path):
+    """Only the reviewed additional native-helper orphan identity is allowed."""
+    before, after = ast.parse(before_path.read_bytes()), ast.parse(after_path.read_bytes())
+    if ast.dump(before) == ast.dump(after):
+        return
+
+    class AddHelper(ast.NodeTransformer):
+        changed = 0
+
+        def visit_Tuple(self, node):
+            self.generic_visit(node)
+            if all(isinstance(value, ast.Constant) for value in node.elts) and [v.value for v in node.elts] == [
+                "wide",
+                "narrow",
+                "closure",
+            ]:
+                node.elts.append(ast.Constant(value="smoother"))
+                self.changed += 1
+            return node
+
+    transform = AddHelper()
+    before = transform.visit(before)
+    if transform.changed != 1 or ast.dump(before) != ast.dump(after):
+        raise ValueError("rollout changed more than the reviewed native-helper orphan check")
+
+
+def review_release(parent, *, smoothing_controls=None, _expected_total=EXPECTED_TOTAL, _expected_counts=None):
+    """Read-only preflight, usable BEFORE asking a healthy cohort to drain."""
+    parent, root = Path(parent).resolve(), Path(__file__).resolve().parents[2]
+    old = parse_json((parent / "run-binding.json").read_bytes())
+    source_binding_path = Path(old["source"]) / "run-binding.json"
+    source = parse_json(source_binding_path.read_bytes())
+    counts = EXPECTED_COUNTS if _expected_counts is None else _expected_counts
+    if (
+        old["source_total"] != _expected_total
+        or source["total"] != _expected_total
+        or source["scope_counts"] != counts
+        or old["method"] != METHOD
+        or old["rss_limit_bytes"] != 64 * 1024**3
+        or derivations.worker_count(old) != derivations.worker_count(source)
+    ):
+        raise ValueError("rollout cannot change source scope, mathematics, workers or memory caps")
+    for relative, expected in old["implementation"].items():
+        frozen = parent / "implementation" / relative
+        if derivations.digest(frozen) != expected:
+            raise ValueError("old frozen synthesis implementation changed")
+        if relative in PRESERVE_FROM_PARENT:
+            continue  # Copy the parent's exact file, not unrelated newer research.
+        if relative == "tools/corpus_derivations/continue_pipeline.py":
+            review_idle_change(frozen, root / relative)
+        elif (
+            relative not in {"tools/corpus_derivations/synthesize.py", "tools/corpus_derivations/speedup_rollout.py"}
+            and derivations.digest(root / relative) != expected
+        ):
+            raise ValueError("speedup rollout changed non-scheduling mathematical/decoder code: " + relative)
+    relative = "tools/corpus_derivations/synthesize.py"
+    if relative in old["implementation"]:
+        before, after = function_hashes(parent / "implementation" / relative), function_hashes(root / relative)
+        if any(after.get(name) != value for name, value in before.items() if name not in {"attempt", "execute"}):
+            raise ValueError("speedup rollout changed an unrelated existing synthesis function")
+    for info in old["binaries"].values():
+        if derivations.digest(info["path"]) != info["sha256"]:
+            raise ValueError("independent exact primitive binary changed")
+    if smoothing_controls is None and old.get("smoothing_backend") is not None:
+        smoothing_controls = parent / "smoothing-controls"
+    reviewed = None
+    if smoothing_controls is not None:
+        from .smoothing_runtime import review_controls
+
+        reviewed = review_controls(smoothing_controls, root, source_binding_path, check_binary=True)
+        if old["sweeps"] != reviewed["binding"]["sweeps"] or old["max_work"] != reviewed["binding"]["max_work"]:
+            raise ValueError("reviewed native controls changed the old mathematical work/sweep settings")
+    return old, reviewed, Path(smoothing_controls) if smoothing_controls is not None else None
 
 
 def records(db):
@@ -64,6 +141,14 @@ def validate_inheritance(output, binding):
         or binding["rss_limit_bytes"] != 64 * 1024**3
     ):
         raise ValueError("optimization handoff changed its source, worker cohort or mathematical binding")
+    if receipt.get("smoothing_backend") != binding.get("smoothing_backend") or receipt.get(
+        "smoothing_validation"
+    ) != binding.get("smoothing_validation"):
+        raise ValueError("optimization handoff changed its reviewed smoothing backend")
+    for relative, expected in receipt.get("preserved_inactive_parent_files", {}).items():
+        old = parse_json((Path(parent["root"]) / "run-binding.json").read_bytes())
+        if old["implementation"].get(relative) != expected or binding["implementation"].get(relative) != expected:
+            raise ValueError("an inactive parent implementation file was not preserved exactly")
     snapshot = output / "inherited-checkpoint.sqlite3"
     if derivations.digest(snapshot) != receipt["inherited_snapshot_sha256"]:
         raise ValueError("immutable inherited optimization checkpoint changed")
@@ -80,7 +165,9 @@ def validate_inheritance(output, binding):
     return receipt
 
 
-def fork(parent, output, *, parent_pgid, _expected_total=EXPECTED_TOTAL, _expected_counts=None):
+def fork(
+    parent, output, *, parent_pgid, smoothing_controls=None, _expected_total=EXPECTED_TOTAL, _expected_counts=None
+):
     parent, output = Path(parent).resolve(), Path(output).resolve()
     root = Path(__file__).resolve().parents[2]
     if (
@@ -96,38 +183,15 @@ def fork(parent, output, *, parent_pgid, _expected_total=EXPECTED_TOTAL, _expect
         raise BlockingIOError("old synthesis controller, worker or native child remains; no competing rollout")
     with (parent / "controller.lock").open("r") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        old = parse_json((parent / "run-binding.json").read_bytes())
-        counts = EXPECTED_COUNTS if _expected_counts is None else _expected_counts
+        old, smoothing_review, control_directory = review_release(
+            parent,
+            smoothing_controls=smoothing_controls,
+            _expected_total=_expected_total,
+            _expected_counts=_expected_counts,
+        )
         source_binding = parse_json((Path(old["source"]) / "run-binding.json").read_bytes())
-        if (
-            old["source_total"] != _expected_total
-            or source_binding["total"] != _expected_total
-            or source_binding["scope_counts"] != counts
-            or old["method"] != METHOD
-            or old["rss_limit_bytes"] != 64 * 1024**3
-            or derivations.worker_count(old) != derivations.worker_count(source_binding)
-        ):
-            raise ValueError("rollout cannot change source scope, mathematics, workers or memory caps")
         if output.exists() and any(output.iterdir()):
             raise ValueError("choose an empty new optimization generation; never overwrite a run")
-        for relative, expected in old["implementation"].items():
-            frozen = parent / "implementation" / relative
-            if derivations.digest(frozen) != expected:
-                raise ValueError("old frozen synthesis implementation changed")
-            if (
-                relative
-                not in {"tools/corpus_derivations/synthesize.py", "tools/corpus_derivations/speedup_rollout.py"}
-                and derivations.digest(root / relative) != expected
-            ):
-                raise ValueError("speedup rollout changed non-scheduling mathematical/decoder code: " + relative)
-        relative = "tools/corpus_derivations/synthesize.py"
-        if relative in old["implementation"]:
-            before, after = function_hashes(parent / "implementation" / relative), function_hashes(root / relative)
-            if any(after.get(name) != sha for name, sha in before.items() if name not in {"attempt", "execute"}):
-                raise ValueError("speedup rollout changed an unrelated existing synthesis function")
-        for info in old["binaries"].values():
-            if derivations.digest(info["path"]) != info["sha256"]:
-                raise ValueError("independent exact primitive binary changed")
         output.mkdir(parents=True, exist_ok=True)
         implementation, binaries = {}, {}
         for folder in ("src/hec", "tools/corpus_derivations", "tools/derivation_pilot"):
@@ -136,7 +200,8 @@ def fork(parent, output, *, parent_pgid, _expected_total=EXPECTED_TOTAL, _expect
                     relative = path.relative_to(root)
                     target = output / "implementation" / relative
                     target.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(path, target)
+                    preserved = str(relative) in PRESERVE_FROM_PARENT and str(relative) in old["implementation"]
+                    shutil.copy2(parent / "implementation" / relative if preserved else path, target)
                     implementation[str(relative)] = derivations.digest(target)
         for relative, expected in old["implementation"].items():
             if relative not in implementation:
@@ -148,6 +213,25 @@ def fork(parent, output, *, parent_pgid, _expected_total=EXPECTED_TOTAL, _expect
             target = output / name
             shutil.copy2(info["path"], target)
             binaries[name] = {"path": str(target), "sha256": derivations.digest(target)}
+        smoothing, validation = None, None
+        if smoothing_review is not None:
+            from .native_smooth import POLICY as SMOOTHING_POLICY
+            from .smoothing_runtime import MIN_CELLS, SOURCE
+
+            target = output / "smoother"
+            shutil.copy2(smoothing_review["binding"]["binary"]["path"], target)
+            smoothing = {
+                "policy": SMOOTHING_POLICY,
+                "path": str(target),
+                "sha256": derivations.digest(target),
+                "source_sha256": implementation[SOURCE],
+                "min_cells": MIN_CELLS,
+            }
+            validation = {key: smoothing_review[key] for key in ("binding_sha256", "report_sha256")}
+            evidence = output / "smoothing-controls"
+            evidence.mkdir()
+            for filename in ("binding.json", "report.json"):
+                shutil.copy2(control_directory / filename, evidence / filename)
         snapshot = output / "inherited-checkpoint.sqlite3"
         with closing(sqlite3.connect(f"file:{parent / 'checkpoint.sqlite3'}?mode=ro", uri=True)) as original:
             if original.execute("PRAGMA quick_check").fetchone() != ("ok",):
@@ -175,6 +259,11 @@ def fork(parent, output, *, parent_pgid, _expected_total=EXPECTED_TOTAL, _expect
             "independent_binaries_unchanged": True,
             "smoothing_mathematics_unchanged": True,
             "completed_proofs_overwritten": False,
+            "preserved_inactive_parent_files": {
+                path: old["implementation"][path] for path in PRESERVE_FROM_PARENT if path in old["implementation"]
+            },
+            "smoothing_backend": smoothing,
+            "smoothing_validation": validation,
             "inflight_uncommitted_attempts": "Not counted as proofs; only missing durable tasks are retried.",
             "authorization": "User explicitly authorized replacing production with properly validated speedups.",
         }
@@ -196,9 +285,18 @@ def fork(parent, output, *, parent_pgid, _expected_total=EXPECTED_TOTAL, _expect
                 "receipt_sha256": derivations.digest(output / "inheritance.json"),
             },
         )
+        if smoothing is not None:
+            settings.update(smoothing_backend=smoothing, smoothing_validation=validation)
+        else:
+            settings.pop("smoothing_backend", None)
+            settings.pop("smoothing_validation", None)
         derivations.save_new(output / "run-binding.json", settings)
         (output / "controller.lock").touch(exist_ok=False)
         validate_inheritance(output, settings)
+        if smoothing is not None:
+            from .smoothing_runtime import validate_run
+
+            validate_run(settings, output)
         return receipt
 
 
@@ -207,8 +305,14 @@ def main():
     parser.add_argument("--parent", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--parent-pgid", required=True, type=int)
+    parser.add_argument("--smoothing-controls", type=Path)
     args = parser.parse_args()
-    print(canonical_json(fork(args.parent, args.output, parent_pgid=args.parent_pgid)).decode(), flush=True)
+    print(
+        canonical_json(
+            fork(args.parent, args.output, parent_pgid=args.parent_pgid, smoothing_controls=args.smoothing_controls)
+        ).decode(),
+        flush=True,
+    )
 
 
 if __name__ == "__main__":

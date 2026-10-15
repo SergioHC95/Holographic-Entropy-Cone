@@ -125,7 +125,7 @@ def idle(root, tracked_groups):
             if row["pid"] == owner["pid"] and birth(row["birth"]) == birth(owner["birth"]):
                 tracked_groups.add(row["pgid"])
                 return False
-    binaries = {str(root / name) for name in ("wide", "narrow", "closure")}
+    binaries = {str(root / name) for name in ("wide", "narrow", "closure", "smoother")}
     for row in rows:
         if row["pid"] == os.getpid():
             continue

@@ -246,9 +246,17 @@ def attempt(item):
         report["optimization"] = OPTIMIZATION
         report["source_decode_microseconds"] = source_decode_microseconds
         report["construction_seed_input"] = "saved-recipe" if reuse is None else input_provenance
+    operation = None
+    if SETTINGS.get("smoothing_backend") is not None:
+        from .smoothing_runtime import operation as smoothing_operation
+
+        operation, backend = smoothing_operation(SETTINGS, p, vertices, d, rows)
+        report["smoothing_backend"] = backend
     try:
-        new_d, new_rows, statistics = smooth(
-            p, vertices, d, rows, sweeps=SETTINGS["sweeps"], max_work=SETTINGS["max_work"]
+        new_d, new_rows, statistics = (
+            operation()
+            if operation is not None
+            else smooth(p, vertices, d, rows, sweeps=SETTINGS["sweeps"], max_work=SETTINGS["max_work"])
         )
     except WorkLimit as error:
         report.update(status="incomplete_synthesis_budget_not_a_proof", error=str(error))
@@ -437,6 +445,10 @@ def execute(args):
     for info in settings["binaries"].values():
         if derivations.digest(info["path"]) != info["sha256"]:
             raise ValueError("frozen synthesis native binary changed")
+    if settings.get("smoothing_backend") is not None:
+        from .smoothing_runtime import validate_run
+
+        validate_run(settings, output)
     source = VerifiedSource(settings["source"])
     if (
         source.records_sha256 != settings["source_records_sha256"]
@@ -463,6 +475,7 @@ def execute(args):
                 "phase": args.phase,
                 "optimization": settings.get("optimization"),
                 "source_seed_input_policy": input_config.get("policy") if input_config is not None else None,
+                "smoothing_backend": settings.get("smoothing_backend"),
                 "binding_sha256": derivations.digest(output / "run-binding.json"),
                 "birth": subprocess.check_output(["ps", "-p", str(os.getpid()), "-o", "lstart="], text=True).strip(),
             }

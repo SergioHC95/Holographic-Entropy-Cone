@@ -69,6 +69,19 @@ class SpeedupRolloutTests(unittest.TestCase):
                 rollout.fork(self.parent, self.output, parent_pgid=123)
         self.assertFalse(self.output.exists())
 
+    def test_unrelated_pending_reconstruction_code_is_preserved_from_parent(self):
+        relative = "src/hec/reconstruction.py"
+        old = self.parent / "implementation" / relative
+        old.parent.mkdir(parents=True, exist_ok=True)
+        saved = b"PARENT_ONLY_FIXTURE = True\n"
+        old.write_bytes(saved)
+        binding = json.loads((self.parent / "run-binding.json").read_bytes())
+        binding["implementation"][relative] = derivations.digest(old)
+        (self.parent / "run-binding.json").write_bytes(derivations.canonical_json(binding))
+        receipt = self.fork()
+        self.assertEqual((self.output / "implementation" / relative).read_bytes(), saved)
+        self.assertEqual(receipt["preserved_inactive_parent_files"][relative], derivations.digest(old))
+
     def test_optimized_attempt_is_same_mathematical_map_and_saved_recipe(self):
         item = self.math.item(1)
         previous = synthesize.SETTINGS
