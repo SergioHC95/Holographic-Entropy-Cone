@@ -100,6 +100,10 @@ class RecipeCatalog:
         return len(self.entries)
 
     def __getitem__(self, index):
+        return self.read_record(index)[0]
+
+    def read_record(self, index):
+        """One verified frame read, also available for lossless reframing."""
         entry = self.entries[index]
         path = self.path.parent / "recipe-shards" / f"{entry['shard']}.recipepack"
         if path.is_symlink() or path.parent.is_symlink() or not path.is_file():
@@ -119,7 +123,7 @@ class RecipeCatalog:
         recipe = parse_json(raw)
         if canonical_json(recipe) != raw or inequality_id(geometry_only(recipe)) != entry["inequality_id"]:
             raise ValueError("research recipe is noncanonical or belongs to another inequality")
-        return recipe
+        return recipe, data
 
 
 class Shards:
