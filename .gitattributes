@@ -1,0 +1,7 @@
+# Exact immutable payloads are ordinary Git blobs; never transform their bytes.
+*.proofpack -filter -text -diff
+*.zst -filter -text -diff
+*.json text eol=lf
+*.py text eol=lf
+*.cpp text eol=lf
+*.yml text eol=lf
