@@ -13,7 +13,7 @@ from corpus_derivations.pipeline_import import import_recipe
 from hec.count_proofs import canonical_json, geometry, inequality_id, make_count_proof, proof_id
 from hec.proof_store import CATALOG_FORMAT, ProofCatalog
 from hec.reconstruction import ReconstructionProgram
-from hec.reconstruction_store import ReconstructionCatalog
+from hec.reconstruction_store import ReconstructionCatalog, write_reconstruction_catalog
 from hec.reconstruction_verify import ReconstructionVerifier
 
 
@@ -168,6 +168,125 @@ class ReconstructionStoreTests(unittest.TestCase):
         shard.write_bytes(shard.read_bytes() + b"trailing")
         with self.assertRaisesRegex(ValueError, "SHA256"):
             ReconstructionCatalog(path)[0]
+
+
+class ReconstructionWriterTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="hec-unified-writer-")
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.legacy = make_count_proof(geometry(2, (2, 1, -1)), [(0,), (1,), (1,)], transport=True)
+        self.document = import_recipe(self.legacy)[0]
+        self.other = import_recipe(make_count_proof(geometry(2, (1, 1, -1)), [(0,), (1,), (1,)], transport=True))[0]
+        self.verifier = ReconstructionVerifier(closure_binary="", cube_binary="")
+        self.addCleanup(self.verifier.close)
+
+    def test_complete_writer_and_reader_both_execute_actual_audits(self):
+        spy = Mock(wraps=self.verifier)
+        path = self.root / "proofs.json"
+        result = write_reconstruction_catalog(path, [self.document, self.other], shard_bytes=1, verifier=spy)
+        self.assertEqual((len(result["entries"]), len(result["shards"])), (2, 2))
+        self.assertEqual(spy.verify.call_count, 2)
+        catalog = ReconstructionCatalog(path)
+        self.assertEqual(list(catalog), [self.document, self.other])
+        audit = catalog.verify(spy)
+        self.assertEqual((audit["proofs"], audit["checked_vertices"], audit["checked_edges"]), (2, 8, 8))
+        self.assertEqual(spy.verify.call_count, 4)
+
+    def test_legacy_bad_boundary_forged_receipt_and_empty_stream_publish_no_catalogue(self):
+        bad = copy.deepcopy(self.document)
+        bad["function"]["seed"] = {"kind": "integer-cut-dnf/1", "terms": [], "groups": [[[]]]}
+        for name, documents, verifier in (
+            ("legacy", [self.legacy], self.verifier),
+            ("boundary", [bad], self.verifier),
+            (
+                "seed-only",
+                [self.document],
+                Mock(verify=Mock(return_value={"ok": True, "scope": "compatible-seed-only"})),
+            ),
+            ("empty", [], self.verifier),
+        ):
+            path = self.root / name / "proofs.json"
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                write_reconstruction_catalog(path, documents, verifier=verifier)
+            self.assertFalse(path.exists())
+
+    def test_only_one_definition_per_inequality_even_when_both_are_valid(self):
+        cut = copy.deepcopy(self.document)
+        cut["function"]["seed"] = {"kind": "integer-cut-dnf/1", "terms": [["1", "0"], ["2", "0"]], "groups": [[[0, 1]]]}
+        # Both definitions independently verify, but the authoritative selection
+        # cannot contain two encodings/proofs for the same inequality.
+        self.verifier.verify(cut)
+        spy = Mock(wraps=self.verifier)
+        path = self.root / "proofs.json"
+        with self.assertRaisesRegex(ValueError, "one selected proof"):
+            write_reconstruction_catalog(path, [self.document, cut], verifier=spy)
+        self.assertEqual(spy.verify.call_count, 1)
+        self.assertFalse(path.exists())
+
+    def test_caller_mutation_during_verification_cannot_change_published_bytes(self):
+        original, expected = copy.deepcopy(self.document), copy.deepcopy(self.document)
+
+        def verify(snapshot):
+            original["function"]["seed"] = {"kind": "integer-cut-dnf/1", "terms": [], "groups": [[[]]]}
+            return self.verifier.verify(snapshot)
+
+        path = self.root / "proofs.json"
+        write_reconstruction_catalog(path, [original], verifier=Mock(verify=Mock(side_effect=verify)))
+        self.assertNotEqual(original, expected)
+        self.assertEqual(ReconstructionCatalog(path)[0], expected)
+
+    def test_verifier_mutating_owned_snapshot_is_rejected_not_silently_published(self):
+        def verify(snapshot):
+            result = self.verifier.verify(snapshot)
+            snapshot["function"]["seed"] = {"kind": "integer-cut-dnf/1", "terms": [], "groups": [[[]]]}
+            return result
+
+        path = self.root / "proofs.json"
+        with self.assertRaises(ValueError):
+            write_reconstruction_catalog(path, [self.document], verifier=Mock(verify=Mock(side_effect=verify)))
+        self.assertFalse(path.exists())
+
+    def test_existing_target_and_symlink_parent_fail_before_backend_call(self):
+        path = self.root / "proofs.json"
+        path.write_bytes(b"preserve this original")
+        spy = Mock(verify=Mock(side_effect=AssertionError("existing destination must preflight first")))
+        with self.assertRaises(ValueError):
+            write_reconstruction_catalog(path, [self.document], verifier=spy)
+        self.assertEqual(path.read_bytes(), b"preserve this original")
+        directory = self.root / "directory"
+        directory.mkdir()
+        link = self.root / "linked"
+        link.symlink_to(directory, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "unsafe"):
+            write_reconstruction_catalog(link / "new.json", [self.document], verifier=spy)
+        spy.verify.assert_not_called()
+        self.assertFalse((directory / "proof-shards").exists())
+
+    def test_existing_immutable_payload_reused_but_corruption_is_never_replaced(self):
+        write_reconstruction_catalog(self.root / "first.json", [self.document], verifier=self.verifier)
+        shard = next((self.root / "proof-shards").iterdir())
+        before = shard.read_bytes(), shard.stat().st_ino
+        write_reconstruction_catalog(self.root / "second.json", [self.document], verifier=self.verifier)
+        self.assertEqual((shard.read_bytes(), shard.stat().st_ino), before)
+        shard.write_bytes(shard.read_bytes() + b"corrupt")
+        corrupt = shard.read_bytes()
+        with self.assertRaisesRegex(ValueError, "immutable shard is corrupt"):
+            write_reconstruction_catalog(self.root / "third.json", [self.document], verifier=self.verifier)
+        self.assertEqual(shard.read_bytes(), corrupt)
+        self.assertFalse((self.root / "third.json").exists())
+
+    def test_failure_after_sealing_leaves_no_published_catalogue(self):
+        bad = import_recipe(make_count_proof(geometry(2, (1, 2, -1)), [(0,), (1,), (1,)], transport=True))[0]
+        bad["function"]["seed"] = {"kind": "integer-cut-dnf/1", "terms": [], "groups": [[[]]]}
+        path = self.root / "proofs.json"
+        with self.assertRaisesRegex(ValueError, "boundary"):
+            write_reconstruction_catalog(path, [self.document, self.other, bad], shard_bytes=1, verifier=self.verifier)
+        self.assertFalse(path.exists())
+        # The only residue is a content-addressed, reusable verified frame,
+        # never an authoritative index claiming complete publication.
+        for shard in (self.root / "proof-shards").iterdir():
+            self.assertEqual(hashlib.sha256(shard.read_bytes()).hexdigest(), shard.stem)
 
 
 if __name__ == "__main__":

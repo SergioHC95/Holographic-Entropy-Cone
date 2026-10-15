@@ -185,8 +185,27 @@ def write_proof_catalog(
     shard_bytes: int = DEFAULT_SHARD_BYTES,
     compression_level: int = 9,
 ) -> dict:
+    """Write the pre-cutover compact language through immutable framing.
+
+    The unified-only writer is in reconstruction_store; this existing entry
+    point is not switched before full-corpus migration/promotion QA.
+    """
+
+    def validate(proof):
+        if proof.get("format") != FORMAT or proof.get("function", {}).get("kind") not in (DAG, KERNEL, TRANSPORT):
+            raise ValueError("authoritative catalogue accepts compact definitions, not audit tables")
+        return check_count_proof(proof)
+
+    return _write_catalog(path, proofs, validate, shard_bytes=shard_bytes, compression_level=compression_level)
+
+
+def _write_catalog(
+    path, proofs, validate, *, shard_bytes=DEFAULT_SHARD_BYTES, compression_level=9, require_nonempty=False
+):
     """Stage verified immutable shards, then atomically publish their catalogue.
 
+    ``validate`` belongs to the trusted language-specific writer, never to a
+    field in a proof document. Storage framing does not choose a proof model.
     A single large record is kept whole; it may exceed the soft shard target.
     Existing immutable objects must match their names and are never replaced.
     """
@@ -194,7 +213,7 @@ def write_proof_catalog(
     if type(shard_bytes) is not int or shard_bytes < 1 or path.exists():
         raise ValueError("choose a positive shard target and a new catalogue destination")
     directory = path.parent / "proof-shards"
-    if path.is_symlink() or directory.is_symlink():
+    if path.is_symlink() or path.parent.is_symlink() or directory.is_symlink():
         raise ValueError("unsafe catalogue destination")
     directory.mkdir(parents=True, exist_ok=True)
     compressor = zstd.ZstdCompressor(level=compression_level, write_checksum=True)
@@ -231,28 +250,34 @@ def write_proof_catalog(
         blocks.clear()
 
     for proof in proofs:
-        if proof.get("format") != FORMAT or proof.get("function", {}).get("kind") not in (DAG, KERNEL, TRANSPORT):
-            raise ValueError("authoritative catalogue accepts compact definitions, not audit tables")
-        receipt = check_count_proof(proof)
-        identity = receipt["proof_id"]
-        if identity in identities:
-            raise ValueError("duplicate proof identity in catalogue")
-        identities.add(identity)
+        # Own the bytes before verification: a caller's mutable dict cannot
+        # change what is subsequently written while a native audit is running.
         raw = canonical_json(proof)
         if len(raw) > MAX_RECORD_BYTES:
             raise ValueError("proof record exceeds reader safety limit")
+        snapshot = parse_json(raw)
+        identity = proof_id(snapshot)
+        iid = inequality_id(proof_geometry(snapshot))
+        if identity in identities:
+            raise ValueError("duplicate proof identity in catalogue")
+        receipt = validate(snapshot)
+        if receipt.get("proof_id") != identity or receipt.get("inequality_id") != iid:
+            raise ValueError("proof writer verification changed its exact definition or inequality identity")
+        identities.add(identity)
         compressed = compressor.compress(raw)
         if blocks and len(blocks) + len(compressed) > shard_bytes:
             finish()
         pending.append(
             {
-                "inequality_id": receipt["inequality_id"],
+                "inequality_id": iid,
                 "proof_id": identity,
                 "offset": len(blocks),
                 "bytes": len(compressed),
             }
         )
         blocks.extend(compressed)
+    if require_nonempty and not identities:
+        raise ValueError("authoritative unified catalogue requires at least one actually verified proof")
     finish()
     catalog = {"format": CATALOG_FORMAT, "entries": entries, "shards": shards}
     # Only this process's temporary file is cleaned up. Original tables and

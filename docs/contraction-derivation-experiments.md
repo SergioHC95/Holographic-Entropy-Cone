@@ -981,3 +981,34 @@ report is
 SHA256 `05ed742787d0ea77278db79ca4be34bd8906ec14295e94f522ce780f44628c26`.
 No live conversion, primary repository reader, LFS state or CI workflow was
 switched by this preparation. The full-data mathematical gate remains pending.
+
+### Unified-only writer and publication discipline
+
+`write_reconstruction_catalog` completes the proposed standard storage API.
+It accepts only `compatible-reconstruction-pipeline/1`, requires a nonempty
+selection with one proof per inequality, and executes actual complete
+original-cube verification before publishing an authoritative catalogue.
+Legacy function kinds, optional full tables, seed-only receipts and invalid
+boundaries cannot become successful writes. Native paths and verification
+implementations remain trusted caller configuration, never proof fields.
+
+The writer owns canonical bytes before verification; changes to a caller's
+mutable dict while a backend runs cannot change the published proof. Its
+verification result must match those exact proof/inequality identities and
+typed complete coverage. It shares only byte framing with the pre-cutover
+writer, not an artifact-format fallback. Existing immutable payloads are
+reused only when their lengths and hashes match and are never replaced when
+corrupt. Destination/catalogue races fail closed.
+
+The authoritative catalogue is linked into place atomically LAST. Failure
+after a shard was sealed may leave a reusable content-addressed payload, but
+never an index falsely claiming a complete publication. Existing destinations
+and unsafe symlink parents are refused before a backend call. These are
+local file operations, not Git LFS, billing or publication operations.
+
+All 60 targeted storage/writer/migration tests and the combined 279-test
+regression suite passed. Controls include exact write/read re-verification,
+duplicate selections, mutation, bad boundaries, corrupted payload reuse and
+late failure. This function is not yet registered as the primary repository
+writer; the current full-data audit is running its unchanged frozen code.
+That audit and final reader/data/schema/CI integration remain required.
