@@ -1,9 +1,9 @@
-"""Opt-in unified repository/CI checks, pending full-corpus promotion.
+"""Standard repository/CI checks for the single reconstruction proof language.
 
 Bindings are explicitly metadata only. Full-map validity requires every
 contraction partition to execute actual exhaustive audits. The standalone
-database command does both; a CI plan separates them to avoid a duplicate
-full-cube pass. No default reader, workflow, or artifact is switched here.
+database command does both; the CI plan separates them to avoid a duplicate
+full-cube pass. The gate requires every disjoint mathematical partition.
 """
 
 from __future__ import annotations
@@ -140,6 +140,7 @@ def check_stored_facet_database_format(root=None, *, n=None, shard_index=0, shar
     """Standalone integrity remains mathematical: bindings AND all full maps."""
     yield from check_stored_database_bindings(root, n=n, shard_index=shard_index, shard_count=shard_count)
     yield from check_stored_contractions(root, n=n)
+    yield "complete full-map audits and exact inequality/proof bindings; no facet/rank claim inferred from validity."
 
 
 def ci_matrix(root=None, *, lfs_ns=()):

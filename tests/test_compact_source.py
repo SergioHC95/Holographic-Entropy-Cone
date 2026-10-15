@@ -21,8 +21,8 @@ from corpus_derivations import compact_source, run, synthesize  # noqa: E402
 from corpus_derivations.diagrams import common_seed  # noqa: E402
 from derivation_pilot import recipes  # noqa: E402
 
+from hec._archive_proof_store import write_archive_catalog as write_proof_catalog  # noqa: E402
 from hec.count_proofs import canonical_json, geometry, inequality_id, make_count_proof  # noqa: E402
-from hec.proof_store import write_proof_catalog  # noqa: E402
 
 
 @unittest.skipUnless(shutil.which("c++"), "exact closure input control needs C++17")

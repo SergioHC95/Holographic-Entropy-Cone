@@ -5,6 +5,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from corpus_derivations.pipeline_import import import_recipe
+
 from hec.checks import check_stored_facet_database_format
 from hec.contractions import read_contractions
 from hec.count_proofs import geometry, make_count_proof
@@ -19,7 +21,7 @@ class CompactDatabaseTests(unittest.TestCase):
         directory = root / "n=2"
         directory.mkdir()
         directory.joinpath("facets.json").write_text("[[1,1,-1]]\n")
-        proof = make_count_proof(geometry(2, (1, 1, -1)), [(0,), (1,), (1,)], transport=True)
+        proof = import_recipe(make_count_proof(geometry(2, (1, 1, -1)), [(0,), (1,), (1,)], transport=True))[0]
         write_proof_catalog(directory / "proofs.json", [proof])
         write_inequality_catalog(directory / "inequalities.json", inequality_catalog([proof]))
         return directory, proof
@@ -42,7 +44,7 @@ class CompactDatabaseTests(unittest.TestCase):
             root = Path(directory)
             data, _proof = self.fixture(root)
             data.joinpath("facets.json").write_text("[[2,1,-1]]")
-            with self.assertRaisesRegex(ValueError, "identity sets"):
+            with self.assertRaisesRegex(ValueError, "known facets"):
                 list(check_stored_facet_database_format(root, n=2))
 
     def test_integer_dataset_floats_and_bools_are_rejected(self):

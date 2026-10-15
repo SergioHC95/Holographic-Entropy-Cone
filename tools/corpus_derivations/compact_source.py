@@ -16,8 +16,8 @@ from pathlib import Path
 
 from derivation_pilot import recipes
 
+from hec._archive_proof_store import ArchiveProofCatalog as ProofCatalog
 from hec.count_proofs import canonical_json, inequality_id, parse_json
-from hec.proof_store import ProofCatalog
 
 from . import run as derivations
 from .diagrams import common_seed

@@ -134,7 +134,7 @@ class ReconstructionPipelineTests(unittest.TestCase):
         example = doc.split("a complete MMI reconstruction is:", 1)[1].split("```json", 1)[1].split("```", 1)[0]
         program = ReconstructionProgram(parse_json(example.encode()))
         self.assertEqual(program.audit_reference()["checked_edges"], 12)
-        schema_path = ROOT / "schemas/reconstruction-pipeline-v1.schema.json"
+        schema_path = ROOT / "schemas/count-proof-v1.schema.json"
         schema = json.loads(schema_path.read_bytes())
         self.assertEqual(schema["properties"]["function"]["properties"]["kind"]["const"], PIPELINE)
 

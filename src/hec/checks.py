@@ -205,72 +205,10 @@ def check_stored_rays(
     )
 
 
-def _proof_bindings(current_n: int, root: str | Path | None):
-    from .count_proofs import geometry, inequality_id
-    from .inequality_records import InequalityCatalog
+def check_stored_contractions(root=None, *, n=None, shard_index=0, shard_count=1):
+    from .reconstruction_checks import check_stored_contractions as check
 
-    facets = load_hec_data(current_n, "facets", root=root)
-    proofs = load_hec_data(current_n, "contractions", root=root)
-    inequalities = InequalityCatalog(data_path(current_n, "contractions", root=root).with_name("inequalities.json"))
-    inequalities.check_bindings(proofs)
-    expected = {inequality_id(geometry(current_n, tuple(row))) for row in facets}
-    if len(expected) != len(facets) or expected != set(inequalities.entries):
-        raise ValueError(f"n={current_n}: facet and inequality/proof identity sets are not exactly aligned")
-    return facets, proofs
-
-
-def check_stored_contractions(
-    root: str | Path | None = None,
-    *,
-    n: int | None = None,
-    shard_index: int = 0,
-    shard_count: int = 1,
-) -> Iterator[str]:
-    import threading
-
-    from ._count_verify import FullMapVerifier
-    from .count_proofs import proof_geometry
-
-    for current_n in _selected_ns(root, n):
-        _facets, proofs = _proof_bindings(current_n, root)
-        selected = proofs.shard_group_entries(shard_index, shard_count)
-        selected_count = len(selected)
-        label = _shard_label(shard_index, shard_count)
-        workers = min(2, check_worker_count())
-        local = threading.local()
-        verifiers = []
-        lock = threading.Lock()
-
-        def check_pair(pair, *, current_n=current_n, local=local, lock=lock, verifiers=verifiers):
-            index, proof = pair
-            if proof_geometry(proof).n != current_n:
-                raise ValueError(f"n={current_n}, index={index}: proof party count differs")
-            if not hasattr(local, "verifier"):
-                local.verifier = FullMapVerifier()
-                with lock:
-                    verifiers.append(local.verifier)
-            return index, local.verifier.verify(proof)
-
-        pairs = ((index, proofs[index]) for index in selected)
-        print(
-            f"n={current_n}{label}: exact full-map audit of {selected_count:,} proofs with {workers} workers",
-            flush=True,
-        )
-        edges = 0
-        try:
-            with ThreadPoolExecutor(max_workers=workers) as pool:
-                for completed, (index, check) in enumerate(
-                    _bounded_parallel_map(pool, check_pair, pairs, max_pending=2 * workers), start=1
-                ):
-                    if check.get("ok") is not True:
-                        raise ValueError(f"n={current_n}, index={index}: exact full-map verification failed")
-                    edges += check["checked_edges"]
-                    if completed % 1000 == 0:
-                        print(f"n={current_n}{label}: audited {completed:,}/{selected_count:,} proofs", flush=True)
-        finally:
-            for verifier in verifiers:
-                verifier.close()
-        yield f"n={current_n}{label}: {selected_count} mathematically valid full maps; {edges} original cube edges"
+    yield from check(root, n=n, shard_index=shard_index, shard_count=shard_count)
 
 
 def _check_facet_structure(current_n, facets):
@@ -306,34 +244,16 @@ def _check_facet_structure(current_n, facets):
         raise ValueError(f"n={current_n}: facets are not ordered lifts-first, then row-lexicographically")
 
 
-def check_stored_facet_database_format(
-    root: str | Path | None = None,
-    *,
-    n: int | None = None,
-    shard_index: int = 0,
-    shard_count: int = 1,
-) -> Iterator[str]:
-    """Check exact facet/inequality/proof bindings and mathematical validity.
+def check_stored_facet_database_format(root=None, *, n=None, shard_index=0, shard_count=1):
+    from .reconstruction_checks import check_stored_facet_database_format as check
 
-    Historical representative values are intentionally preserved.  The
-    ordering invariant is lifts first, followed by one row-lexicographically
-    sorted mix of all remaining old and new representatives. Proofs are
-    linked by exact inequality identity, not by a positional legacy record.
-    """
+    yield from check(root, n=n, shard_index=shard_index, shard_count=shard_count)
 
-    _shard_indices(1, shard_index, shard_count)
-    if shard_count != 1:
-        raise ValueError("database format check cannot be split into shards")
 
-    for current_n in _selected_ns(root, n):
-        facets = load_hec_data(current_n, "facets", root=root)
-        _check_facet_structure(current_n, facets)
+def check_stored_database_bindings(root=None, *, n=None, shard_index=0, shard_count=1):
+    from .reconstruction_checks import check_stored_database_bindings as check
 
-        _proof_bindings(current_n, root)
-        # Standalone database integrity is mathematical, not a hash-only or
-        # shape-only check. It audits the same authoritative definitions.
-        yield from check_stored_contractions(root, n=current_n)
-        yield f"n={current_n}: {len(facets)} exact facet/proof bindings and complete full-map audits"
+    yield from check(root, n=n, shard_index=shard_index, shard_count=shard_count)
 
 
 def _check_graph_pair(pair: tuple[int, tuple[int, ...], dict, int]) -> tuple[int, str | None]:
@@ -387,6 +307,7 @@ def main() -> None:
     checks = {
         "contractions": check_stored_contractions,
         "database": check_stored_facet_database_format,
+        "database-bindings": check_stored_database_bindings,
         "facets": check_stored_facets,
         "graphs": check_stored_graphs,
         "rays": check_stored_rays,

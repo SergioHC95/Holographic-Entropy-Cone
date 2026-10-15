@@ -16,15 +16,16 @@ under \(S_{n+1}\). Data files live under `data/n=*/`:
 - `graphs.json` contains exact graph realizations for the listed rays.
 - `inequalities.json` binds primitive inequality identities to proof identities.
 - `proofs.json` indexes the exact compact contraction proofs.
-- `proof-shards/*.proofpack` contains immutable, independently seekable proof
-  definitions, stored in Git LFS.
+- `proof-shards/*.proofpack` contains immutable, independently seekable exact
+  definitions: large n=6 shards use Git LFS; tiny n<=5 payloads stay in Git.
+- `data/contraction-corpus.json` records the complete proof scope and audit references.
 
 Rows use primitive integer coefficients in cardinality-then-lexicographic
 subset order. Facet and ray files list lifts from lower-party cones first. The
 remaining facet rows—historical and newly added—are mixed and sorted
 row-lexicographically. Proofs bind to inequalities by content identity, not
-by their position in the facet file. Database checks require exactly the
-listed facets and their complete proof bindings.
+by their position in the facet file. Database checks require exact proof bindings for every listed facet. Additional
+validity proofs are recorded separately; a contraction does not certify facethood.
 
 Graphs contain only `edges` and `weights`. A contraction proof defines an
 exact rational count map on every vertex of the original source cube.
@@ -33,17 +34,25 @@ Boolean tables are optional audit exports rather than the active interface.
 
 The authoritative format is specified in
 [Exact contraction proof standard](docs/contraction-proof-standard.md).
-`hec.count_proofs` defines exact rational count maps and compact certified
-full-cube constructions; `hec.proof_store` stores immutable, seekable LFS
-shards. The reader accepts only this standard. Exact historical artifacts
-and proof-preserving transformation receipts remain recoverable under
-`archives/contractions/legacy-v1/`, but are not a runtime fallback.
+`hec.reconstruction` defines one closed reconstruction pipeline with four seed
+primitives. `hec.proof_store` exposes only that strict reader/writer; archived
+formats require an explicit offline archive import, never a fallback.
 
-CI independently reconstructs the full maps from the active definitions and
-checks exact bounds, party/purifier images, and every weighted cube edge.
-Decision diagrams use exact symbolic edge coverage. Missing LFS data fails
-the gate; byte hashes and migration receipts never substitute for mathematics.
-CI fetches only active proof shards, not the historical archive.
+All **84,690 unique proofs** have passed fresh exact staged-data QA, covering
+2,191,303,534 vertices and 18,029,658,329 weighted source-cube edges with zero
+errors. The complete frozen-input/ledger/frame acceptance review also passed.
+The n=6 proof corpus has 84,676 inequality identities, not 84,676 asserted
+facets; the existing facet/ray/graph records remain unchanged.
+
+CI independently reconstructs every saved map and checks all bounds,
+party/purifier images and weighted cube edges. Whole-payload partitions avoid
+duplicate audits; metadata bindings and existing rank/graph checks are
+separate required jobs. Missing LFS data fails the gate, not the mathematics.
+
+The local cutover has not uploaded new LFS payloads. The verified external
+`publication-assets.json` must be used to import/upload the exact objects only
+after quota resolution and separate authorization. Pointer files are not a
+claim that the corresponding server objects already exist.
 
 ## Python package
 
@@ -60,10 +69,15 @@ where the code will run:
 
 ```bash
 uv sync --locked --dev
-git lfs pull --include="data/**/proof-shards/*.proofpack" --exclude=""
+# After authorized payload publication/hydration:
+git lfs pull --include="data/n=6/proof-shards/*.proofpack" --exclude=""
 hec_verify_dir=$(mktemp -d)
-c++ -O3 -std=c++17 -Wall -Wextra -Werror tools/verify_count_proofs.cpp -o "$hec_verify_dir/check"
-HEC_COUNT_VERIFIER="$hec_verify_dir/check" HEC_CHECK_WORKERS=2 uv run python -m hec.checks database
+c++ -O3 -std=c++17 -Wall -Wextra -Werror tools/derivation_pilot/closure.cpp -o "$hec_verify_dir/closure"
+c++ -O3 -std=c++17 -Wall -Wextra -Werror tools/verify_reconstruction.cpp -o "$hec_verify_dir/verify"
+HEC_RECONSTRUCTION_CLOSURE="$hec_verify_dir/closure" \
+HEC_RECONSTRUCTION_VERIFIER="$hec_verify_dir/verify" \
+HEC_RECONSTRUCTION_WORKING_BYTES=268435456 HEC_CHECK_WORKERS=2 \
+uv run python -m hec.checks database
 uv run ruff check .
 ```
 
@@ -107,7 +121,14 @@ counted once.
 | 5 | 8 (3) | 372 | 19 (3) | 2,267 | complete |
 | 6 | 80,213 (11) | — | 4,161 (19) | 15,455,986 | incomplete |
 
-Data updates:
+Data updates (older storage formats below are historical, not accepted by the primary reader):
+
+- 2026-10-15: standardized all 84,690 proofs into one deterministic exact
+  full-map pipeline. Of the independently audited alternatives, 25,293 remain
+  strictly smaller in the final profile. Payload frames total 177,691,853
+  bytes; 5,408 old-profile alternatives reverted honestly to shorter verified
+  sources. Fresh complete-cube QA and acceptance review passed. Original
+  artifacts are recoverable; no Git/LFS history or quota deletion is claimed.
 
 - 2026-10-13: migrated all 80,213 n=6 proofs and the 14 n=1 through n=5
   proofs to the exact compact standard. The n=6 definitions occupy

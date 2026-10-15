@@ -1,12 +1,12 @@
-"""Verify new proof shards and ordinary-Git inequality bindings exactly."""
+"""Exactly verify standard proof shards and inequality bindings; no legacy fallback."""
 
 import argparse
 import json
 from pathlib import Path
 
-from hec.count_proofs import KERNEL, TRANSPORT, check_count_proof
 from hec.inequality_records import InequalityCatalog
 from hec.proof_store import ProofCatalog
+from hec.reconstruction_verify import ReconstructionVerifier
 
 
 def main():
@@ -19,21 +19,26 @@ def main():
     catalog = ProofCatalog(args.catalog)
     if args.inequalities:
         InequalityCatalog(args.inequalities).check_bindings(catalog)
-    proofs, source_edges, seed_edges = 0, 0, 0
-    for _index, proof in catalog.iter_selected(args.shard_index, args.shard_count):
-        receipt = check_count_proof(proof)
-        if proof["function"]["kind"] in (KERNEL, TRANSPORT):
-            seed_edges += receipt["checked_edges"]
-        else:
-            source_edges += receipt["checked_edges"]
-        proofs += 1
+    proofs, edges, vertices = 0, 0, 0
+    verifier = ReconstructionVerifier()
+    try:
+        for index in catalog.shard_group_entries(args.shard_index, args.shard_count):
+            result = catalog.audit_entry(index, verifier)
+            proofs += 1
+            edges += result["checked_edges"]
+            vertices += result["checked_vertices"]
+    finally:
+        verifier.close()
     print(
         json.dumps(
             {
                 "ok": True,
                 "verified_proofs": proofs,
-                "symbolic_original_cube_edges": source_edges,
-                "compatible_seed_edges": seed_edges,
+                "checked_original_cube_vertices": vertices,
+                "checked_original_cube_edges": edges,
+                "scope": "original-cube-all-edges",
+                "source_tables_read": False,
+                "stored_acceptance_flags_used": False,
             }
         )
     )

@@ -1,6 +1,6 @@
-"""Opt-in unified-only catalogue reader, pending full-corpus promotion.
+"""The unified-only standard catalogue reader and exact writer.
 
-The existing primary repository loader is deliberately not switched here.
+The primary repository API aliases this one implementation.
 Storage framing is shared, not a legacy-format fallback. Reading a frame or
 checking syntax is NOT mathematical acceptance: verify() executes the exact
 original-cube verifier for every selected proof, every time.
@@ -8,8 +8,8 @@ original-cube verifier for every selected proof, every time.
 
 from __future__ import annotations
 
+from ._proof_frames import DEFAULT_SHARD_BYTES, FrameCatalog, _write_catalog
 from .count_proofs import FORMAT, inequality_id, proof_geometry, proof_id
-from .proof_store import DEFAULT_SHARD_BYTES, ProofCatalog, _write_catalog
 from .reconstruction import CLOSURE, PIPELINE, ReconstructionProgram
 from .reconstruction_verify import ReconstructionVerifier
 
@@ -70,9 +70,11 @@ def write_reconstruction_catalog(path, proofs, *, shard_bytes=DEFAULT_SHARD_BYTE
             selected.close()
 
 
-class ReconstructionCatalog(ProofCatalog):
+class ReconstructionCatalog(FrameCatalog):
     def __init__(self, path):
         super().__init__(path)
+        if not self.entries:
+            raise ValueError("authoritative unified catalogue cannot be empty")
         if len({entry["inequality_id"] for entry in self.entries}) != len(self.entries):
             raise ValueError("authoritative unified catalogue requires one selected proof per inequality")
 

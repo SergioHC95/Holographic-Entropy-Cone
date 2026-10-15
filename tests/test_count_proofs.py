@@ -8,6 +8,8 @@ import unittest
 from fractions import Fraction
 from pathlib import Path
 
+from hec._archive_proof_store import ArchiveProofCatalog as ProofCatalog
+from hec._archive_proof_store import write_archive_catalog as write_proof_catalog
 from hec._count_kernel import evaluate_kernel, isotonic_projection
 from hec.count_proofs import (
     INTEGER_ROWS,
@@ -27,7 +29,6 @@ from hec.count_proofs import (
     proof_id,
 )
 from hec.inequality_records import InequalityCatalog, inequality_catalog, write_inequality_catalog
-from hec.proof_store import ProofCatalog, write_proof_catalog
 
 
 class CountProofTests(unittest.TestCase):

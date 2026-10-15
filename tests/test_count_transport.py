@@ -5,6 +5,8 @@ import unittest
 from fractions import Fraction
 from pathlib import Path
 
+from hec._archive_proof_store import ArchiveProofCatalog as ProofCatalog
+from hec._archive_proof_store import write_archive_catalog as write_proof_catalog
 from hec._count_transport import CompatibleRank, SeedLookup, evaluate_transport, transport_mass
 from hec.count_proofs import (
     TRANSPORT,
@@ -17,7 +19,6 @@ from hec.count_proofs import (
     parse_json,
     proof_geometry,
 )
-from hec.proof_store import ProofCatalog, write_proof_catalog
 
 
 class TransportProofTests(unittest.TestCase):

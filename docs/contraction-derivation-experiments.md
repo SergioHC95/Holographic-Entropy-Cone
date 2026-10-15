@@ -433,8 +433,8 @@ For example, a complete MMI reconstruction is:
 ```
 
 The corresponding syntax contract is
-`schemas/reconstruction-pipeline-v1.schema.json`. It reuses the existing
-inequality and exact-row schemas. The reader separately enforces complete
+`schemas/count-proof-v1.schema.json`. Its single-language syntax embeds the
+shared inequality and exact-row definitions. The reader separately enforces complete
 coverage, canonical/shared DAG objects, exact group capacities, minimal seed
 denominators and the derived full-map clearing guarantee. DAG nodes are
 canonically relabelled bottom-up by axis and child IDs. Configurable resource

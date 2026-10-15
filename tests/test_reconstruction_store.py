@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 import zstandard as zstd
 from corpus_derivations.pipeline_import import import_recipe
 
+from hec._archive_proof_store import ArchiveProofCatalog
 from hec.count_proofs import canonical_json, geometry, inequality_id, make_count_proof, proof_id
 from hec.proof_store import CATALOG_FORMAT, ProofCatalog
 from hec.reconstruction import ReconstructionProgram
@@ -57,15 +58,17 @@ class ReconstructionStoreTests(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
-    def test_frame_reader_is_explicit_unified_only_and_old_primary_remains_unchanged(self):
+    def test_primary_reader_is_the_single_unified_reader(self):
         path = stage(self.directory, [self.document])
         self.assertEqual(ReconstructionCatalog(path)[0], self.document)
+        self.assertIs(ProofCatalog, ReconstructionCatalog)
+        self.assertEqual(ProofCatalog(path)[0], self.document)
         with self.assertRaises(ValueError):
-            ProofCatalog(path)[0]
+            ArchiveProofCatalog(path)[0]
 
     def test_legacy_definition_never_becomes_unified_fallback(self):
         path = stage(self.directory, [self.old])
-        self.assertEqual(ProofCatalog(path)[0], self.old)
+        self.assertEqual(ArchiveProofCatalog(path)[0], self.old)
         with self.assertRaisesRegex(ValueError, "no legacy fallback"):
             ReconstructionCatalog(path)[0]
 

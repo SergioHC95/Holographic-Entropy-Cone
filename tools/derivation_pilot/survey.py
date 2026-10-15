@@ -5,8 +5,8 @@ import json
 from collections import Counter
 from pathlib import Path
 
+from hec._archive_proof_store import ArchiveProofCatalog as ProofCatalog
 from hec.count_proofs import geometry, inequality_id
-from hec.proof_store import ProofCatalog
 
 
 def main():

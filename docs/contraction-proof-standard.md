@@ -1,28 +1,22 @@
 # Exact contraction proof standard
 
-Migration status, October 15, 2026: all 84,690 selected definitions have been
-converted to the single `compatible-reconstruction-pipeline/1` profile and
-staged. A NEW exhaustive staged-data audit is running; this is not yet a
-primary-reader/data/CI cutover. The individual full-map kinds below document
-the historical pre-unification profile, not fallbacks in the unified reader.
-The target language has four seed primitives feeding ONE fixed extension;
-see [the general pipeline specification](contraction-derivation-experiments.md#one-general-reconstruction-pipeline).
-After complete mathematical QA, the active specification and entry points
-must be cut over together rather than leave multiple authoritative formats.
+The sole authoritative artifact is `hec-count-proof/1` with function kind
+`compatible-reconstruction-pipeline/1`. All four seed primitives feed the SAME
+`cancel-fill-common-threshold/1` full-map extension. There is no format
+guessing, legacy-reader fallback, executable proof code or stored-valid flag.
 
-The authoritative certificate is an exact definition of a function on the
-entire original source cube. It has one rational count per distinct RHS
-support. Explicit Boolean tables are optional audit exports, not the standard
-repository interface. This first standard covers contractions, their
-inequality identities, and migration provenance. It does not change graph,
-ray, or facet rank certificates.
+The corpus contains **84,690 unique inequality/proof identities**: 80,213
+baseline n=6, 4,387 newer primitive, 76 scaled exact, and 14 n<=5.
+These are not all asserted to be facets. The fresh staged-data audit checked
+2,191,303,534 source vertices and 18,029,658,329 weighted source-cube edges
+with zero errors; the independent complete ledger/frame review also passed.
+Receipts are in `archives/contractions/standard-20261015/`.
 
-The implementation is in `hec.count_proofs` and `hec.proof_store`. Their readers
-accept only the new format. Historical JSON and bit tables enter through an
-offline importer, never through a fallback in the new verifier. All 80,213
-n=6 baseline proofs and the 14 n=1 through n=5 proofs have been migrated and
-fully audited. Publication requires every referenced LFS payload to be
-available and the new database-integrity gate to pass.
+`hec.proof_store.ProofCatalog` and `write_proof_catalog` are aliases of the
+single implementation in `hec.reconstruction_store`.
+`read_contractions`, `write_contractions`, the dataset loader and repository
+checks use that standard. Archive tools must explicitly import the private
+offline archive reader. They cannot change what the primary reader accepts.
 
 ## Inequality and coordinate conventions
 
@@ -144,105 +138,64 @@ The verifier recomputes both rather than trusting the declaration. Neither
 the primary certificate nor verification expands the potentially enormous
 virtual Boolean output.
 
-## Canonical proof document
 
-The version identifier is `hec-count-proof/1`. Its fields are exactly:
+## One closed proof language
+
+The fields are exactly `format`, `inequality`, `function` and
+`clearing_scale`. The normative syntax is
+[`count-proof-v1.schema.json`](../schemas/count-proof-v1.schema.json).
+Schema conformance alone is not mathematical acceptance. For example:
 
 ```json
 {
   "format": "hec-count-proof/1",
-  "inequality": {"n": 2, "coefficients": ["2", "1", "-1"]},
+  "inequality": {"n": 3, "coefficients": ["-1", "-1", "-1", "1", "1", "1", "-1"]},
   "function": {
-    "kind": "count-decision-dag/1",
-    "terminals": [["0", "1"], ["1", "2"], ["1", "1"]],
-    "nodes": [[0, 0, 2], [0, 2, 1], [1, 3, 4]],
-    "roots": [5]
+    "kind": "compatible-reconstruction-pipeline/1",
+    "seed": {
+      "kind": "integer-cut-dnf/1",
+      "terms": [["1", "0"], ["2", "0"], ["3", "4"], ["4", "0"], ["5", "2"], ["6", "1"]],
+      "groups": [[[2]], [[4]], [[5]], [[0, 1, 3]]]
+    },
+    "extension": {"kind": "cancel-fill-common-threshold/1"}
   },
-  "clearing_scale": {"value": "2", "minimal": true}
+  "clearing_scale": {"value": "1", "minimal": false}
 }
 ```
 
-This example's images are `0,1,1,1/2`. It is a full map, not a list of
-successful searches. Unknown fields, duplicate keys, floating-point numbers,
-noncanonical decimal integers, malformed row encodings, or unknown versions
-are rejected. Arbitrary-precision mathematical integers are decimal strings
-in JSON. JSON numbers are restricted to nonnegative safe dimensions and
-indices; their upper limit is `2**53-1`.
+The only seed kinds are:
 
-Canonical JSON sorts keys, uses ASCII escapes, has no insignificant whitespace,
-and forbids floating point. This is the repository's restricted canonical
-JSON, not RFC 8785 JCS. The proof ID is SHA-256 of
-`b"hec-count-proof/1\0" + canonical_json(document)`. The inequality ID uses
-the analogous `hec-inequality/1` prefix and the inequality object. Dates,
-solver logs, performance measurements, and migration receipts are outside
-the mathematical document, so changing them does not change the proof ID.
+- `compatible-count-table/1`: one exact bounded-integer or reduced-rational
+  count row per independently derived compatible vertex, in ascending mask order.
+- `compatible-scalar-dag/1`: shared, ordered, reduced scalar decision DAGs
+  with integer numerators over one minimal positive seed denominator.
+- `integer-cut-dnf/1`: shared literal conjunctions and disjunctions defining
+  Boolean layers whose sum is the integral count in each RHS group.
+- `integer-interval-closure/1`: versioned exact coupled interval propagation,
+  deterministic defaults and sparse exceptional choices; no source-table oracle.
 
-### Reduced exact decision diagrams
+These are interchangeable seed encodings, not alternative full-map formats.
+The reader checks exact complete-domain size, capacities, canonical DAG/term
+structure, bounds, occurrence images, coupled compatible edges and minimal
+seed denominator. Integer row payloads use bounded little-endian fields;
+fractional rows use reduced minimal unsigned LEB128 records. Noncanonical
+base64, varints, padding, duplicate keys, unknown fields/versions and floats fail.
 
-`count-decision-dag/1` stores one scalar root per RHS group. Terminals are
-nonnegative reduced rational pairs, numerically sorted and unique. Terminal
-IDs come first; node IDs follow in the array's order. Each node is
-`[source_axis, zero_child, one_child]`. Child IDs precede their parent, axes
-strictly decrease along a path, equal children are eliminated, identical
-nodes are shared, and nodes are sorted by axis then child IDs. All terminals
-and nodes must be reachable from the roots. These conditions give a canonical
-reduced diagram for the chosen fixed variable order.
+Closure choices remain source-guided in general. This representation is not a
+claim of a universal short description or a fast inequality-only solver.
+A seed table guarantees general representability when a valid count map exists;
+the other three primitives express useful structure without changing the proof.
 
-Scalar roots share nodes across groups. Vector-valued leaves would explode
-even for identity-like maps; that representation is not the standard. The
-diagram defines every source vertex, including omitted variables, with no
-missing-row convention. The verifier checks exact root ranges and boundary
-images, then takes the exact maximum of the sum of absolute differences of
-each pair of axis cofactors. A joint recursive split covers both values of
-every remaining relevant variable. Equal cofactors contribute zero without
-branching, and memoization reuses identical subproblems. Every original-cube
-edge is covered; no sampling or floating point is used.
+## Complete compatible domain and fixed extension
 
-The scope is `symbolic-original-cube-all-edges`, distinct from enumerating an
-audit table. Tests compare symbolic acceptance against an independent
-exhaustive arbitrary-precision audit. The minimal clearing scale is the LCM
-of reachable terminal denominators.
-
-### Seed rows and optional audit exports
-
-Base64 contains the canonical row bytes; strict canonical base64 is required.
-The group order and group bounds come exclusively from the coefficient vector.
-
-Integral rows use `bounded-integers/1`: group `g` occupies
-`beta_g.bit_length()` bits, little-endian, groups then rows without intermediate
-padding. Only the final byte may have padding, and its unused bits must be
-zero. This uses no more bits than the historical repeated Boolean groups.
-
-Fractional rows use `reduced-rationals/1`: each row encodes its positive common
-denominator followed by its `G` nonnegative numerators as minimal unsigned
-LEB128 integers. Their joint gcd, including the denominator, must be one.
-Truncation, trailing bytes, and nonminimal varints are rejected. Integral
-functions or seeds must use the bounded integer encoding. Rational rows use
-their own reduced denominators, not giant global fixed-width numerators.
-
-Seed rows belong to compact kernel definitions. Enumerated full tables use
-the separate `hec-count-audit/1` format, with function kind `full-table/1`.
-They are optional audit exports. The authoritative catalogue rejects them.
-`make_count_proof(..., audit_table=True)` and the independent reference
-checker support these exports without introducing a legacy reader.
-
-## Compact compatible order construction
-
-The other supported full-map definition is `compatible-order-kernel/1`.
-Its row payload is a seed on **all** compatible vertices, ordered by ascending
-source integer. The complete domain is independently derived from supports;
-there is no supplied vertex list to trust:
+For the distinct LHS supports, C is derived from the clauses
 
 ```text
-I_i intersect I_j is empty -> not (x_i = x_j = 1)
-I_i proper subset I_j     -> x_i <= x_j.
+I_i disjoint I_j  -> not (x_i = x_j = 1)
+I_i proper subset I_j -> x_i <= x_j.
 ```
 
-The seed must satisfy the same exact bounds and boundary conditions and every
-compatible one-bit edge. Missing or extra rows are rejected. Every step below
-is fixed by this version; certificates cannot supply arbitrary executable
-code, tuned probabilities, a different fold order, or a numerical projector.
-
+No proof-supplied vertex list is trusted.
 ### Compatible domain distances
 
 The compatible domain is isometric in the weighted source cube. To move from
@@ -252,89 +205,6 @@ through `x intersect y`, stays compatible, and flips each differing axis once.
 Consequently checking every compatible edge proves the seed's global
 Lipschitz bound on that domain.
 
-### Disjoint support folds
-
-Process every disjoint pair `(i,j)` in lexicographic source-axis order. With
-capacities `a>=b`, its forbidden state `11` becomes `00` with probability
-`b/a`, or the larger-capacity singleton with probability `(a-b)/a`. Fix the
-other three states and other coordinates. Equal capacities send `11` to `00`.
-
-Its expected distances to the larger and smaller singletons are respectively
-`b` and `(b/a)*b + ((a-b)/a)*(a+b) = a`, exactly their source edge bounds.
-Other pair edges are fixed. An unrelated-axis edge couples the same random
-choice at both ends. Shortest paths therefore prove weighted Wasserstein
-nonexpansion. Composition preserves it. Folds only remove ones, so a single
-pass eliminates every disjoint conflict without reintroducing earlier ones.
-
-### Exact order projection and threshold
-
-For each disjoint-valid endpoint, use the unique weighted L2 order projection
-
-```text
-P(x) = argmin_u sum_i alpha_i (u_i-x_i)^2
-       subject to u_i <= u_j whenever I_i proper subset I_j.
-```
-
-The feasible cone is closed under coordinatewise min and max. Comparing the
-two optimal objectives with their min/max replacements proves order
-preservation: for `x<=y`, the replacement difference on a coordinate with
-`P(x)_i>P(y)_i` is `2*alpha_i*(P(x)_i-P(y)_i)*(x_i-y_i)<=0`; uniqueness forces
-`P(x)<=P(y)`. Translation by a constant is feasible, so stationarity gives
-`sum alpha_i P(x)_i = sum alpha_i x_i`. Projection lies in `[0,1]^L`.
-
-For `z=min(x,y)`, these facts imply
-
-```text
-sum_i alpha_i |P(x)_i-P(y)_i|
- <= sum_i alpha_i (P(x)_i+P(y)_i-2P(z)_i)
-  = d_alpha(x,y).
-```
-
-Positive projected supports belong to the upward closure of the initially
-active supports: setting coordinates outside that closure to zero is feasible
-and improves the objective unless they are already zero. Supersets of
-pairwise-intersecting active supports remain pairwise intersecting. Therefore
-the common threshold `Y_i(x,t)=1[P(x)_i>=t]`, `0<t<=1`, is compatible.
-
-Coupling the same threshold at two endpoints gives expected source distance
-`sum alpha_i |P(x)_i-P(y)_i|`. The seed bound and convexity of the output L1
-norm prove that its expected seed image is nonexpansive. Composing with the
-disjoint folds gives a full-cube function. All occurrence boundaries are
-compatible, so folds, projection, and threshold fix them. Convex expectation
-preserves the count bounds.
-
-The expectation is an exact finite sum over rational projection levels, not
-Monte Carlo sampling. The Python reference computes maximum-closure splits,
-then independently certifies order, rational level balances, and integer KKT
-flows. Tests compare it to exhaustive partition optimization and full-cube
-edge verification on small instances.
-
-### Derived clearing scale
-
-Every projection level is a weighted block mean; its denominator divides a
-positive integer no greater than `sum(alpha)`. If the seed's minimal common
-denominator is `D_seed`, a sufficient bound is
-
-```text
-D_seed * lcm(1,...,sum(alpha))
-       * product_over_disjoint_pairs(max(alpha_i,alpha_j)/gcd(alpha_i,alpha_j)).
-```
-
-This is the recorded nonminimal scale. It can be much larger than the scale
-of a previous enumerated map; it is a clearing guarantee, not a requirement
-to allocate that Boolean output or a minimal-scale claim.
-
-The verifier reports `complete-compatible-seed-and-certified-extension`, with
-the actual seed vertex and edge counts. It does not report those edges as a
-fresh exhaustive full-cube evaluation. Migration source audits have a separate
-scope and count.
-
-## Deterministic cancel fill construction
-
-`compatible-cancel-fill-kernel/1` is a distinct certified constructor. It uses
-the same complete compatible-domain seed, independently rebuilt coverage,
-exact row bounds, occurrence images, and compatible-edge checks as the order
-kernel. It does not change the meaning of `compatible-order-kernel/1`.
 
 Start with integer masses `k_i=alpha_i*x_i`. Process disjoint source-axis pairs
 in lexicographic order, subtracting `min(k_i,k_j)` from both masses. The pair
@@ -379,109 +249,88 @@ forbids disjoint supports. Cached completion counts select the packed row
 without enumerating the domain or retaining a vertex dictionary. Rational
 rows have the same mathematical semantics and exact reduced encoding.
 
-The October 13, 2026 full-baseline run reconstructed all 80,213 maps, directly
-audited 9,501,700,040 original and 9,501,700,040 reconstructed cube edges,
-checked 1,320,807,803 compatible edges, and differentially compared the native
-implementation with Python on 2,373,852 query vertices. Source artifacts and
-the exact verifier snapshots were retained. That source audit preceded the
-repository cutover; it did not change the production solver. The active
-database gate now repeats the full reconstructed-cube check independently
-from compact seeds, without reading source tables or migration receipts.
 
-## Immutable LFS shards and inequality indexes
+Different seeds can give different valid maps. Equal exact seeds give the
+same full map under this fixed extension. Restricting an arbitrary old valid
+map to C and applying this extension preserves the proof, but need not preserve
+every old output bit outside C. Original artifacts and explicit transformation
+receipts are therefore retained; an exact-encoding conversion and a
+proof-preserving change of function must never be conflated.
 
-`hec-proof-catalog/1` indexes content-addressed `.proofpack` shards. It accepts
-only compact decision diagrams and certified kernel definitions. Each proof
-is one independent Zstandard frame containing its canonical document. The
-default soft shard target is 16 MiB; one larger frame remains whole. Shards
-are immutable and named by their complete compressed SHA-256. The catalogue
-records proof and inequality IDs plus byte offsets and lengths, and covers
-each shard exactly once with no gaps, overlaps, or trailing data.
+## Identity and canonical bytes
 
-The catalogue and provenance stay in ordinary Git; proof shards use Git LFS.
-`hec-inequality-catalog/1` keeps primitive coefficient vectors and their proof
-references in ordinary Git, sorted by inequality ID. Exact binding checks
-require the same complete proof set on both sides. These validity records do
-not silently add facet or rank claims.
+Canonical JSON sorts keys, uses ASCII escapes, no insignificant whitespace,
+and no floats. Mathematical integers are canonical decimal strings; JSON
+numbers are only nonnegative safe dimensions/indices, at most `2**53-1`.
+This restricted canonical JSON is not RFC 8785 JCS.
 
-Changing Zstandard level or repacking shards changes physical object hashes,
-not proof or inequality identities. Random access decompresses only the
-selected proof, not a monolithic dataset from the beginning. Reads verify
-shard bytes and hashes, canonical proof identity, and inequality binding.
-Mathematical verification is still required; hashes are not proofs.
+Proof identity is SHA256 of
+`b"hec-count-proof/1\0" + canonical_json(document)`.
+Inequality identity uses the `hec-inequality/1` prefix and the exact frame/vector.
+Semantic map identity binds the inequality, minimal seed denominator, all
+ordered compatible values and fixed extension version. These hashes identify
+bytes or semantics; they are NOT mathematical acceptance.
 
-LFS quota failure is a publication failure, not mathematical evidence or a
-reason to weaken checks. A fully verified local branch may retain its
-catalogues and all payloads while publishing is blocked. Do not publish or
-merge the cutover until every active shard and retained archive object is
-retrievable; missing payloads must fail CI. Existing published artifacts
-remain unchanged until that cutover is merged.
+Dates, solvers, benchmarks and provenance belong outside the proof document.
+Changing them cannot change a proof ID. Party permutations, purifier
+complements, normalization and representation changes require explicit receipts.
 
-## Proof preserving migration and archive
+## Exact verification and resource policy
 
-For a historical Boolean table, replace each repeated RHS block by its number
-of ones. Prefix sorting fixes boundary images and never increases an edge
-distance because `|count(u)-count(v)| <= Hamming(u,v)` per group. Exact original
-bits need not be preserved in the live certificate. The original artifact
-must remain in the archive, and the receipt must say that the transformation
-preserves the inequality proof rather than every output bit.
+The installed-package `ReconstructionVerifier` handles every seed kind.
+The trusted native decoder and full-map verifier are configured by the caller,
+not selected by proof fields. Native requests use uint64 exact numerators and
+uint128 sums; unsupported precision fails closed or uses a COMPLETE
+arbitrary-precision reference audit only within its explicit small-case bound.
+Resource limits never turn a full audit into sampling.
 
-For a positively scaled full table, a complete compatible seed can be
-extracted as exact counts divided by its recorded positive scale, followed
-by the fixed full-cube construction. The new definition is independently
-verified. It need not have the old scale or identical noncompatible images.
+The native verifier uses the same exact point rule in full and tiled layouts.
+`HEC_RECONSTRUCTION_WORKING_BYTES=268435456` bounds primary output buffers,
+not total RSS: the seed, complete-domain index, protocol and parent are separate.
+Actual helper arguments and returned limits must match. Scope, identities,
+all vertices/edges and source-free status are checked with exact types.
+Native query differentials are extra controls, not replacements for full coverage.
 
-The importer must:
-
-1. Bind original inequality/frame, compressed and decoded hashes and sizes.
-2. Re-audit every edge and boundary of the retained **original** cube map.
-   Auditing a normalized count map alone must not hide an invalid old bit map.
-3. Verify the new definition exactly and record its independent scope.
-4. Record original and target IDs, scales, transformation, audit time, and
-   audit implementation/configuration hashes where a native backend is used.
-5. Leave originals unchanged and publish the catalogue only after every
-   selected record passes. Partial migrations are not active datasets.
-
-`tools/migrate_count_proofs.py` implements the small historical JSON importer
-and the sealed exact-order release importer. `tools/audit_counts.cpp` is a
-bounded-memory independent 64/128-bit source-table auditor. Its arithmetic
-limits fail closed; they are not restrictions on rational certificate math.
-An explicit wider auditor is required for wider historical tables.
-
-The complete 80,213-record n=6 baseline migration is recorded in
-`data/n=6/migration.json`. Its original stream, small-n source documents,
-and transformation receipts live under `archives/contractions/legacy-v1/`.
-The archive index records source hashes and the original Git revision.
-Exact audit-source snapshots are retained as inactive `.txt` files in its
-`verification-source/` directory; their index binds the original byte hashes.
-Additional original-scale campaign maps are outside this baseline cutover;
-they require their own full source audit before publication.
-
-## Running the checks
+For a local check, build trusted executables in a private temporary directory:
 
 ```bash
-PYTHONPATH=src python -m unittest discover -s tests -p 'test_count*.py'
 hec_verify_dir=$(mktemp -d)
-c++ -O3 -std=c++17 -Wall -Wextra -Werror tools/verify_count_proofs.cpp -o "$hec_verify_dir/check"
-HEC_COUNT_VERIFIER="$hec_verify_dir/check" HEC_CHECK_WORKERS=2 \
-  PYTHONPATH=src python -m hec.checks database
+c++ -O3 -std=c++17 -Wall -Wextra -Werror tools/derivation_pilot/closure.cpp -o "$hec_verify_dir/closure"
+c++ -O3 -std=c++17 -Wall -Wextra -Werror tools/verify_reconstruction.cpp -o "$hec_verify_dir/verify"
+HEC_RECONSTRUCTION_CLOSURE="$hec_verify_dir/closure" \
+HEC_RECONSTRUCTION_VERIFIER="$hec_verify_dir/verify" \
+HEC_RECONSTRUCTION_WORKING_BYTES=268435456 HEC_CHECK_WORKERS=2 \
+PYTHONPATH=src python -m hec.checks contractions
 ```
 
-The database command checks complete inequality/proof bindings, facet order
-and orbit uniqueness, and the full mathematical maps. Rank and graph checks
-remain separate mandatory CI jobs. Unsupported large constructions require
-an exact verification backend; they fail closed rather than using sampling.
+Missing payloads or backends fail the check; there is no network fallback or
+acceptance from migration receipts. Standalone `hec.checks database` checks
+metadata AND executes all mathematical audits. CI partitions whole payload
+shards so each proof is audited exactly once, and runs global
+`database-bindings` separately. ALL proof partitions, bindings, graph and
+facet/ray-rank jobs must succeed at the same immutable checkout.
 
-The offline importer writes a new staging directory, not the active dataset:
+## Immutable publication and archive policy
 
-```bash
-c++ -O3 -std=c++17 tools/audit_counts.cpp -o /absolute/scratch/audit_counts
-PYTHONPATH=src python tools/migrate_count_proofs.py /absolute/new/staging \
-  legacy-json data --n 1 --n 2 --n 3 --n 4 --n 5
-```
+`proofs.json` is a `hec-proof-catalog/1` index of content-addressed,
+independently seekable Zstd frames in `proof-shards/<sha>.proofpack`.
+Frames contain canonical full-map definitions; compression is a transport
+layer, not the mathematical compactness claim. Inequality IDs and proof IDs
+do not depend on compression or shard boundaries. `inequalities.json`
+binds every selected proof to its exact inequality; one selection per inequality.
 
-The sealed-release mode requires the release directory and explicit auditor
-binary. It checks source hashes and every original edge before creating
-compact seed definitions. It reads one case at a time and removes only its
-own temporary decoded data. No production controller, solver settings,
-healthy searches, completed proofs, or sealed release files are modified.
+The strict writer owns bytes before verification, executes every full-map
+audit and atomically publishes the catalogue LAST. Existing targets, corrupt
+immutable payloads, duplicate selections and failed/partial verification are
+not overwritten or accepted. A failed stream may leave reusable immutable
+frames but no authoritative catalogue. Stored hashes/flags never cache acceptance.
+
+Large n=6 payloads and the immutable conversion-provenance stream use Git LFS.
+Tiny n<=5 payloads, code, schemas, inequality indexes and corpus/QA summaries
+stay in ordinary Git. Original files and payloads are retained recoverably;
+neither Git history nor the LFS object store is pruned by this migration.
+
+Local pointer-only preparation is NOT payload upload. The external
+`publication-assets.json` records exact verified bytes that must be imported
+and uploaded only after LFS authorization/quota resolution. An unavailable
+LFS cache fails mathematical CI rather than pretending the dataset was checked.

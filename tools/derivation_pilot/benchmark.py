@@ -14,10 +14,10 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
 
+from hec._archive_proof_store import ArchiveProofCatalog as ProofCatalog
 from hec._count_transport import SeedLookup, evaluate_transport
 from hec._count_verify import FullMapVerifier
 from hec.count_proofs import canonical_json
-from hec.proof_store import ProofCatalog
 
 from .recipes import (
     CutFunction,

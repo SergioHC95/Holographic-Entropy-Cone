@@ -1,7 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:hec:count-proof:1",
-  "title": "Compact exact full-cube contraction count proof",
+  "title": "Exact deterministic full-map reconstruction proof",
+  "description": "The sole authoritative proof language. Syntax alone is not acceptance: exact all-original-cube verification is required.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -37,103 +38,6 @@
         }
       }
     },
-    "function": {
-      "oneOf": [
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "kind",
-            "rows"
-          ],
-          "properties": {
-            "kind": {
-              "enum": ["compatible-order-kernel/1", "compatible-cancel-fill-kernel/1"]
-            },
-            "rows": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "encoding",
-                "count",
-                "data"
-              ],
-              "properties": {
-                "encoding": {
-                  "enum": [
-                    "bounded-integers/1",
-                    "reduced-rationals/1"
-                  ]
-                },
-                "count": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "data": {
-                  "type": "string",
-                  "contentEncoding": "base64"
-                }
-              }
-            }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "kind",
-            "terminals",
-            "nodes",
-            "roots"
-          ],
-          "properties": {
-            "kind": {
-              "const": "count-decision-dag/1"
-            },
-            "terminals": {
-              "type": "array",
-              "items": {
-                "type": "array",
-                "minItems": 2,
-                "maxItems": 2,
-                "prefixItems": [
-                  {
-                    "type": "string",
-                    "pattern": "^(0|[1-9][0-9]*)$"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "^[1-9][0-9]*$"
-                  }
-                ]
-              }
-            },
-            "nodes": {
-              "type": "array",
-              "items": {
-                "type": "array",
-                "minItems": 3,
-                "maxItems": 3,
-                "items": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 9007199254740991
-                }
-              }
-            },
-            "roots": {
-              "type": "array",
-              "items": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 9007199254740991
-              }
-            }
-          }
-        }
-      ]
-    },
     "clearing_scale": {
       "type": "object",
       "additionalProperties": false,
@@ -143,51 +47,250 @@
       ],
       "properties": {
         "value": {
-          "type": "string",
-          "pattern": "^[1-9][0-9]*$"
+          "$ref": "#/$defs/positive"
         },
         "minimal": {
-          "type": "boolean"
+          "const": false
+        }
+      }
+    },
+    "function": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "seed",
+        "extension"
+      ],
+      "properties": {
+        "kind": {
+          "const": "compatible-reconstruction-pipeline/1"
+        },
+        "extension": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "cancel-fill-common-threshold/1"
+            }
+          }
+        },
+        "seed": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/table"
+            },
+            {
+              "$ref": "#/$defs/dag"
+            },
+            {
+              "$ref": "#/$defs/cuts"
+            },
+            {
+              "$ref": "#/$defs/closure"
+            }
+          ]
         }
       }
     }
   },
-  "allOf": [
-    {
-      "if": {
-        "properties": {
-          "function": {
-            "properties": {
-              "kind": {
-                "const": "count-decision-dag/1"
-              }
-            }
-          }
-        }
-      },
-      "then": {
-        "properties": {
-          "clearing_scale": {
-            "properties": {
-              "minimal": {
-                "const": true
-              }
-            }
-          }
-        }
-      },
-      "else": {
-        "properties": {
-          "clearing_scale": {
-            "properties": {
-              "minimal": {
-                "const": false
-              }
+  "$defs": {
+    "positive": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]*$"
+    },
+    "natural": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)$"
+    },
+    "index": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/index"
+      }
+    },
+    "table": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "rows"
+      ],
+      "properties": {
+        "kind": {
+          "const": "compatible-count-table/1"
+        },
+        "rows": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "encoding",
+            "count",
+            "data"
+          ],
+          "properties": {
+            "encoding": {
+              "enum": [
+                "bounded-integers/1",
+                "reduced-rationals/1"
+              ]
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "data": {
+              "type": "string",
+              "contentEncoding": "base64"
             }
           }
         }
       }
+    },
+    "dag": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "scale",
+        "terminals",
+        "nodes",
+        "roots"
+      ],
+      "properties": {
+        "kind": {
+          "const": "compatible-scalar-dag/1"
+        },
+        "scale": {
+          "$ref": "#/$defs/positive"
+        },
+        "terminals": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/natural"
+          }
+        },
+        "nodes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {
+              "$ref": "#/$defs/index"
+            }
+          }
+        },
+        "roots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/index"
+          }
+        }
+      }
+    },
+    "cuts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "terms",
+        "groups"
+      ],
+      "properties": {
+        "kind": {
+          "const": "integer-cut-dnf/1"
+        },
+        "terms": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {
+              "$ref": "#/$defs/natural"
+            }
+          }
+        },
+        "groups": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/refs"
+            }
+          }
+        }
+      }
+    },
+    "closure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "anchors",
+        "enumeration",
+        "pairs",
+        "policy",
+        "choice_count",
+        "exceptions"
+      ],
+      "properties": {
+        "kind": {
+          "const": "integer-interval-closure/1"
+        },
+        "anchors": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 128
+        },
+        "enumeration": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1024
+        },
+        "pairs": {
+          "type": "boolean"
+        },
+        "policy": {
+          "enum": [
+            "lower",
+            "upper"
+          ]
+        },
+        "choice_count": {
+          "$ref": "#/$defs/index"
+        },
+        "exceptions": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "prefixItems": [
+              {
+                "$ref": "#/$defs/index"
+              },
+              {
+                "$ref": "#/$defs/natural"
+              }
+            ]
+          }
+        }
+      }
     }
-  ],
-  "$comment": "Structure only. Strict decoding, geometry, DAG reduction, complete seed coverage, scales and exact mathematics are checked by hec.count_proofs. Enumerated tables are optional audits, never authoritative entries."
+  }
 }

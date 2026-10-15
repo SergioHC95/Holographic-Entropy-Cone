@@ -6,9 +6,9 @@ import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
+from hec._archive_proof_store import ArchiveProofCatalog as ProofCatalog
 from hec._count_verify import FullMapVerifier
 from hec.count_proofs import canonical_json
-from hec.proof_store import ProofCatalog
 
 from .anchors import derive, extract
 from .recipes import full_map_definition, integer_seed

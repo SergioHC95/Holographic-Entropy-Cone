@@ -1,9 +1,9 @@
-"""Opt-in installed-package verification for the unified proof protocol.
+"""Installed-package exact verification for the standard proof protocol.
 
 No research-tool imports, proof-selected executables, acceptance receipts, or
 original tables. Backend paths are trusted caller/CI configuration; their
-bytes are pinned for the lifetime of each adapter. Repository catalogue/CI
-registration remains a separate full-corpus promotion gate.
+bytes are pinned for the lifetime of each adapter. Every mathematical request
+executes complete original-cube checks; stored receipts do not confer validity.
 """
 
 from __future__ import annotations
@@ -243,7 +243,7 @@ class IndependentCubeAuditor:
 
 
 class ReconstructionVerifier:
-    """One verification entry point for all four primitives; opt-in until promotion."""
+    """One exact verification entry point for all four standard seed primitives."""
 
     def __init__(self, *, closure_binary=None, cube_binary=None, cube_working_bytes=None):
         closure = closure_binary if closure_binary is not None else os.environ.get("HEC_RECONSTRUCTION_CLOSURE")

@@ -346,6 +346,31 @@ def check_contraction(
     If ``coeffs`` or ``n`` is omitted, they are read from the certificate.
     Minimal records with ``lhs``, ``rhs``, and ``images`` are also accepted.
     """
+    if contraction.get("format") == "hec-count-proof/1":
+        from .count_proofs import proof_geometry
+        from .reconstruction_verify import ReconstructionVerifier
+
+        try:
+            problem = proof_geometry(contraction)
+            if n is not None and (
+                isinstance(n, (bool, np.bool_)) or not isinstance(n, (int, np.integer)) or int(n) != problem.n
+            ):
+                raise ValueError("requested party frame differs from the proof")
+            if coeffs is not None:
+                if any(
+                    isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, np.integer)) for value in coeffs
+                ):
+                    raise ValueError("requested coefficients must be exact integers")
+                if tuple(int(value) for value in coeffs) != problem.coefficients:
+                    raise ValueError("requested coefficients differ from the proof")
+            verifier = ReconstructionVerifier()
+            try:
+                return {**verifier.verify(contraction), "errors": []}
+            finally:
+                verifier.close()
+        except ValueError as exc:
+            return {"ok": False, "errors": [str(exc)]}
+
     if n is None:
         raw_n = contraction.get("n")
         if raw_n is not None:

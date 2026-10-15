@@ -39,6 +39,7 @@ from derivation_pilot.recipes import (
     reconstruct as reconstruct_pilot,
 )
 
+from hec._archive_proof_store import ArchiveProofCatalog as ProofCatalog
 from hec._count_transport import clearing_scale
 from hec._count_verify import FullMapVerifier, native_supported
 from hec.count_proofs import (
@@ -54,7 +55,6 @@ from hec.count_proofs import (
     inequality_id,
     parse_json,
 )
-from hec.proof_store import ProofCatalog
 
 from .diagrams import FORMAT as WIDE_FORMAT
 from .diagrams import build, common_seed

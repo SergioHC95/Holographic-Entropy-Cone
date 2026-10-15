@@ -22,6 +22,8 @@ from pathlib import Path
 import numpy as np
 import zstandard as zstd
 
+from hec._archive_proof_store import ArchiveProofCatalog as ProofCatalog
+from hec._archive_proof_store import write_archive_catalog as write_proof_catalog
 from hec.coordinates import party_labels
 from hec.count_proofs import (
     CountGeometry,
@@ -35,7 +37,6 @@ from hec.count_proofs import (
     proof_id,
 )
 from hec.inequality_records import InequalityCatalog, write_inequality_catalog
-from hec.proof_store import ProofCatalog, write_proof_catalog
 
 _POPCOUNT = np.array([value.bit_count() for value in range(256)], dtype=np.uint8)
 

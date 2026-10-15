@@ -1,9 +1,8 @@
-"""One opt-in reconstruction pipeline inside the exact count-proof envelope.
+"""The standard reconstruction pipeline inside the exact count-proof envelope.
 
 Seed programs are data, not executable code. They all feed the SAME certified
-cancel/fill/common-threshold extension. This proposed function kind is not yet
-registered in the production reader: importing it cannot promote research
-artifacts or make a stored validity flag authoritative.
+cancel/fill/common-threshold extension. The authoritative reader accepts only
+this closed language. Syntax and stored flags are never mathematical acceptance.
 """
 
 from __future__ import annotations
