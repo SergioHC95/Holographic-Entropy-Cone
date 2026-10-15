@@ -10,7 +10,7 @@ baseline n=6, 4,387 newer primitive, 76 scaled exact, and 14 n<=5.
 These are not all asserted to be facets. The fresh staged-data audit checked
 2,191,303,534 source vertices and 18,029,658,329 weighted source-cube edges
 with zero errors; the independent complete ledger/frame review also passed.
-Receipts are in `archives/contractions/standard-20261015/`.
+Receipts are in `provenance/contractions/standard-20261015/`.
 
 `hec.proof_store.ProofCatalog` and `write_proof_catalog` are aliases of the
 single implementation in `hec.reconstruction_store`.
@@ -323,12 +323,13 @@ immutable payloads, duplicate selections and failed/partial verification are
 not overwritten or accepted. A failed stream may leave reusable immutable
 frames but no authoritative catalogue. Stored hashes/flags never cache acceptance.
 
-Large n=6 payloads and the immutable conversion-provenance stream use Git LFS.
-Tiny n<=5 payloads, code, schemas, inequality indexes and corpus/QA summaries
-stay in ordinary Git. Original files and payloads are retained recoverably;
-neither Git history nor the LFS object store is pruned by this migration.
+Every current proof payload, index and immutable provenance record is committed
+directly in ordinary Git. The version-two storage inventory binds every required
+path, byte length and SHA256. Pointer files and external-payload fallback paths
+are rejected. A plain clone is a complete input to independent verification.
 
-Local pointer-only preparation is NOT payload upload. The external
-`publication-assets.json` records exact verified bytes that must be imported
-and uploaded only after LFS authorization/quota resolution. An unavailable
-LFS cache fails mathematical CI rather than pretending the dataset was checked.
+Historical recovery artifacts are retained outside the active repository.
+The coordinated publication history removes obsolete data and old storage
+filters from its ancestry. Hash/ancestry hygiene is a separate required CI gate;
+it does not confer mathematical acceptance. Every proof partition still executes
+all original-cube checks from the saved definitions.

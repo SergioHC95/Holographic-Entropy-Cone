@@ -1,6 +1,6 @@
 [project]
 name = "holographic-entropy-cone"
-version = "0.2.0"
+version = "0.3.0"
 description = "Holographic Entropy Cone data with contraction and graph algorithms"
 readme = "README.md"
 requires-python = ">=3.10"

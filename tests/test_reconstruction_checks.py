@@ -76,7 +76,7 @@ class ReconstructionChecksTests(unittest.TestCase):
         self.directory.joinpath("proof-shards").rename(self.directory / "offline-shards")
         with patch.object(checks, "ReconstructionVerifier", side_effect=AssertionError("metadata executed a verifier")):
             result = list(checks.check_stored_database_bindings(self.root, n=2))
-            plan = checks.ci_matrix(self.root, lfs_ns=[2])
+            plan = checks.ci_matrix(self.root)
         self.assertIn("metadata only, no mathematical audit", result[0])
         self.assertTrue(plan["include"])
         with self.assertRaisesRegex(ValueError, "missing/unsafe"):
@@ -104,14 +104,14 @@ class ReconstructionChecksTests(unittest.TestCase):
     def test_all_physical_partitions_are_disjoint_complete_and_actually_audited(self):
         self.stage()
         with patch.object(checks, "PROOF_TARGET", 1):
-            plan = checks.ci_matrix(self.root, lfs_ns=[2])["include"]
+            plan = checks.ci_matrix(self.root)["include"]
         jobs = [job for job in plan if job["kind"] == "contractions"]
         self.assertEqual(len(jobs), 3)
         self.assertEqual(sum(job["expect_proofs"] for job in jobs), 3)
         self.assertEqual(sum(job["expect_edges"] for job in jobs), 12)
         self.assertEqual(sum(job["kind"] == "database-bindings" for job in plan), 1)
         self.assertNotIn("database", {job["kind"] for job in plan})
-        self.assertTrue(all(job["lfs"] is (job["kind"] == "contractions") for job in plan))
+        self.assertTrue(all(bool(job["checkout_paths"]) is (job["kind"] == "contractions") for job in plan))
         catalog = ReconstructionCatalog(self.directory / "proofs.json")
         seen, total = set(), 0
         for job in jobs:
@@ -162,13 +162,11 @@ class ReconstructionChecksTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             checks.audit_partition(2, self.root)
 
-    def test_empty_data_invalid_partition_and_wrong_lfs_scope_fail_closed(self):
+    def test_empty_data_invalid_partition_and_retired_options_fail_closed(self):
         with self.assertRaisesRegex(ValueError, "no unified datasets"):
             checks.ci_matrix(self.root)
         self.stage()
-        for scope in ([True], [3], [2, 2], {2: True}):
-            with self.subTest(scope=scope), self.assertRaisesRegex(ValueError, "LFS party"):
-                checks.ci_matrix(self.root, lfs_ns=scope)
+        self.assertNotEqual(self.cli("plan", "--lfs-ns-json", "[2]").returncode, 0)
         for group, groups in ((True, 1), (0, 0), (3, 3)):
             with self.assertRaisesRegex(ValueError, "physical proof"):
                 checks.audit_partition(2, self.root, shard_index=group, shard_count=groups)
@@ -184,7 +182,7 @@ class ReconstructionChecksTests(unittest.TestCase):
     def test_cli_plan_is_full_scope_and_actual_cli_audit_checks_expected_counts(self):
         self.stage()
         handoff = self.root / "github-output"
-        result = self.cli("plan", "--lfs-ns-json", "[2]", "--github-output", str(handoff))
+        result = self.cli("plan", "--github-output", str(handoff))
         self.assertEqual(result.returncode, 0, result.stderr)
         plan = json.loads(result.stdout)
         self.assertEqual(json.loads(handoff.read_text().removeprefix("matrix=")), plan)

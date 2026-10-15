@@ -17,7 +17,7 @@ under \(S_{n+1}\). Data files live under `data/n=*/`:
 - `inequalities.json` binds primitive inequality identities to proof identities.
 - `proofs.json` indexes the exact compact contraction proofs.
 - `proof-shards/*.proofpack` contains immutable, independently seekable exact
-  definitions: large n=6 shards use Git LFS; tiny n<=5 payloads stay in Git.
+  definitions, committed directly in ordinary Git for every party count.
 - `data/contraction-corpus.json` records the complete proof scope and audit references.
 
 Rows use primitive integer coefficients in cardinality-then-lexicographic
@@ -49,12 +49,12 @@ facets; the existing facet/ray/graph records remain unchanged.
 CI independently reconstructs every saved map and checks all bounds,
 party/purifier images and weighted cube edges. Whole-payload partitions avoid
 duplicate audits; metadata bindings and existing rank/graph checks are
-separate required jobs. Missing LFS data fails the gate, not the mathematics.
-
-The local cutover has not uploaded new LFS payloads. The verified external
-`publication-assets.json` must be used to import/upload the exact objects only
-after quota resolution and separate authorization. Pointer files are not a
-claim that the corresponding server objects already exist.
+separate required jobs. Required data arrives with Git: no Git LFS installation,
+payload hydration service, transfer cache or external artifact host is needed.
+CI verifies all data hashes and rejects pointers or oversize blobs throughout
+the checked-out commit's ancestry. Sparse Git checkouts limit each mathematical
+partition to its owned proof shards. Historical recovery artifacts are kept
+outside the current repository, not as alternate accepted formats.
 
 ## Python package
 
@@ -75,9 +75,6 @@ uv run hec native build --directory .hec-native
 export HEC_NATIVE_DIR="$PWD/.hec-native"
 export HEC_RECONSTRUCTION_WORKING_BYTES=268435456
 uv run hec storage audit
-# Full-map checks require the declared payloads, not just their LFS pointers:
-uv run hec storage populate       # offline by default
-uv run hec storage install --n 6
 HEC_CHECK_WORKERS=2 uv run hec check database --root data
 uv run ruff check .
 ```

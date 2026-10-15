@@ -9,7 +9,6 @@ full-cube pass. The gate requires every disjoint mathematical partition.
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -144,7 +143,7 @@ def check_stored_facet_database_format(root=None, *, n=None, shard_index=0, shar
     yield "complete full-map audits and exact inequality/proof bindings; no facet/rank claim inferred from validity."
 
 
-def ci_matrix(root=None, *, lfs_ns=()):
+def ci_matrix(root=None):
     """Cover every physical proof shard exactly once, plus all other data gates.
 
     The entire matrix, including every contraction partition, must pass at
@@ -152,13 +151,6 @@ def ci_matrix(root=None, *, lfs_ns=()):
     This planner reads no proof payloads and fetches nothing.
     """
     ns = selected_ns(root, None)
-    if (
-        not isinstance(lfs_ns, (tuple, list))
-        or any(type(n) is not int for n in lfs_ns)
-        or len(set(lfs_ns)) != len(lfs_ns)
-        or not set(lfs_ns) <= set(ns)
-    ):
-        raise ValueError("LFS party counts must be distinct members of the planned datasets")
     tasks = []
     for current_n in reversed(ns):
         catalog, inequalities = bound_catalog(current_n, root)
@@ -182,9 +174,12 @@ def ci_matrix(root=None, *, lfs_ns=()):
                     "shard_index": group,
                     "shard_count": groups,
                     "label": f"{kind} (n={current_n}, partition {group + 1}/{groups})",
-                    "lfs": current_n in lfs_ns and kind == "contractions",
+                    "checkout_paths": "",
                 }
                 if kind == "contractions":
+                    task["checkout_paths"] = "\n".join(
+                        f"/data/n={current_n}/proof-shards/{key}.proofpack" for key in sorted(owned_shards[group])
+                    )
                     indices = [
                         index for index, entry in enumerate(catalog.entries) if entry["shard"] in owned_shards[group]
                     ]
@@ -209,7 +204,6 @@ def main(argv=None):
     parser.add_argument("--shard-count", type=int, default=1)
     parser.add_argument("--expect-proofs", type=int)
     parser.add_argument("--expect-edges", type=int)
-    parser.add_argument("--lfs-ns-json", default="[]")
     parser.add_argument("--github-output", type=Path)
     args = parser.parse_args(argv)
     if args.kind == "plan":
@@ -217,7 +211,7 @@ def main(argv=None):
             parser.error("the CI plan must include every dataset and proof partition")
         if args.expect_proofs is not None or args.expect_edges is not None:
             parser.error("expected mathematical coverage belongs only to contraction audit partitions")
-        value = ci_matrix(args.root, lfs_ns=json.loads(args.lfs_ns_json))
+        value = ci_matrix(args.root)
         raw = canonical_json(value).decode()
         if args.github_output is not None:
             with args.github_output.open("a", encoding="utf-8") as stream:

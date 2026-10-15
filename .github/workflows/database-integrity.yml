@@ -9,8 +9,6 @@ permissions:
   contents: read
 
 env:
-  # Every checkout stays pointer-only. Only the centralized producer fetches.
-  GIT_LFS_SKIP_SMUDGE: "1"
   HEC_CHECK_WORKERS: "2"
 
 concurrency:
@@ -29,7 +27,12 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          lfs: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/data/n=*/proof-shards/*.proofpack
+            !/provenance/contractions/**/*.zst
+            /data/n=[1-5]/proof-shards/*.proofpack
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           version: "0.11.28"
@@ -50,67 +53,49 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.datasets.outputs.matrix }}
-      lfs_required: ${{ steps.lfs.outputs.required }}
-      lfs_key: ${{ steps.lfs.outputs.key }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          lfs: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/data/n=*/proof-shards/*.proofpack
+            !/provenance/contractions/**/*.zst
+            /data/n=[1-5]/proof-shards/*.proofpack
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           version: "0.11.28"
           python-version: "3.13.14"
           enable-cache: true
       - run: uv sync --locked --no-dev --python 3.13.14
-      - id: lfs
-        name: Audit repository inventory and plan only declared immutable objects
-        run: uv run --no-sync hec storage plan --github-output "$GITHUB_OUTPUT"
       - id: datasets
-        name: Plan complete disjoint standard-proof audits and bindings
-        env:
-          LFS_NS: ${{ steps.lfs.outputs.ns }}
-        run: |
-          uv run --no-sync hec plan \
-            --lfs-ns-json "$LFS_NS" --github-output "$GITHUB_OUTPUT"
+        name: Plan complete disjoint mathematical audits and exact payload ownership
+        run: uv run --no-sync hec plan --github-output "$GITHUB_OUTPUT"
 
-  prepare_lfs:
-    name: prepare shared proof cache
-    needs: discover
-    if: ${{ needs.discover.outputs.lfs_required == 'true' }}
+  storage:
+    name: ordinary Git data and complete main-ancestry hygiene
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          lfs: false
+      - name: Fetch only the checked-out commit ancestry
+        run: |
+          if [[ "$(git rev-parse --is-shallow-repository)" == "true" ]]; then
+            git fetch --no-tags --unshallow origin "$GITHUB_SHA"
+          fi
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           version: "0.11.28"
           python-version: "3.13.14"
           enable-cache: true
       - run: uv sync --locked --no-dev --python 3.13.14
-      - id: cache
-        name: Restore content-addressed declared objects
-        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
-        with:
-          path: .hec-ci-lfs/objects
-          key: ${{ needs.discover.outputs.lfs_key }}
-          restore-keys: hec-storage-v1-
-      - name: Fetch missing active objects once and verify their hashes
-        run: |
-          uv run --no-sync hec storage populate --fetch
-          uv run --no-sync hec storage compact
-      - name: Save the verified shared cache
-        if: ${{ steps.cache.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
-        with:
-          path: .hec-ci-lfs/objects
-          key: ${{ needs.discover.outputs.lfs_key }}
+      - name: Verify every committed payload and provenance byte
+        run: uv run --no-sync hec storage audit
+      - name: Reject pointers, retired filters and oversize blobs throughout ancestry
+        run: uv run --no-sync hec storage history
 
   validate:
-    needs: [discover, prepare_lfs]
-    # Small JSON-only checks still run if the LFS quota/cache is unavailable.
-    # Checks needing proofs fail explicitly instead of passing with no data.
+    needs: discover
     if: ${{ !cancelled() && needs.discover.result == 'success' }}
     name: ${{ matrix.label }}
     runs-on: ubuntu-24.04
@@ -123,38 +108,19 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          lfs: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/data/n=*/proof-shards/*.proofpack
+            !/provenance/contractions/**/*.zst
+            /data/n=[1-5]/proof-shards/*.proofpack
+            ${{ matrix.checkout_paths }}
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           version: "0.11.28"
           python-version: "3.13.14"
           enable-cache: true
       - run: uv sync --locked --no-dev --python 3.13.14
-      - name: Require the verified proof handoff when needed
-        if: ${{ matrix.lfs && needs.prepare_lfs.result != 'success' }}
-        run: |
-          echo 'The shared LFS proof cache is unavailable; no checks are being bypassed.'
-          exit 1
-      - name: Restore proofs without another LFS download
-        if: ${{ matrix.lfs }}
-        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
-        with:
-          path: .hec-ci-lfs/objects
-          key: ${{ needs.discover.outputs.lfs_key }}
-          fail-on-cache-miss: true
-      - name: Install only this dataset's hash-verified proofs
-        if: ${{ matrix.lfs }}
-        env:
-          CHECK_N: ${{ matrix.n }}
-          CHECK_KIND: ${{ matrix.kind }}
-          CHECK_SHARD_INDEX: ${{ matrix.shard_index }}
-          CHECK_SHARD_COUNT: ${{ matrix.shard_count }}
-        run: |
-          if [[ "$CHECK_KIND" == "contractions" ]]; then
-            uv run --no-sync hec storage install --n "$CHECK_N" --shard-index "$CHECK_SHARD_INDEX" --shard-count "$CHECK_SHARD_COUNT"
-          else
-            uv run --no-sync hec storage install --n "$CHECK_N"
-          fi
       - name: Build standard exact decoder and full-cube verifier
         if: ${{ matrix.kind == 'contractions' }}
         run: |
@@ -188,7 +154,12 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          lfs: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/data/n=*/proof-shards/*.proofpack
+            !/provenance/contractions/**/*.zst
+            /data/n=[1-5]/proof-shards/*.proofpack
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           version: "0.11.28"
@@ -215,7 +186,7 @@ jobs:
   gate:
     name: database integrity
     if: ${{ always() }}
-    needs: [quality, distribution, discover, prepare_lfs, validate]
+    needs: [quality, distribution, storage, discover, validate]
     runs-on: ubuntu-24.04
     steps:
       - name: Require every validation job
@@ -224,9 +195,9 @@ jobs:
           QUALITY_RESULT: ${{ needs.quality.result }}
           DISTRIBUTION_RESULT: ${{ needs.distribution.result }}
           VALIDATE_RESULT: ${{ needs.validate.result }}
-          LFS_RESULT: ${{ needs.prepare_lfs.result }}
+          STORAGE_RESULT: ${{ needs.storage.result }}
         run: |
-          if [[ "$DISTRIBUTION_RESULT" != "success" || "$QUALITY_RESULT" != "success" || "$DISCOVER_RESULT" != "success" || "$VALIDATE_RESULT" != "success" || ( "$LFS_RESULT" != "success" && "$LFS_RESULT" != "skipped" ) ]]; then
-            echo "required checks failed: distribution=$DISTRIBUTION_RESULT quality=$QUALITY_RESULT, discovery=$DISCOVER_RESULT, validation=$VALIDATE_RESULT, lfs=$LFS_RESULT"
+          if [[ "$DISTRIBUTION_RESULT" != "success" || "$QUALITY_RESULT" != "success" || "$DISCOVER_RESULT" != "success" || "$VALIDATE_RESULT" != "success" || "$STORAGE_RESULT" != "success" ]]; then
+            echo "required checks failed: distribution=$DISTRIBUTION_RESULT quality=$QUALITY_RESULT, discovery=$DISCOVER_RESULT, validation=$VALIDATE_RESULT, storage=$STORAGE_RESULT"
             exit 1
           fi
