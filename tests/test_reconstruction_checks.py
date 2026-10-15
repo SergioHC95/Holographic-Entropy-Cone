@@ -10,14 +10,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import zstandard as zstd
-from corpus_derivations.pipeline_import import import_recipe
-from corpus_derivations.repository_stage import Frames
+from proof_fixtures import departed_definition, document, write_frames
 
 from hec import reconstruction_checks as checks
-from hec.count_proofs import canonical_json, geometry, inequality_id, make_count_proof, proof_geometry, proof_id
-from hec.inequality_records import inequality_catalog, write_inequality_catalog
-from hec.proof_store import CATALOG_FORMAT
+from hec.count_proofs import geometry, inequality_id, proof_id
+from hec.inequality_records import write_inequality_catalog
 from hec.reconstruction_store import ReconstructionCatalog
 
 
@@ -28,30 +25,28 @@ class ReconstructionChecksTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.directory = self.root / "n=2"
         self.documents = [
-            import_recipe(make_count_proof(geometry(2, row), [(0,), (1,), (1,)], transport=True))[0]
-            for row in ((1, 1, -1), (2, 1, -1), (1, 2, -1))
+            document(geometry(2, row), [(0,), (1,), (1,)]) for row in ((1, 1, -1), (2, 1, -1), (1, 2, -1))
         ]
         self.environment = patch.dict(
             os.environ,
-            {"HEC_CHECK_WORKERS": "1", "HEC_RECONSTRUCTION_CLOSURE": "", "HEC_RECONSTRUCTION_VERIFIER": ""},
+            {"HEC_CHECK_WORKERS": "1", "HEC_NATIVE_DIR": ""},
         )
         self.environment.start()
         self.addCleanup(self.environment.stop)
 
     def stage(self, documents=None):
         documents = self.documents if documents is None else documents
-        writer = Frames(self.directory, 1)  # One immutable physical shard per definition.
-        for document in documents:
-            writer.append(
-                inequality_id(proof_geometry(document)),
-                proof_id(document),
-                zstd.ZstdCompressor(write_checksum=True).compress(canonical_json(document)),
-            )
-        writer.seal()
-        self.directory.joinpath("proofs.json").write_bytes(
-            canonical_json({"format": CATALOG_FORMAT, "entries": writer.entries, "shards": writer.shards})
+        write_frames(self.directory, documents, individual=True)
+        # Adversarial framing may contain an unsupported function. Build only
+        # its exact identity binding here; this is not a production authoring path.
+        entries = []
+        for doc in documents:
+            p = geometry(doc["inequality"]["n"], tuple(map(int, doc["inequality"]["coefficients"])))
+            entries.append({"id": inequality_id(p), **p.inequality(), "proof_ids": [proof_id(doc)]})
+        write_inequality_catalog(
+            self.directory / "inequalities.json",
+            {"format": "hec-inequality-catalog/1", "entries": sorted(entries, key=lambda entry: entry["id"])},
         )
-        write_inequality_catalog(self.directory / "inequalities.json", inequality_catalog(documents))
         for name, value in (("facets", [[1, 1, -1]]), ("rays", [[1, 0, 1]]), ("graphs", [])):
             self.directory.joinpath(f"{name}.json").write_text(json.dumps(value))
 
@@ -162,7 +157,7 @@ class ReconstructionChecksTests(unittest.TestCase):
             checks.audit_partition(3, self.root)
 
     def test_legacy_definition_never_becomes_a_unified_fallback(self):
-        old = make_count_proof(geometry(2, (1, 1, -1)), [(0,), (1,), (1,)], transport=True)
+        old = departed_definition(geometry(2, (1, 1, -1)))
         self.stage([old])
         with self.assertRaises(ValueError):
             checks.audit_partition(2, self.root)
@@ -175,7 +170,7 @@ class ReconstructionChecksTests(unittest.TestCase):
             with self.subTest(scope=scope), self.assertRaisesRegex(ValueError, "LFS party"):
                 checks.ci_matrix(self.root, lfs_ns=scope)
         for group, groups in ((True, 1), (0, 0), (3, 3)):
-            with self.assertRaisesRegex(ValueError, "physical proof shard"):
+            with self.assertRaisesRegex(ValueError, "physical proof"):
                 checks.audit_partition(2, self.root, shard_index=group, shard_count=groups)
         with self.assertRaisesRegex(ValueError, "cannot be split"):
             list(checks.check_stored_database_bindings(self.root, n=2, shard_count=2))

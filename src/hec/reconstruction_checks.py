@@ -15,6 +15,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from ._proof_partitions import partition_entries, physical_groups
 from .checks import _bounded_parallel_map, _check_facet_structure, check_worker_count, run_check
 from .count_proofs import canonical_json, decimal, geometry, inequality_id
 from .data import available_ns, data_path, load_hec_data
@@ -74,7 +75,7 @@ def audit_partition(current_n, root=None, *, shard_index=0, shard_count=1, expec
     """Actually audit one disjoint physical-shard partition; never cached flags."""
     selected_ns(root, current_n)
     catalog, inequalities = bound_catalog(current_n, root)
-    selected = catalog.shard_group_entries(shard_index, shard_count)
+    selected = partition_entries(catalog, inequalities, shard_index, shard_count)
     expected_edges = sum(
         p.L * (p.vertices // 2)
         for index in selected
@@ -169,6 +170,7 @@ def ci_matrix(root=None, *, lfs_ns=()):
             counts[kind] = len(rows)
         counts.update(contractions=len(catalog), **{"database-bindings": len(inequalities.entries)})
         proof_groups = min(PROOF_JOB_LIMIT, max(1, math.ceil(len(catalog) / PROOF_TARGET)), len(catalog.shards))
+        owned_shards = physical_groups(catalog, inequalities, proof_groups)
         for kind in ("facets", "contractions", "database-bindings", "graphs", "rays"):
             groups = proof_groups if kind == "contractions" else 1
             if kind == "facets":
@@ -183,7 +185,9 @@ def ci_matrix(root=None, *, lfs_ns=()):
                     "lfs": current_n in lfs_ns and kind == "contractions",
                 }
                 if kind == "contractions":
-                    indices = catalog.shard_group_entries(group, groups)
+                    indices = [
+                        index for index, entry in enumerate(catalog.entries) if entry["shard"] in owned_shards[group]
+                    ]
                     task["expect_proofs"] = len(indices)
                     task["expect_edges"] = sum(
                         p.L * (p.vertices // 2)
@@ -194,9 +198,11 @@ def ci_matrix(root=None, *, lfs_ns=()):
     return {"include": tasks}
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("kind", choices=("contractions", "database", "database-bindings", "plan"))
+    parser.add_argument(
+        "kind", choices=("contractions", "database", "database-bindings", "facets", "rays", "graphs", "plan")
+    )
     parser.add_argument("--root", type=Path, help="data/n=* parent, not a repository root")
     parser.add_argument("--n", type=int)
     parser.add_argument("--shard-index", type=int, default=0)
@@ -205,7 +211,7 @@ def main():
     parser.add_argument("--expect-edges", type=int)
     parser.add_argument("--lfs-ns-json", default="[]")
     parser.add_argument("--github-output", type=Path)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.kind == "plan":
         if args.n is not None or (args.shard_index, args.shard_count) != (0, 1):
             parser.error("the CI plan must include every dataset and proof partition")
@@ -232,9 +238,15 @@ def main():
     else:
         if args.expect_proofs is not None or args.expect_edges is not None:
             parser.error("expected mathematical coverage belongs only to contraction audit partitions")
-        function = (
-            check_stored_database_bindings if args.kind == "database-bindings" else check_stored_facet_database_format
-        )
+        from .checks import check_stored_facets, check_stored_graphs, check_stored_rays
+
+        function = {
+            "database": check_stored_facet_database_format,
+            "database-bindings": check_stored_database_bindings,
+            "facets": check_stored_facets,
+            "rays": check_stored_rays,
+            "graphs": check_stored_graphs,
+        }[args.kind]
         run_check(function(args.root, n=args.n, shard_index=args.shard_index, shard_count=args.shard_count))
 
 

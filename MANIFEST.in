@@ -1,0 +1,3 @@
+include src/hec/clause_*.pyx
+recursive-include src/hec/_native *.cpp
+exclude src/hec/clause_*.c

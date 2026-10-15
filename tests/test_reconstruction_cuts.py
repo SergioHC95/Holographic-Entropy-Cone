@@ -2,18 +2,17 @@
 
 import copy
 import hashlib
-import os
 import random
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from corpus_derivations.pipeline_import import NativePipelineAuditor
-from derivation_pilot.recipes import cut_recipe
+from proof_fixtures import cut_seed, native_release
 
 from hec._reconstruction_cuts import cut_integer_rows
 from hec.count_proofs import compatible_vertices, geometry
-from hec.reconstruction import CUTS, ReconstructionProgram, make_pipeline
+from hec.reconstruction import ReconstructionProgram, make_pipeline
+from hec.reconstruction_verify import IndependentCubeAuditor
 
 
 def example(capacity=1):
@@ -26,17 +25,8 @@ def example(capacity=1):
         for x in vertices
         for a, b, c in [tuple((x >> axis) & 1 for axis in range(3))]
     ]
-    source, _ = cut_recipe(p, vertices, rows)
-    function = source["function"]
-    document = make_pipeline(
-        p,
-        {
-            "kind": CUTS,
-            "terms": [[str(one), str(zero)] for one, zero in function["terms"]],
-            "groups": function["groups"],
-        },
-    )
-    return p, vertices, rows, source, document
+    document = make_pipeline(p, cut_seed(p, vertices, rows))
+    return p, vertices, rows, None, document
 
 
 class BulkReconstructionCutTests(unittest.TestCase):
@@ -124,12 +114,10 @@ class BulkReconstructionCutTests(unittest.TestCase):
                     ReconstructionProgram(bad).materialize_seed()
 
     def test_independent_native_audit_of_actual_reconstructed_seed(self):
-        binary = os.environ.get("HEC_WIDE_AUDITOR")
-        if not binary:
-            self.skipTest("set HEC_WIDE_AUDITOR for the independent exact full-cube control")
+        binary = native_release()["cube"]
         _, _, _, _, document = example()
         sha = hashlib.sha256(Path(binary).read_bytes()).hexdigest()
-        verifier = NativePipelineAuditor(binary, sha)
+        verifier = IndependentCubeAuditor(binary, sha)
         try:
             result = ReconstructionProgram(document).audit(verifier)
         finally:

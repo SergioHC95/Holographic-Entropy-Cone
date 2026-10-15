@@ -1,5 +1,11 @@
 # Contraction proof derivation experiments
 
+The implementation and benchmark commands below are a HISTORICAL research
+record. Their exact source is recoverable at commit
+`71f32d96032526edc93db43cecb358f3e955941a`; obsolete research/migration formats
+are no longer installed or maintained. Current authoring, native builds,
+storage and required CI use [the supported pipeline](repository-pipeline.md).
+
 ## Final whole-corpus result — October 15, 2026
 
 All **84,690 unique inequality/proof identities** have deterministic standard

@@ -15,8 +15,9 @@ Receipts are in `archives/contractions/standard-20261015/`.
 `hec.proof_store.ProofCatalog` and `write_proof_catalog` are aliases of the
 single implementation in `hec.reconstruction_store`.
 `read_contractions`, `write_contractions`, the dataset loader and repository
-checks use that standard. Archive tools must explicitly import the private
-offline archive reader. They cannot change what the primary reader accepts.
+checks use that standard. No archive readers, migration commands or historical
+acceptance implementations are shipped. Archived bytes and source snapshots
+are recovery evidence, not supported inputs to the maintained pipeline.
 
 ## Inequality and coordinate conventions
 
@@ -291,20 +292,17 @@ Actual helper arguments and returned limits must match. Scope, identities,
 all vertices/edges and source-free status are checked with exact types.
 Native query differentials are extra controls, not replacements for full coverage.
 
-For a local check, build trusted executables in a private temporary directory:
+For a local check, build a bound release from the installed package's sources:
 
 ```bash
-hec_verify_dir=$(mktemp -d)
-c++ -O3 -std=c++17 -Wall -Wextra -Werror tools/derivation_pilot/closure.cpp -o "$hec_verify_dir/closure"
-c++ -O3 -std=c++17 -Wall -Wextra -Werror tools/verify_reconstruction.cpp -o "$hec_verify_dir/verify"
-HEC_RECONSTRUCTION_CLOSURE="$hec_verify_dir/closure" \
-HEC_RECONSTRUCTION_VERIFIER="$hec_verify_dir/verify" \
+uv run hec native build --directory .hec-native
+HEC_NATIVE_DIR="$PWD/.hec-native" \
 HEC_RECONSTRUCTION_WORKING_BYTES=268435456 HEC_CHECK_WORKERS=2 \
-PYTHONPATH=src python -m hec.checks contractions
+uv run hec check database --root data
 ```
 
 Missing payloads or backends fail the check; there is no network fallback or
-acceptance from migration receipts. Standalone `hec.checks database` checks
+acceptance from migration receipts. Standalone `hec check database` checks
 metadata AND executes all mathematical audits. CI partitions whole payload
 shards so each proof is audited exactly once, and runs global
 `database-bindings` separately. ALL proof partitions, bindings, graph and

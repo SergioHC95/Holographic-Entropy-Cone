@@ -1,6 +1,6 @@
 [project]
 name = "holographic-entropy-cone"
-version = "0.1.0"
+version = "0.2.0"
 description = "Holographic Entropy Cone data with contraction and graph algorithms"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -22,12 +22,21 @@ dev = [
   "wheel",
 ]
 
+[project.scripts]
+hec = "hec.cli:main"
+
 [build-system]
 requires = ["setuptools>=69", "wheel", "numpy>=1.24", "Cython>=3.2"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+hec = ["_native/*.cpp"]
+
+[tool.setuptools.exclude-package-data]
+hec = ["clause_*.c"]
 
 [tool.ruff]
 line-length = 120

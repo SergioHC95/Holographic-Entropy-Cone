@@ -8,10 +8,10 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import zstandard as zstd
-from corpus_derivations.pipeline_import import import_recipe
+from proof_fixtures import document
 
 from hec.checks import check_stored_contractions, check_stored_facets, check_stored_graphs, check_stored_rays
-from hec.count_proofs import canonical_json, compatible_vertices, geometry, make_count_proof, proof_id
+from hec.count_proofs import canonical_json, compatible_vertices, geometry, proof_id
 from hec.data import default_data_root
 from hec.inequality_records import inequality_catalog, write_inequality_catalog
 from hec.proof_store import write_proof_catalog
@@ -34,7 +34,7 @@ def _temporary_dataset(n: int, *kinds: str) -> tuple[TemporaryDirectory, Path, d
         for facet in records["facets"]:
             problem = geometry(n, tuple(facet))
             rows = [(vertex.bit_count() % 2,) if problem.G else () for vertex in compatible_vertices(problem)]
-            proofs.append(import_recipe(make_count_proof(problem, rows, transport=True))[0])
+            proofs.append(document(problem, rows))
         write_proof_catalog(target / "proofs.json", proofs)
         write_inequality_catalog(target / "inequalities.json", inequality_catalog(proofs))
         records["contractions"] = proofs

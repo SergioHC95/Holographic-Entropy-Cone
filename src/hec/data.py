@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Literal, get_args
 
@@ -12,7 +13,11 @@ DATA_KINDS = frozenset(get_args(DataKind))
 
 
 def default_data_root() -> Path:
-    return Path(__file__).resolve().parents[2] / "data"
+    # Data is an explicit checkout resource, not wheel-relative hidden state.
+    base = Path(os.environ["HEC_DATA_ROOT"]) if "HEC_DATA_ROOT" in os.environ else Path.cwd() / "data"
+    if not base.is_dir():
+        raise ValueError("run from the repository root or set HEC_DATA_ROOT to its data directory")
+    return base
 
 
 def available_ns(root: str | Path | None = None, max_n: int | None = None) -> list[int]:
@@ -22,6 +27,8 @@ def available_ns(root: str | Path | None = None, max_n: int | None = None) -> li
 
 
 def data_path(n: int, kind: DataKind, *, root: str | Path | None = None) -> Path:
+    if type(n) is not int or n < 1:
+        raise ValueError("party count must be an exact positive integer")
     if kind not in DATA_KINDS:
         raise ValueError(f"kind must be one of: {', '.join(sorted(DATA_KINDS))}")
     base = default_data_root() if root is None else Path(root)

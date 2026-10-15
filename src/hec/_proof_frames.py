@@ -1,4 +1,4 @@
-"""Private immutable byte framing shared by strict readers and archive tools.
+"""Private immutable byte framing for the single standardized proof catalogue.
 
 This module does not accept a mathematical proof language or confer validity.
 Only a trusted language-specific reader/writer supplies those checks.

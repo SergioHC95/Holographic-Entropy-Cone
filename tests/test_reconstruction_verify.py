@@ -15,12 +15,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from corpus_derivations import diagrams
-from corpus_derivations.pipeline_import import import_recipe
-from derivation_pilot.recipes import choice_recipe, closure_call, cut_recipe
+from proof_fixtures import cut_seed, departed_definition, native_release
+from proof_fixtures import document as table_document
 
-from hec.count_proofs import canonical_json, compatible_vertices, geometry, make_count_proof
-from hec.reconstruction import ReconstructionProgram
+from hec.count_proofs import canonical_json, compatible_vertices, geometry
+from hec.proof_builders import closure_seed, dag_seed
+from hec.reconstruction import ReconstructionProgram, make_pipeline
 from hec.reconstruction_verify import IndependentCubeAuditor, IntervalClosureDecoder, ReconstructionVerifier
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,15 +42,7 @@ class ReconstructionVerifierTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.temporary = tempfile.TemporaryDirectory(prefix="hec-reconstruction-adapter-")
-        directory = Path(cls.temporary.name)
-        cls.closure = Path(os.environ.get("HEC_DERIVATION_BINARY", str(directory / "closure")))
-        cls.cube = Path(os.environ.get("HEC_WIDE_AUDITOR", str(directory / "wide")))
-        for binary, source in (
-            (cls.closure, "tools/derivation_pilot/closure.cpp"),
-            (cls.cube, "tools/corpus_derivations/audit_wide.cpp"),
-        ):
-            if not binary.is_file():
-                subprocess.run(["c++", "-O2", "-std=c++17", str(ROOT / source), "-o", str(binary)], check=True)
+        cls.closure, cls.cube = native_release()["closure"], native_release()["cube"]
 
     @classmethod
     def tearDownClass(cls):
@@ -58,18 +50,17 @@ class ReconstructionVerifierTests(unittest.TestCase):
 
     def setUp(self):
         self.p, self.vertices, self.rows = fixture()
-        self.table = import_recipe(make_count_proof(self.p, self.rows, transport=True))[0]
+        self.table = table_document(self.p, self.rows)
 
     def test_all_four_primitives_execute_the_same_independent_full_cube_protocol(self):
         verifier = ReconstructionVerifier(closure_binary=self.closure, cube_binary=self.cube)
-        source = choice_recipe(self.p, closure_call(self.closure, self.p, mode="encode", rows=self.rows))
-        closure_seed = {**source["function"], "kind": "integer-interval-closure/1"}
+        encoded = closure_seed(self.p, self.rows, self.closure)
         closure_doc = copy.deepcopy(self.table)
-        closure_doc["function"]["seed"] = closure_seed
+        closure_doc["function"]["seed"] = encoded
         docs = [
             self.table,
-            import_recipe(diagrams.build(self.p, self.vertices, 1, self.rows))[0],
-            import_recipe(cut_recipe(self.p, self.vertices, self.rows)[0])[0],
+            make_pipeline(self.p, dag_seed(self.p, self.rows)),
+            make_pipeline(self.p, cut_seed(self.p, self.vertices, self.rows)),
             closure_doc,
         ]
         identities = set()
@@ -89,7 +80,7 @@ class ReconstructionVerifierTests(unittest.TestCase):
         scale = (1 << 130) + 51
         rows = [[Fraction(value) for value in row] for row in self.rows]
         rows[7][0] = Fraction(1, scale)
-        document = import_recipe(make_count_proof(self.p, rows, integral=False, transport=True))[0]
+        document = table_document(self.p, rows)
         verifier = ReconstructionVerifier(cube_binary=self.cube, closure_binary="")
         try:
             result = verifier.verify(document)
@@ -134,7 +125,7 @@ class ReconstructionVerifierTests(unittest.TestCase):
                 elif mutation == "executable":
                     bad["function"]["seed"]["binary"] = "/anything"
                 else:
-                    bad = make_count_proof(self.p, self.rows, transport=True)
+                    bad = departed_definition(self.p)
                 with self.assertRaises(ValueError):
                     verifier.verify(bad)
         finally:
@@ -174,8 +165,7 @@ class ReconstructionVerifierTests(unittest.TestCase):
                 verifier.verify(self.p, self.vertices, 1, self.rows)
 
     def test_closure_decoder_rejects_untrusted_fields_and_changed_binary(self):
-        source = choice_recipe(self.p, closure_call(self.closure, self.p, mode="encode", rows=self.rows))
-        seed = {**source["function"], "kind": "integer-interval-closure/1"}
+        seed = closure_seed(self.p, self.rows, self.closure)
         decoder = IntervalClosureDecoder(self.closure)
         self.assertEqual(decoder.decode(self.p, seed), self.rows)
         with self.assertRaises(ValueError):
@@ -198,22 +188,7 @@ class StandardCubeConfigurationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.temporary = tempfile.TemporaryDirectory(prefix="hec-standard-native-")
-        cls.binary = Path(os.environ.get("HEC_STANDARD_AUDITOR", str(Path(cls.temporary.name) / "verify")))
-        if not cls.binary.is_file():
-            subprocess.run(
-                [
-                    "c++",
-                    "-O3",
-                    "-std=c++17",
-                    "-Wall",
-                    "-Wextra",
-                    "-Werror",
-                    str(ROOT / "tools/verify_reconstruction.cpp"),
-                    "-o",
-                    str(cls.binary),
-                ],
-                check=True,
-            )
+        cls.binary = native_release()["cube"]
 
     @classmethod
     def tearDownClass(cls):
@@ -221,7 +196,7 @@ class StandardCubeConfigurationTests(unittest.TestCase):
 
     def test_configured_buffer_is_in_actual_command_and_exact_tiled_reply(self):
         p, _vertices, rows = fixture()
-        document = import_recipe(make_count_proof(p, rows, transport=True))[0]
+        document = table_document(p, rows)
         verifier = ReconstructionVerifier(closure_binary="", cube_binary=self.binary, cube_working_bytes=64)
         try:
             result = verifier.verify(document)
@@ -245,7 +220,7 @@ class StandardCubeConfigurationTests(unittest.TestCase):
 
     def test_shared_full_point_rule_handles_empty_output(self):
         p = geometry(1, (1,))
-        document = import_recipe(make_count_proof(p, [(), ()], transport=True))[0]
+        document = table_document(p, [(), ()])
         verifier = ReconstructionVerifier(closure_binary="", cube_binary=self.binary, cube_working_bytes=64)
         try:
             result = verifier.verify(document)

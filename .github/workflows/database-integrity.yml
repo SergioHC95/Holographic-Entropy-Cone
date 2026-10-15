@@ -20,7 +20,11 @@ concurrency:
 jobs:
   quality:
     name: code quality and tests
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -32,8 +36,13 @@ jobs:
           python-version: "3.13.14"
           enable-cache: true
       - run: uv sync --locked --dev --python 3.13.14
+      - run: bash .github/scripts/lint_workflows.sh
       - run: uv run --no-sync ruff check .
       - run: uv run --no-sync ruff format --check .
+      - name: Build installed-package exact primitives
+        run: |
+          uv run --no-sync hec native build --directory "$RUNNER_TEMP/hec-native"
+          echo "HEC_NATIVE_DIR=$RUNNER_TEMP/hec-native" >> "$GITHUB_ENV"
       - run: uv run --no-sync python -m unittest discover -s tests
 
   discover:
@@ -47,21 +56,21 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           lfs: false
-      - id: lfs
-        name: Plan only active exact proof shards
-        run: python3 .github/scripts/lfs_assets.py plan --github-output "$GITHUB_OUTPUT"
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           version: "0.11.28"
           python-version: "3.13.14"
           enable-cache: true
       - run: uv sync --locked --no-dev --python 3.13.14
+      - id: lfs
+        name: Audit repository inventory and plan only declared immutable objects
+        run: uv run --no-sync hec storage plan --github-output "$GITHUB_OUTPUT"
       - id: datasets
         name: Plan complete disjoint standard-proof audits and bindings
         env:
           LFS_NS: ${{ steps.lfs.outputs.ns }}
         run: |
-          uv run --no-sync python -m hec.reconstruction_checks plan \
+          uv run --no-sync hec plan \
             --lfs-ns-json "$LFS_NS" --github-output "$GITHUB_OUTPUT"
 
   prepare_lfs:
@@ -74,30 +83,29 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           lfs: false
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          version: "0.11.28"
+          python-version: "3.13.14"
+          enable-cache: true
+      - run: uv sync --locked --no-dev --python 3.13.14
       - id: cache
-        name: Look up content-addressed active proofs without downloading
+        name: Restore content-addressed declared objects
         uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: .hec-ci-lfs/objects
           key: ${{ needs.discover.outputs.lfs_key }}
-          lookup-only: true
+          restore-keys: hec-storage-v1-
       - name: Fetch missing active objects once and verify their hashes
-        if: ${{ steps.cache.outputs.cache-hit != 'true' }}
-        run: python3 .github/scripts/lfs_assets.py populate
+        run: |
+          uv run --no-sync hec storage populate --fetch
+          uv run --no-sync hec storage compact
       - name: Save the verified shared cache
         if: ${{ steps.cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: .hec-ci-lfs/objects
           key: ${{ needs.discover.outputs.lfs_key }}
-      - id: handoff
-        name: Confirm the matrix can access the shared cache
-        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
-        with:
-          path: .hec-ci-lfs/objects
-          key: ${{ needs.discover.outputs.lfs_key }}
-          lookup-only: true
-          fail-on-cache-miss: true
 
   validate:
     needs: [discover, prepare_lfs]
@@ -116,6 +124,12 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           lfs: false
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          version: "0.11.28"
+          python-version: "3.13.14"
+          enable-cache: true
+      - run: uv sync --locked --no-dev --python 3.13.14
       - name: Require the verified proof handoff when needed
         if: ${{ matrix.lfs && needs.prepare_lfs.result != 'success' }}
         run: |
@@ -137,23 +151,15 @@ jobs:
           CHECK_SHARD_COUNT: ${{ matrix.shard_count }}
         run: |
           if [[ "$CHECK_KIND" == "contractions" ]]; then
-            python3 .github/scripts/lfs_assets.py install --n "$CHECK_N" --shard-index "$CHECK_SHARD_INDEX" --shard-count "$CHECK_SHARD_COUNT"
+            uv run --no-sync hec storage install --n "$CHECK_N" --shard-index "$CHECK_SHARD_INDEX" --shard-count "$CHECK_SHARD_COUNT"
           else
-            python3 .github/scripts/lfs_assets.py install --n "$CHECK_N"
+            uv run --no-sync hec storage install --n "$CHECK_N"
           fi
-      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
-        with:
-          version: "0.11.28"
-          python-version: "3.13.14"
-          enable-cache: true
-      - run: uv sync --locked --no-dev --python 3.13.14
       - name: Build standard exact decoder and full-cube verifier
         if: ${{ matrix.kind == 'contractions' }}
         run: |
-          c++ -O3 -std=c++17 -Wall -Wextra -Werror tools/derivation_pilot/closure.cpp -o "$RUNNER_TEMP/hec-closure"
-          c++ -O3 -std=c++17 -Wall -Wextra -Werror tools/verify_reconstruction.cpp -o "$RUNNER_TEMP/hec-standard-verifier"
-          echo "HEC_RECONSTRUCTION_CLOSURE=$RUNNER_TEMP/hec-closure" >> "$GITHUB_ENV"
-          echo "HEC_RECONSTRUCTION_VERIFIER=$RUNNER_TEMP/hec-standard-verifier" >> "$GITHUB_ENV"
+          uv run --no-sync hec native build --directory "$RUNNER_TEMP/hec-native"
+          echo "HEC_NATIVE_DIR=$RUNNER_TEMP/hec-native" >> "$GITHUB_ENV"
           echo "HEC_RECONSTRUCTION_WORKING_BYTES=268435456" >> "$GITHUB_ENV"
       - name: Validate ${{ matrix.kind }} for n=${{ matrix.n }}
         env:
@@ -165,30 +171,62 @@ jobs:
           EXPECT_EDGES: ${{ matrix.expect_edges }}
         run: |
           if [[ "$CHECK_KIND" == "contractions" ]]; then
-            uv run --no-sync python -m hec.reconstruction_checks contractions --n "$CHECK_N" \
+            uv run --no-sync hec check contractions --n "$CHECK_N" \
               --shard-index "$CHECK_SHARD_INDEX" --shard-count "$CHECK_SHARD_COUNT" \
               --expect-proofs "$EXPECT_PROOFS" --expect-edges "$EXPECT_EDGES"
           elif [[ "$CHECK_KIND" == "database-bindings" ]]; then
-            uv run --no-sync python -m hec.reconstruction_checks database-bindings --n "$CHECK_N"
+            uv run --no-sync hec check database-bindings --n "$CHECK_N"
           else
-            uv run --no-sync python -m hec.checks "$CHECK_KIND" --n "$CHECK_N" \
+            uv run --no-sync hec check "$CHECK_KIND" --n "$CHECK_N" \
               --shard-index "$CHECK_SHARD_INDEX" --shard-count "$CHECK_SHARD_COUNT"
           fi
+
+  distribution:
+    name: installed wheel and exact small-corpus acceptance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          lfs: false
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          version: "0.11.28"
+          python-version: "3.13.14"
+          enable-cache: true
+      - name: Build the source distribution and its installable wheel
+        run: |
+          uv build --sdist --python 3.13.14 --out-dir "$RUNNER_TEMP/hec-source"
+          uv build "$RUNNER_TEMP/hec-source/"*.tar.gz --wheel --python 3.13.14 --out-dir "$RUNNER_TEMP/hec-dist"
+      - name: Install exactly locked runtime dependencies and the wheel
+        run: |
+          uv export --frozen --no-dev --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/hec-requirements.txt"
+          uv venv --python 3.13.14 "$RUNNER_TEMP/hec-wheel"
+          uv pip sync --python "$RUNNER_TEMP/hec-wheel/bin/python" "$RUNNER_TEMP/hec-requirements.txt"
+          uv pip install --no-deps --python "$RUNNER_TEMP/hec-wheel/bin/python" "$RUNNER_TEMP/hec-dist/"*.whl
+      - name: Verify from outside the checkout with no research modules or source-path fallback
+        working-directory: ${{ runner.temp }}
+        env:
+          PYTHONPATH: ""
+        run: |
+          "$RUNNER_TEMP/hec-wheel/bin/python" "$GITHUB_WORKSPACE/tests/wheel_smoke.py" \
+            --repository "$GITHUB_WORKSPACE" --native-directory "$RUNNER_TEMP/hec-wheel-native"
 
   gate:
     name: database integrity
     if: ${{ always() }}
-    needs: [quality, discover, prepare_lfs, validate]
+    needs: [quality, distribution, discover, prepare_lfs, validate]
     runs-on: ubuntu-24.04
     steps:
       - name: Require every validation job
         env:
           DISCOVER_RESULT: ${{ needs.discover.result }}
           QUALITY_RESULT: ${{ needs.quality.result }}
+          DISTRIBUTION_RESULT: ${{ needs.distribution.result }}
           VALIDATE_RESULT: ${{ needs.validate.result }}
           LFS_RESULT: ${{ needs.prepare_lfs.result }}
         run: |
-          if [[ "$QUALITY_RESULT" != "success" || "$DISCOVER_RESULT" != "success" || "$VALIDATE_RESULT" != "success" || ( "$LFS_RESULT" != "success" && "$LFS_RESULT" != "skipped" ) ]]; then
-            echo "required checks failed: quality=$QUALITY_RESULT, discovery=$DISCOVER_RESULT, validation=$VALIDATE_RESULT, lfs=$LFS_RESULT"
+          if [[ "$DISTRIBUTION_RESULT" != "success" || "$QUALITY_RESULT" != "success" || "$DISCOVER_RESULT" != "success" || "$VALIDATE_RESULT" != "success" || ( "$LFS_RESULT" != "success" && "$LFS_RESULT" != "skipped" ) ]]; then
+            echo "required checks failed: distribution=$DISTRIBUTION_RESULT quality=$QUALITY_RESULT, discovery=$DISCOVER_RESULT, validation=$VALIDATE_RESULT, lfs=$LFS_RESULT"
             exit 1
           fi

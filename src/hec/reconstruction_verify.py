@@ -16,7 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from ._count_transport import clearing_scale
+from ._reconstruction_extension import clearing_scale
 from .count_proofs import canonical_json, compatible_vertices, decimal, parse_json
 from .reconstruction import CLOSURE, EXTENSION, ReconstructionProgram
 
@@ -246,8 +246,13 @@ class ReconstructionVerifier:
     """One exact verification entry point for all four standard seed primitives."""
 
     def __init__(self, *, closure_binary=None, cube_binary=None, cube_working_bytes=None):
-        closure = closure_binary if closure_binary is not None else os.environ.get("HEC_RECONSTRUCTION_CLOSURE")
-        cube = cube_binary if cube_binary is not None else os.environ.get("HEC_RECONSTRUCTION_VERIFIER")
+        configured = {}
+        if os.environ.get("HEC_NATIVE_DIR") and (closure_binary is None or cube_binary is None):
+            from .native import load_backends
+
+            configured = load_backends(os.environ["HEC_NATIVE_DIR"])
+        closure = closure_binary if closure_binary is not None else configured.get("closure")
+        cube = cube_binary if cube_binary is not None else configured.get("cube")
         if cube_working_bytes is None and "HEC_RECONSTRUCTION_WORKING_BYTES" in os.environ:
             raw = os.environ["HEC_RECONSTRUCTION_WORKING_BYTES"]
             if not raw.isascii() or not raw.isdecimal() or str(int(raw)) != raw:

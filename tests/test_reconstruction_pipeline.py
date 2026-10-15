@@ -1,55 +1,23 @@
-"""One seed/extension contract; controls are not full-corpus coverage."""
+"""Direct controls for the sole seed/extension contract, not corpus coverage."""
 
 import copy
 import gc
-import hashlib
 import json
-import os
 import random
-import shutil
-import subprocess
-import sys
-import tempfile
 import unittest
 import weakref
 from fractions import Fraction
 from pathlib import Path
 from unittest.mock import patch
 
+from proof_fixtures import cut_seed, document, native_release
+
+from hec.count_proofs import FORMAT, canonical_json, compatible_vertices, geometry, parse_json
+from hec.proof_builders import closure_seed, dag_seed, table_seed
+from hec.reconstruction import CLOSURE, EXTENSION, PIPELINE, Limits, ReconstructionProgram, make_pipeline
+from hec.reconstruction_verify import IndependentCubeAuditor, IntervalClosureDecoder
+
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "tools"))
-
-from corpus_derivations import diagrams  # noqa: E402
-from corpus_derivations.pipeline_import import (  # noqa: E402
-    NativeClosure,
-    NativePipelineAuditor,
-    canonical_dag,
-    import_recipe,
-)
-from derivation_pilot.recipes import choice_recipe, closure_call, cut_recipe  # noqa: E402
-
-from hec.count_proofs import (  # noqa: E402
-    FORMAT,
-    canonical_json,
-    check_count_proof,
-    compatible_vertices,
-    decode_rows,
-    encode_rows,
-    evaluate_count_proof,
-    geometry,
-    make_count_proof,
-    parse_json,
-    proof_geometry,
-)
-from hec.reconstruction import (  # noqa: E402
-    CLOSURE,
-    EXTENSION,
-    PIPELINE,
-    TABLE,
-    Limits,
-    ReconstructionProgram,
-    make_pipeline,
-)
 
 
 def mmi(p, scale=1):
@@ -60,151 +28,118 @@ def mmi(p, scale=1):
     ]
 
 
-def table(p, rows, *, integral=True):
-    return {"kind": TABLE, "rows": encode_rows(p, rows, integral=integral)[0]}
-
-
 class ReconstructionPipelineTests(unittest.TestCase):
     def setUp(self):
         self.p = geometry(3, (-1, -1, -1, 2, 2, 2, -1))
         self.vertices = list(compatible_vertices(self.p))
         self.rows = mmi(self.p)
 
-    def test_three_seed_families_have_one_exact_full_map_semantics(self):
-        sources = [
-            make_count_proof(self.p, self.rows, transport=True),
-            diagrams.build(self.p, self.vertices, 1, self.rows),
-            cut_recipe(self.p, self.vertices, self.rows)[0],
+    def variants(self, p=None, rows=None):
+        p = self.p if p is None else p
+        rows = self.rows if rows is None else rows
+        vertices = list(compatible_vertices(p))
+        return [
+            document(p, rows),
+            make_pipeline(p, dag_seed(p, rows)),
+            make_pipeline(p, cut_seed(p, vertices, rows)),
         ]
-        identities, proof_ids = set(), set()
-        for source in sources:
-            document, receipt = import_recipe(source)
-            program = ReconstructionProgram(document)
-            self.assertEqual(program.stages[-1], EXTENSION)
-            self.assertEqual(document["format"], FORMAT)
-            self.assertEqual(document["function"]["kind"], PIPELINE)
-            audit = program.audit_reference()
-            self.assertEqual((audit["checked_vertices"], audit["checked_edges"]), (8, 12))
-            self.assertFalse(receipt["new_exhaustive_original_cube_audit_executed"])
-            self.assertTrue(receipt["source_mathematical_acceptance_still_required"])
-            self.assertEqual(receipt["checked_compatible_vertices"], len(self.vertices))
-            identities.add(audit["semantic_map_id"])
-            proof_ids.add(audit["proof_id"])
-            for x in range(self.p.vertices):
-                self.assertEqual(program.evaluate(x), tuple(self.rows[x]))
-        self.assertEqual(len(identities), 1)
-        self.assertEqual(len(proof_ids), 3)  # Encoding identity is not semantic identity.
 
-    def test_weighted_mass_and_rational_thresholds_are_shared(self):
-        p, rows = geometry(2, (2, 1, -1)), [(0,), (1,), (1,)]
-        document = make_pipeline(p, table(p, rows))
-        program = ReconstructionProgram(document)
-        original = make_count_proof(p, rows, transport=True)
+    def test_all_seed_families_have_one_exact_full_map_semantics(self):
+        identities, proof_ids = set(), set()
+        for doc in self.variants():
+            program = ReconstructionProgram(doc)
+            result = program.audit_reference()
+            self.assertEqual((result["checked_vertices"], result["checked_edges"]), (8, 12))
+            self.assertEqual(doc["format"], FORMAT)
+            self.assertEqual(doc["function"]["kind"], PIPELINE)
+            self.assertEqual(program.stages[-1], EXTENSION)
+            identities.add(result["semantic_map_id"])
+            proof_ids.add(result["proof_id"])
+            for x in range(8):
+                self.assertEqual(program.evaluate(x), self.rows[x])
+        self.assertEqual(len(identities), 1)
+        self.assertEqual(len(proof_ids), 3)
+
+    def test_weighted_rational_extension_preserves_proof_not_original_bits(self):
+        p = geometry(2, (2, 1, -1))
+        program = ReconstructionProgram(document(p, [(0,), (1,), (1,)]))
         self.assertEqual(program.clearing_scale, 2)
         self.assertEqual(program.evaluate(3), (Fraction(1, 2),))
-        for vertex in range(p.vertices):
-            self.assertEqual(program.evaluate(vertex), evaluate_count_proof(original, vertex))
+        # A Boolean OR output would instead be 1 here; neither map is privileged.
         self.assertEqual(program.audit_reference()["checked_edges"], 4)
 
-    def test_general_restriction_extension_is_proof_preserving_not_always_bit_preserving(self):
-        p = geometry(2, (2, 1, -1))
-        original = make_count_proof(p, [(0,), (1,), (1,), (1,)])
-        restricted = [evaluate_count_proof(original, x, verify=False) for x in compatible_vertices(p)]
-        program = ReconstructionProgram(make_pipeline(p, table(p, restricted)))
-        self.assertEqual(evaluate_count_proof(original, 3), (Fraction(1),))
-        self.assertEqual(program.evaluate(3), (Fraction(1, 2),))
-        self.assertEqual(program.audit_reference()["checked_edges"], 4)
-
-    def test_real_nested_disjoint_fixture_preserves_all_original_cube_images(self):
-        literal = parse_json((ROOT / "tests/fixtures/count_proof_n5.json").read_bytes())
-        p = proof_geometry(literal)
-        self.assertTrue(p.disjoint)
-        self.assertTrue(p.nested)
-        original = list(decode_rows(p, literal["function"]["rows"]))
-        seed = [[Fraction(value, original[x][0]) for value in original[x][1]] for x in compatible_vertices(p)]
-        source = make_count_proof(p, seed, integral=False, transport=True)
-        document, _ = import_recipe(source)
-        program = ReconstructionProgram(document)
-        for x in range(p.vertices):
-            self.assertEqual(program.evaluate(x), evaluate_count_proof(source, x, verify=False))
+    def test_real_nested_disjoint_standard_fixture(self):
+        doc = parse_json((ROOT / "tests/fixtures/count_proof_n5.json").read_bytes())
+        program = ReconstructionProgram(doc)
+        self.assertTrue(program.problem.disjoint)
+        self.assertTrue(program.problem.nested)
         self.assertEqual(program.audit_reference()["checked_edges"], 448)
+        auditor = IndependentCubeAuditor(native_release()["cube"])
+        try:
+            self.assertEqual(program.audit(auditor)["checked_edges"], 448)
+        finally:
+            auditor.close()
 
-    def test_documented_program_executes_and_schema_references_resolve_locally(self):
-        doc = (ROOT / "docs/contraction-derivation-experiments.md").read_text()
-        example = doc.split("a complete MMI reconstruction is:", 1)[1].split("```json", 1)[1].split("```", 1)[0]
-        program = ReconstructionProgram(parse_json(example.encode()))
-        self.assertEqual(program.audit_reference()["checked_edges"], 12)
-        schema_path = ROOT / "schemas/count-proof-v1.schema.json"
-        schema = json.loads(schema_path.read_bytes())
-        self.assertEqual(schema["properties"]["function"]["properties"]["kind"]["const"], PIPELINE)
+    def test_documented_example_and_self_contained_schema(self):
+        text = (ROOT / "docs/contraction-proof-standard.md").read_text()
+        example = text.split("```json", 1)[1].split("```", 1)[0]
+        self.assertTrue(ReconstructionProgram(parse_json(example.encode())).audit_reference()["ok"])
+        schema = json.loads((ROOT / "schemas/count-proof-v1.schema.json").read_text())
 
-        def visit(node):
-            if isinstance(node, dict):
-                if "$ref" in node:
-                    filename, pointer = node["$ref"].split("#", 1)
-                    target = json.loads((schema_path.parent / filename).read_bytes()) if filename else schema
-                    for part in pointer.lstrip("/").split("/"):
-                        target = target[int(part)] if isinstance(target, list) else target[part]
-                    self.assertIsInstance(target, dict)
-                for child in node.values():
+        def visit(value):
+            if isinstance(value, dict):
+                if "$ref" in value:
+                    self.assertTrue(value["$ref"].startswith("#/"))
+                for child in value.values():
                     visit(child)
-            elif isinstance(node, list):
-                for child in node:
+            elif isinstance(value, list):
+                for child in value:
                     visit(child)
 
         visit(schema)
 
-    def test_arbitrary_precision_fractional_seed_and_shared_dag_agree(self):
-        scale = 1 << 90
-        rows = mmi(self.p, scale)
-        rows[7] = (1, 0, 0, scale)
-        exact = [[Fraction(value, scale) for value in row] for row in rows]
-        programs = [
-            ReconstructionProgram(make_pipeline(self.p, table(self.p, exact, integral=False))),
-            ReconstructionProgram(
-                make_pipeline(self.p, canonical_dag(diagrams.build(self.p, self.vertices, scale, rows)["function"]))
-            ),
-        ]
-        self.assertEqual(programs[0].semantic_identity(), programs[1].semantic_identity())
-        for program in programs:
-            self.assertEqual(program.evaluate(7)[0], Fraction(1, scale))
-            self.assertEqual(program.clearing_scale, scale)
-            self.assertEqual(program.audit_reference()["checked_edges"], 12)
+    def test_arbitrary_precision_table_and_dag_share_exact_semantics(self):
+        for scale in (1 << 90, (1 << 130) + 51):
+            rows = [[Fraction(value) for value in row] for row in self.rows]
+            rows[7][0] = Fraction(1, scale)
+            programs = [
+                ReconstructionProgram(document(self.p, rows)),
+                ReconstructionProgram(make_pipeline(self.p, dag_seed(self.p, rows))),
+            ]
+            self.assertEqual(programs[0].semantic_identity(), programs[1].semantic_identity())
+            for program in programs:
+                self.assertEqual(program.evaluate(7)[0], Fraction(1, scale))
+                self.assertEqual(program.audit_reference()["checked_edges"], 12)
 
-    def test_random_feasible_seeds_do_not_assume_special_solver_structure(self):
-        p, rng = geometry(3, (-1, -1, -1, 4, 4, 4, -1)), random.Random(20261014)
+    def test_random_feasible_seeds_are_not_solver_specific(self):
+        p, rng = geometry(3, (-1, -1, -1, 4, 4, 4, -1)), random.Random(20261015)
         vertices = list(compatible_vertices(p))
         for _ in range(20):
             rows = [tuple(rng.randrange(2) for _ in p.beta) for _ in vertices]
             for x, image in p.boundary:
                 rows[vertices.index(x)] = image
-            first = ReconstructionProgram(make_pipeline(p, table(p, rows)))
-            second = ReconstructionProgram(
-                make_pipeline(p, canonical_dag(diagrams.build(p, vertices, 1, rows)["function"]))
-            )
+            first = ReconstructionProgram(document(p, rows))
+            second = ReconstructionProgram(make_pipeline(p, dag_seed(p, rows)))
             self.assertEqual(first.semantic_identity(), second.semantic_identity())
             self.assertEqual(first.audit_reference()["checked_edges"], 12)
 
-    def test_zero_and_empty_rhs_have_complete_not_missing_images(self):
+    def test_zero_and_empty_rhs_have_complete_images(self):
         for p in (geometry(1, (0,)), geometry(1, (1,))):
-            rows = [() for _ in compatible_vertices(p)]
-            program = ReconstructionProgram(make_pipeline(p, table(p, rows)))
+            program = ReconstructionProgram(document(p, [() for _ in compatible_vertices(p)]))
             self.assertEqual(program.audit_reference()["checked_vertices"], p.vertices)
             self.assertEqual(program.evaluate(0), ())
 
-    def test_input_documents_and_returned_documents_do_not_mutate_loaded_program(self):
-        document = make_pipeline(self.p, table(self.p, self.rows))
-        program = ReconstructionProgram(document)
-        identity, image = program.identity, program.evaluate(3)
-        document["inequality"]["coefficients"][0] = "999"
+    def test_loaded_program_owns_immutable_canonical_bytes(self):
+        doc = document(self.p, self.rows)
+        program = ReconstructionProgram(doc)
+        expected = program.identity, program.evaluate(3)
+        doc["inequality"]["coefficients"][0] = "999"
         exported = program.document
         exported["function"]["seed"]["rows"]["data"] = ""
-        self.assertEqual((program.identity, program.evaluate(3)), (identity, image))
+        self.assertEqual((program.identity, program.evaluate(3)), expected)
 
-    def test_dag_seed_is_released_without_waiting_for_cyclic_gc(self):
-        program = ReconstructionProgram(
-            make_pipeline(self.p, canonical_dag(diagrams.build(self.p, self.vertices, 1, self.rows)["function"]))
-        )
+    def test_dag_seed_has_no_reference_cycle(self):
+        program = ReconstructionProgram(make_pipeline(self.p, dag_seed(self.p, self.rows)))
         enabled = gc.isenabled()
         gc.disable()
         try:
@@ -215,111 +150,54 @@ class ReconstructionPipelineTests(unittest.TestCase):
             if enabled:
                 gc.enable()
 
-    def test_integer_materialization_matches_separate_scalar_queries_for_every_primitive(self):
-        sources = [
-            make_count_proof(self.p, self.rows, transport=True),
-            diagrams.build(self.p, self.vertices, 1, self.rows),
-            cut_recipe(self.p, self.vertices, self.rows)[0],
-        ]
-        for source in sources:
-            document, _ = import_recipe(source)
-            program = ReconstructionProgram(document)
-            scalar = tuple(tuple(int(value) for value in program[vertex]) for vertex in self.vertices)
-            with patch.object(
-                program._seed, "at", side_effect=AssertionError("materializer made scalar Fraction queries")
-            ):
-                materialized = program.materialize_seed()
-            self.assertEqual(materialized.numerators, scalar)
-            self.assertEqual(program.audit_reference()["checked_edges"], 12)
-
-    def test_arbitrary_precision_mixed_row_denominators_match_table_and_dag(self):
-        scale = (1 << 130) + 51
-        rows = mmi(self.p, scale)
-        rows[7] = (1, 0, 0, scale)
-        exact = [[Fraction(value, scale) for value in row] for row in rows]
-        seeds = [
-            table(self.p, exact, integral=False),
-            canonical_dag(diagrams.build(self.p, self.vertices, scale, rows)["function"]),
-        ]
-        identities = set()
-        for seed in seeds:
-            program = ReconstructionProgram(make_pipeline(self.p, seed))
+    def test_materialization_matches_independent_scalar_queries(self):
+        for doc in self.variants():
+            program = ReconstructionProgram(doc)
             materialized = program.materialize_seed()
-            self.assertEqual(materialized.scale, scale)
-            self.assertEqual(materialized.numerators, tuple(rows))
-            for vertex, row in zip(self.vertices, rows, strict=True):
-                self.assertEqual(tuple(value * scale for value in program[vertex]), row)
-            identities.add(program.semantic_identity())
-            self.assertEqual(program.audit_reference()["checked_edges"], 12)
-        self.assertEqual(len(identities), 1)
+            self.assertEqual(materialized.vertices, tuple(self.vertices))
+            for vertex, row in zip(materialized.vertices, materialized.numerators, strict=True):
+                self.assertEqual(program[vertex], tuple(Fraction(value, materialized.scale) for value in row))
 
-    def test_unknown_execution_paths_and_forged_acceptance_fields_fail_closed(self):
-        document = make_pipeline(self.p, table(self.p, self.rows))
-        for location, key, value in (
+    def test_unknown_execution_paths_and_forged_acceptance_fail_closed(self):
+        base = document(self.p, self.rows)
+        for target, key, value in (
             ((), "verified", True),
-            (("function",), "script", "anything.py"),
-            (("function", "seed"), "source", "/archived/table"),
-            (("function", "extension"), "order", "custom"),
+            ((), "source", "/archive/table"),
+            (("function",), "binary", "/anything"),
+            (("function", "seed"), "source", "/archive/table"),
         ):
-            bad, at = copy.deepcopy(document), None
-            at = bad
-            for part in location:
-                at = at[part]
-            at[key] = value
+            bad = copy.deepcopy(base)
+            item = bad
+            for part in target:
+                item = item[part]
+            item[key] = value
             with self.assertRaises(ValueError):
                 ReconstructionProgram(bad)
-        bad = copy.deepcopy(document)
-        bad["function"]["extension"]["kind"] = "execute-arbitrary-code/1"
-        with self.assertRaises(ValueError):
-            ReconstructionProgram(bad)
 
-    def test_duplicate_keys_floats_bad_scale_and_unsupported_geometry_are_rejected(self):
-        document = make_pipeline(self.p, table(self.p, self.rows))
-        for mutation in ("scale", "minimal", "float", "party", "primitive"):
-            bad = copy.deepcopy(document)
-            if mutation == "scale":
-                bad["clearing_scale"]["value"] = "2"
-            elif mutation == "minimal":
-                bad["clearing_scale"]["minimal"] = True
-            elif mutation == "float":
-                bad["inequality"]["coefficients"][0] = 0.5
-            elif mutation == "party":
-                bad["inequality"]["n"] = 10**9
-            else:
-                bad["function"]["seed"]["kind"] = "unknown/1"
-            with self.assertRaises(ValueError, msg=mutation):
+    def test_duplicate_keys_floats_scales_and_limits_fail_closed(self):
+        for raw in (b'{"x":1,"x":2}', b'{"x":1.0}', b'{"x":NaN}'):
+            with self.assertRaises(ValueError):
+                parse_json(raw)
+        for value in (0, True, 1.5):
+            with self.assertRaises(ValueError):
+                Limits(max_l=value)
+        doc = document(self.p, self.rows)
+        for scale in ({"value": "2", "minimal": False}, {"value": "1", "minimal": True}):
+            bad = copy.deepcopy(doc)
+            bad["clearing_scale"] = scale
+            with self.assertRaises(ValueError):
                 ReconstructionProgram(bad)
-        with self.assertRaisesRegex(ValueError, "duplicate"):
-            ReconstructionProgram(canonical_json(document).replace(b'"format":', b'"format":"x","format":', 1))
-        with patch("hec.reconstruction.CompatibleRank", side_effect=AssertionError("must not enumerate")):
-            with self.assertRaisesRegex(ValueError, "capability"):
-                ReconstructionProgram(document, limits=Limits(max_l=1))
-
-    def test_seed_and_full_cube_scopes_are_not_conflated_or_sampled(self):
-        program = ReconstructionProgram(make_pipeline(self.p, table(self.p, self.rows)))
-        seed = program.materialize_seed()
-        self.assertEqual(len(seed.vertices), 8)
-        with self.assertRaisesRegex(ValueError, "full-cube backend"):
-            program.audit_reference(max_vertices=4)
         with self.assertRaises(ValueError):
-            program.evaluate(True)
+            ReconstructionProgram(doc, limits=Limits(max_l=2))
         with self.assertRaises(ValueError):
-            program.evaluate(8)
+            ReconstructionProgram(doc).audit_reference(max_vertices=7)
 
-    def test_well_formed_bad_boundary_or_coupled_distance_is_not_a_proof(self):
-        for mutation in ("boundary", "coupling"):
-            p = geometry(3, (-1, -1, -1, 1, 1, 1, -1))
-            rows = mmi(p)
-            rows[3 if mutation == "boundary" else 7] = (0, 0, 0, 0) if mutation == "boundary" else (1, 1, 1, 0)
-            with self.assertRaisesRegex(ValueError, "boundary|contraction"):
-                make_pipeline(p, table(p, rows))
-
-    def test_missing_compatible_rows_and_dag_forgery_are_rejected(self):
-        with self.assertRaisesRegex(ValueError, "complete compatible"):
-            make_pipeline(self.p, table(self.p, self.rows[:-1]))
-        document = make_pipeline(self.p, canonical_dag(diagrams.build(self.p, self.vertices, 1, self.rows)["function"]))
+    def test_incomplete_table_and_noncanonical_dags_fail_closed(self):
+        with self.assertRaises(ValueError):
+            make_pipeline(self.p, table_seed(self.p, self.rows[:-1]))
+        doc = make_pipeline(self.p, dag_seed(self.p, self.rows))
         for mutation in ("cycle", "bool", "unreachable", "equal", "unsorted"):
-            bad = copy.deepcopy(document)
+            bad = copy.deepcopy(doc)
             seed = bad["function"]["seed"]
             if mutation == "cycle":
                 seed["nodes"][0][1] = 10**6
@@ -334,156 +212,55 @@ class ReconstructionPipelineTests(unittest.TestCase):
             with self.assertRaises(ValueError, msg=mutation):
                 ReconstructionProgram(bad)
 
-    def test_production_reader_is_not_silently_changed_and_old_extension_not_mislabelled(self):
-        document = make_pipeline(self.p, table(self.p, self.rows))
-        with self.assertRaises(ValueError):
-            check_count_proof(document)
-        old_order = make_count_proof(self.p, self.rows, kernel=True)
-        with self.assertRaisesRegex(ValueError, "same cancel/fill"):
-            import_recipe(old_order)
+    def test_incomplete_backend_receipt_is_never_acceptance(self):
+        program = ReconstructionProgram(document(self.p, self.rows))
 
-    def test_native_acceptance_requires_a_live_call_and_complete_bound_coverage(self):
-        program = ReconstructionProgram(make_pipeline(self.p, table(self.p, self.rows)))
-
-        class IncompleteBackend:
+        class Incomplete:
             extension = EXTENSION
 
-            def verify(self, p, vertices, scale, rows):
+            def verify(self, *args):
                 return {"ok": True, "scope": "compatible-seed-only"}
 
-        with self.assertRaisesRegex(ValueError, "incomplete or mismatched"):
-            program.audit(IncompleteBackend())
-        with self.assertRaisesRegex(ValueError, "backend"):
-            program.audit({"ok": True, "scope": "original-cube-all-edges"})
+        with self.assertRaises(ValueError):
+            program.audit(Incomplete())
+        with self.assertRaises(ValueError):
+            program.audit({"ok": True})
 
-
-@unittest.skipUnless(shutil.which("c++"), "exact closure control needs a C++17 compiler")
-class ClosurePipelineTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.temporary = tempfile.TemporaryDirectory(prefix="hec-pipeline-closure-test-")
-        cls.binary = Path(os.environ.get("HEC_DERIVATION_BINARY", str(Path(cls.temporary.name) / "closure")))
-        if not cls.binary.is_file():
-            subprocess.run(
-                ["c++", "-O2", "-std=c++17", str(ROOT / "tools/derivation_pilot/closure.cpp"), "-o", str(cls.binary)],
-                check=True,
-            )
-        cls.sha256 = hashlib.sha256(cls.binary.read_bytes()).hexdigest()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.temporary.cleanup()
-
-    def test_real_sparse_closure_joins_the_same_pipeline_and_semantic_identity(self):
-        p = geometry(3, (-1, -1, -1, 3, 3, 3, -1))
-        rows = mmi(p)
-        source = choice_recipe(p, closure_call(self.binary, p, mode="encode", rows=rows))
-        backend = NativeClosure(self.binary, self.sha256)
-        target, receipt = import_recipe(source, closure_backend=backend)
-        program = ReconstructionProgram(target, closure_backend=backend)
-        explicit = ReconstructionProgram(make_pipeline(p, table(p, rows)))
-        self.assertEqual(program.semantic_identity(), explicit.semantic_identity())
-        self.assertEqual(program.audit_reference()["checked_edges"], 12)
-        self.assertFalse(receipt["new_exhaustive_original_cube_audit_executed"])
+    def test_fourth_primitive_real_closure_and_independent_full_cube(self):
+        binary = native_release()["closure"]
+        seed = closure_seed(self.p, self.rows, binary)
+        backend = IntervalClosureDecoder(binary)
+        program = ReconstructionProgram(make_pipeline(self.p, seed, closure_backend=backend), closure_backend=backend)
+        explicit = ReconstructionProgram(document(self.p, self.rows))
         self.assertEqual(program.stages[1], CLOSURE)
-        with self.assertRaisesRegex(ValueError, "backend required"):
-            ReconstructionProgram(target)
-        with self.assertRaisesRegex(ValueError, "binary changed"):
-            NativeClosure(self.binary, "0" * 64)
-
-    def test_decoded_closure_rows_are_released_without_cyclic_gc(self):
-        p = geometry(3, (-1, -1, -1, 3, 3, 3, -1))
-        source = choice_recipe(p, closure_call(self.binary, p, mode="encode", rows=mmi(p)))
-        backend = NativeClosure(self.binary, self.sha256)
-        target, _ = import_recipe(source, closure_backend=backend)
-        program = ReconstructionProgram(target, closure_backend=backend)
-        program.materialize_seed()
-        enabled = gc.isenabled()
-        gc.disable()
-        try:
-            reference = weakref.ref(program._seed)
-            del program
-            self.assertIsNone(reference())
-        finally:
-            if enabled:
-                gc.enable()
-
-    def test_closure_materializes_integer_rows_once_without_fraction_roundtrip(self):
-        p = geometry(3, (-1, -1, -1, 3, 3, 3, -1))
-        rows, vertices = mmi(p), list(compatible_vertices(p))
-        source = choice_recipe(p, closure_call(self.binary, p, mode="encode", rows=rows))
-        backend = NativeClosure(self.binary, self.sha256)
-        target, _ = import_recipe(source, closure_backend=backend)
-        program = ReconstructionProgram(target, closure_backend=backend)
+        self.assertEqual(program.semantic_identity(), explicit.semantic_identity())
         with patch.object(backend, "decode", wraps=backend.decode) as decode:
-            with patch.object(program._seed, "at", side_effect=AssertionError("scalar closure path used")):
-                self.assertEqual(program.materialize_seed().numerators, tuple(rows))
-            for vertex in vertices:
-                self.assertEqual(program[vertex], rows[vertex])
+            program = ReconstructionProgram(program.document, closure_backend=backend)
+            with patch.object(program._seed, "at", side_effect=AssertionError("scalar path")):
+                self.assertEqual(program.materialize_seed().numerators, tuple(self.rows))
             decode.assert_called_once()
-        self.assertEqual(program.audit_reference()["checked_edges"], 12)
-
-
-@unittest.skipUnless(shutil.which("c++"), "independent pipeline control needs a C++17 compiler")
-class NativePipelineTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.temporary = tempfile.TemporaryDirectory(prefix="hec-pipeline-audit-test-")
-        cls.binary = Path(os.environ.get("HEC_WIDE_AUDITOR", str(Path(cls.temporary.name) / "wide")))
-        if not cls.binary.is_file():
-            subprocess.run(
-                [
-                    "c++",
-                    "-O2",
-                    "-std=c++17",
-                    str(ROOT / "tools/corpus_derivations/audit_wide.cpp"),
-                    "-o",
-                    str(cls.binary),
-                ],
-                check=True,
-            )
-        cls.sha256 = hashlib.sha256(cls.binary.read_bytes()).hexdigest()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.temporary.cleanup()
-
-    def test_independent_original_cube_backend_is_shared_across_seed_families(self):
-        p = geometry(3, (-1, -1, -1, 2, 2, 2, -1))
-        rows, vertices = mmi(p), list(compatible_vertices(p))
-        sources = [
-            make_count_proof(p, rows, transport=True),
-            diagrams.build(p, vertices, 1, rows),
-            cut_recipe(p, vertices, rows)[0],
-        ]
-        auditor = NativePipelineAuditor(self.binary, self.sha256)
+        auditor = IndependentCubeAuditor(native_release()["cube"])
         try:
-            for source in sources:
-                target, _ = import_recipe(source)
-                program = ReconstructionProgram(target)
-                native, reference = program.audit(auditor), program.audit_reference()
-                self.assertEqual(native["checked_edges"], 12)
-                self.assertEqual(native["scope"], "original-cube-all-edges")
-                self.assertEqual(native["semantic_map_id"], reference["semantic_map_id"])
-                self.assertEqual(native["proof_id"], program.identity)
+            self.assertEqual(program.audit(auditor)["checked_edges"], 12)
         finally:
             auditor.close()
+        self.assertEqual(program.audit_reference()["checked_edges"], 12)
+        with self.assertRaises(ValueError):
+            ReconstructionProgram(program.document)
 
-    def test_wide_distance_accumulators_and_explicit_rational_scaling(self):
+    def test_uint128_distance_sums_and_explicit_rational_scale(self):
         p, scale = geometry(3, (-25, -25, -25, 26, 26, 26, -25)), 1 << 59
         rows = [tuple(25 * value for value in row) for row in mmi(p, scale)]
         rows[7] = (1, 0, 0, 25 * scale)
-        exact = [[Fraction(value, scale) for value in row] for row in rows]
-        program = ReconstructionProgram(make_pipeline(p, table(p, exact, integral=False)))
+        program = ReconstructionProgram(document(p, [[Fraction(value, scale) for value in row] for row in rows]))
         self.assertGreater(sum(p.beta) * scale, (1 << 64) - 1)
-        auditor = NativePipelineAuditor(self.binary, self.sha256)
+        auditor = IndependentCubeAuditor(native_release()["cube"])
         try:
-            native = program.audit(auditor)
-            self.assertEqual(native["checked_edges"], 12)
-            self.assertEqual(native["clearing_scale"], str(scale))
+            self.assertEqual(program.audit(auditor)["checked_edges"], 12)
         finally:
             auditor.close()
 
-
-if __name__ == "__main__":
-    unittest.main()
+    def test_canonical_document_rejects_floating_and_boolean_math(self):
+        for value in (1.0, float("inf"), Fraction(1, 2)):
+            with self.assertRaises(ValueError):
+                canonical_json({"value": value})

@@ -35,8 +35,10 @@ Boolean tables are optional audit exports rather than the active interface.
 The authoritative format is specified in
 [Exact contraction proof standard](docs/contraction-proof-standard.md).
 `hec.reconstruction` defines one closed reconstruction pipeline with four seed
-primitives. `hec.proof_store` exposes only that strict reader/writer; archived
-formats require an explicit offline archive import, never a fallback.
+primitives. `hec.proof_store` exposes only that strict reader/writer. No historical
+format readers, migration tools, compatibility adapters or fallback paths remain.
+The supported CLI, storage inventory, authoring and CI lifecycle are documented
+in [The supported repository pipeline](docs/repository-pipeline.md).
 
 All **84,690 unique proofs** have passed fresh exact staged-data QA, covering
 2,191,303,534 vertices and 18,029,658,329 weighted source-cube edges with zero
@@ -68,34 +70,34 @@ Install the locked dependencies in an environment on the operating system
 where the code will run:
 
 ```bash
-uv sync --locked --dev
-# After authorized payload publication/hydration:
-git lfs pull --include="data/n=6/proof-shards/*.proofpack" --exclude=""
-hec_verify_dir=$(mktemp -d)
-c++ -O3 -std=c++17 -Wall -Wextra -Werror tools/derivation_pilot/closure.cpp -o "$hec_verify_dir/closure"
-c++ -O3 -std=c++17 -Wall -Wextra -Werror tools/verify_reconstruction.cpp -o "$hec_verify_dir/verify"
-HEC_RECONSTRUCTION_CLOSURE="$hec_verify_dir/closure" \
-HEC_RECONSTRUCTION_VERIFIER="$hec_verify_dir/verify" \
-HEC_RECONSTRUCTION_WORKING_BYTES=268435456 HEC_CHECK_WORKERS=2 \
-uv run python -m hec.checks database
+uv sync --locked --dev --python 3.13.14
+uv run hec native build --directory .hec-native
+export HEC_NATIVE_DIR="$PWD/.hec-native"
+export HEC_RECONSTRUCTION_WORKING_BYTES=268435456
+uv run hec storage audit
+# Full-map checks require the declared payloads, not just their LFS pointers:
+uv run hec storage populate       # offline by default
+uv run hec storage install --n 6
+HEC_CHECK_WORKERS=2 uv run hec check database --root data
 uv run ruff check .
 ```
 
 The contraction solver requires a PySAT build exposing Kissat and its raw C
 symbols. The tracked Cython sources are built automatically on first use when
 the local extensions are absent. On Windows, run the installation and checks
-from an x64 Visual C++ environment such as the “x64 Native Tools Command
-Prompt for VS”.
+with a compiler/toolchain providing the required exact native integer types.
+The maintained CI platforms are Linux and macOS; proof verification requires
+GCC/Clang-compatible C++17 with unsigned 128-bit integer support.
 
 Set worker counts explicitly when desired:
 
 ```bash
 HEC_WORKERS=2 uv run python examples/find_ineq_contractions.py
 HEC_GRAPH_WORKERS=4 uv run python examples/find_ray_graphs.py
-HEC_CHECK_WORKERS=2 uv run python -m hec.checks facets
+HEC_CHECK_WORKERS=2 uv run hec check facets
 ```
 
-The corresponding PowerShell form is:
+The corresponding PowerShell environment-variable form is:
 
 ```powershell
 $env:HEC_WORKERS = "2"
@@ -103,7 +105,7 @@ uv run python examples\find_ineq_contractions.py
 $env:HEC_GRAPH_WORKERS = "4"
 uv run python examples\find_ray_graphs.py
 $env:HEC_CHECK_WORKERS = "2"
-uv run python -m hec.checks facets
+uv run hec check facets
 ```
 
 ## Summary

@@ -3,6 +3,7 @@ __pycache__/
 .ruff_cache/
 .uv-cache/
 .hec-ci-lfs/
+.hec-native/
 .DS_Store
 *.pyc
 *.so

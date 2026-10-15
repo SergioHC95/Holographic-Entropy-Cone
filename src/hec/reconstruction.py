@@ -13,8 +13,8 @@ import math
 from dataclasses import dataclass
 from fractions import Fraction
 
-from ._count_transport import CompatibleRank, SeedLookup, clearing_scale, evaluate_transport
 from ._reconstruction_cuts import cut_integer_rows
+from ._reconstruction_extension import CompatibleRank, SeedLookup, clearing_scale, evaluate_transport
 from .count_proofs import (
     FORMAT,
     RATIONAL_ROWS,

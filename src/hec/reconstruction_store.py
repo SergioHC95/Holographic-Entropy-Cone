@@ -8,8 +8,13 @@ original-cube verifier for every selected proof, every time.
 
 from __future__ import annotations
 
+import os
+import shutil
+import tempfile
+from pathlib import Path
+
 from ._proof_frames import DEFAULT_SHARD_BYTES, FrameCatalog, _write_catalog
-from .count_proofs import FORMAT, inequality_id, proof_geometry, proof_id
+from .count_proofs import FORMAT, canonical_json, inequality_id, parse_json, proof_geometry, proof_id
 from .reconstruction import CLOSURE, PIPELINE, ReconstructionProgram
 from .reconstruction_verify import ReconstructionVerifier
 
@@ -119,3 +124,50 @@ class ReconstructionCatalog(FrameCatalog):
             "source_tables_read": False,
             "stored_acceptance_flags_used": False,
         }
+
+
+def write_proof_dataset(directory, proofs, *, verifier=None, shard_bytes=DEFAULT_SHARD_BYTES):
+    """Audit once and publish both bound indexes as one new immutable directory.
+
+    Inequality metadata is captured from the exact owned proof snapshots while
+    streaming, without decompressing and reparsing the saved maps a second time.
+    A failed operation never exposes a partial destination dataset.
+    """
+    from .inequality_records import InequalityCatalog, write_inequality_catalog
+
+    target = Path(directory).absolute()
+    if target.exists() or target.is_symlink() or target.parent.is_symlink():
+        raise ValueError("choose a new, safe proof dataset directory")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = Path(tempfile.mkdtemp(prefix=".proof-dataset-", dir=target.parent))
+    entries = {}
+
+    def owned_proofs():
+        for proof in proofs:
+            owned = parse_json(canonical_json(proof))
+            problem = proof_geometry(owned)
+            identity = inequality_id(problem)
+            if identity in entries:
+                raise ValueError("one selected proof per inequality is required")
+            entries[identity] = {"id": identity, **problem.inequality(), "proof_ids": [proof_id(owned)]}
+            yield owned
+
+    try:
+        write_reconstruction_catalog(
+            temporary / "proofs.json", owned_proofs(), verifier=verifier, shard_bytes=shard_bytes
+        )
+        write_inequality_catalog(
+            temporary / "inequalities.json",
+            {"format": "hec-inequality-catalog/1", "entries": [entries[key] for key in sorted(entries)]},
+        )
+        result = InequalityCatalog(temporary / "inequalities.json").check_bindings(
+            ReconstructionCatalog(temporary / "proofs.json")
+        )
+        # Directory publication is atomic; never replace an existing dataset.
+        if target.exists():
+            raise ValueError("proof dataset destination appeared during verification")
+        os.rename(temporary, target)
+        return result
+    finally:
+        if temporary.exists():
+            shutil.rmtree(temporary)  # Only this operation's private scratch directory.

@@ -2,10 +2,7 @@
 
 from .contractions import (
     check_contraction,
-    contraction_coeffs,
     find_contraction,
-    minimal_contraction,
-    normalize_contraction,
     read_contractions,
     write_contractions,
 )
@@ -34,7 +31,6 @@ __all__ = [
     "check_contraction",
     "check_graph",
     "check_support_rank",
-    "contraction_coeffs",
     "data_path",
     "default_data_root",
     "dim",
@@ -43,8 +39,6 @@ __all__ = [
     "find_graph_fixed_n",
     "infer_n",
     "load_hec_data",
-    "minimal_contraction",
-    "normalize_contraction",
     "normalize_graph",
     "party_labels",
     "permute_vector",

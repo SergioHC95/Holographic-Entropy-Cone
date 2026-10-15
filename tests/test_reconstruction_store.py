@@ -8,10 +8,9 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import zstandard as zstd
-from corpus_derivations.pipeline_import import import_recipe
+from proof_fixtures import departed_definition, document
 
-from hec._archive_proof_store import ArchiveProofCatalog
-from hec.count_proofs import canonical_json, geometry, inequality_id, make_count_proof, proof_id
+from hec.count_proofs import canonical_json, geometry, inequality_id, proof_id
 from hec.proof_store import CATALOG_FORMAT, ProofCatalog
 from hec.reconstruction import ReconstructionProgram
 from hec.reconstruction_store import ReconstructionCatalog, write_reconstruction_catalog
@@ -52,8 +51,8 @@ class ReconstructionStoreTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="hec-unified-store-")
         self.directory = Path(self.temporary.name)
-        self.old = make_count_proof(geometry(2, (2, 1, -1)), [(0,), (1,), (1,)], transport=True)
-        self.document = import_recipe(self.old)[0]
+        self.old = departed_definition(geometry(2, (2, 1, -1)))
+        self.document = document(geometry(2, (2, 1, -1)), [(0,), (1,), (1,)])
 
     def tearDown(self):
         self.temporary.cleanup()
@@ -63,13 +62,10 @@ class ReconstructionStoreTests(unittest.TestCase):
         self.assertEqual(ReconstructionCatalog(path)[0], self.document)
         self.assertIs(ProofCatalog, ReconstructionCatalog)
         self.assertEqual(ProofCatalog(path)[0], self.document)
-        with self.assertRaises(ValueError):
-            ArchiveProofCatalog(path)[0]
 
     def test_legacy_definition_never_becomes_unified_fallback(self):
         path = stage(self.directory, [self.old])
-        self.assertEqual(ArchiveProofCatalog(path)[0], self.old)
-        with self.assertRaisesRegex(ValueError, "no legacy fallback"):
+        with self.assertRaisesRegex(ValueError, "standardized reconstruction|no legacy fallback"):
             ReconstructionCatalog(path)[0]
 
     def test_duplicate_inequality_cannot_have_two_authoritative_selections(self):
@@ -117,10 +113,10 @@ class ReconstructionStoreTests(unittest.TestCase):
         bad = copy.deepcopy(self.document)
         bad["verified"] = True
         verifier = ReconstructionVerifier(closure_binary="", cube_binary="")
-        for index, document in enumerate((bad, self.old)):
+        for index, candidate in enumerate((bad, self.old)):
             directory = self.directory / str(index)
             directory.mkdir()
-            catalog = ReconstructionCatalog(stage(directory, [document]))
+            catalog = ReconstructionCatalog(stage(directory, [candidate]))
             with self.assertRaises(ValueError):
                 catalog.audit_entry(0, verifier)
 
@@ -153,7 +149,7 @@ class ReconstructionStoreTests(unittest.TestCase):
 
     def test_well_formed_wrong_boundary_is_readable_but_rejected_by_verify(self):
         p = geometry(2, (2, 1, -1))
-        bad = import_recipe(make_count_proof(p, [(0,), (1,), (1,)], transport=True))[0]
+        bad = document(p, [(0,), (1,), (1,)])
         # A different valid data-language function, not an accepted proof.
         bad["function"]["seed"] = {"kind": "integer-cut-dnf/1", "terms": [], "groups": [[[]]]}
         path = stage(self.directory, [bad])
@@ -178,9 +174,9 @@ class ReconstructionWriterTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(prefix="hec-unified-writer-")
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        self.legacy = make_count_proof(geometry(2, (2, 1, -1)), [(0,), (1,), (1,)], transport=True)
-        self.document = import_recipe(self.legacy)[0]
-        self.other = import_recipe(make_count_proof(geometry(2, (1, 1, -1)), [(0,), (1,), (1,)], transport=True))[0]
+        self.legacy = departed_definition(geometry(2, (2, 1, -1)))
+        self.document = document(geometry(2, (2, 1, -1)), [(0,), (1,), (1,)])
+        self.other = document(geometry(2, (1, 1, -1)), [(0,), (1,), (1,)])
         self.verifier = ReconstructionVerifier(closure_binary="", cube_binary="")
         self.addCleanup(self.verifier.close)
 
@@ -280,7 +276,7 @@ class ReconstructionWriterTests(unittest.TestCase):
         self.assertFalse((self.root / "third.json").exists())
 
     def test_failure_after_sealing_leaves_no_published_catalogue(self):
-        bad = import_recipe(make_count_proof(geometry(2, (1, 2, -1)), [(0,), (1,), (1,)], transport=True))[0]
+        bad = document(geometry(2, (1, 2, -1)), [(0,), (1,), (1,)])
         bad["function"]["seed"] = {"kind": "integer-cut-dnf/1", "terms": [], "groups": [[[]]]}
         path = self.root / "proofs.json"
         with self.assertRaisesRegex(ValueError, "boundary"):
