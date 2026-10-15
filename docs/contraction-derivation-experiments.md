@@ -809,3 +809,72 @@ SHA256 `fa1d8cc2b995ad5ac9eaa9234ec5f6dda3f28c698246f7d6c0e7a164dec9583b`.
 Full conversion/export, actual complete staged-data audits, final integration
 review and repository/CI promotion remain separate required gates. LFS and
 the clean PR-preparation branch were not changed.
+
+### Unified repository/CI contract preparation
+
+`hec.reconstruction_checks` is an opt-in candidate for the final standardized
+repository gate. It reads only unified reconstruction definitions for actual
+mathematical checks, using `ReconstructionCatalog.audit_entry` and the exact
+installed-package verifier. This does not switch the primary loader, the
+existing `hec.checks` command, or the production GitHub workflow before the
+complete migration audit.
+
+The inequality catalogue and proof index must bind exactly one selected proof
+per inequality, with the correct party count. Every currently listed facet
+must have an exact proof binding. Additional validity proofs are deliberately
+NOT added to the facet list and receive no inherited rank/facethood claim.
+Facet order, primitive representatives and orbit uniqueness retain the same
+shared structural checks. The separate facet/ray rank and graph jobs remain
+required; contraction validity alone is not a rank certificate.
+
+The current CI repeats the same exhaustive map audit in both its contraction
+jobs and its database job. The candidate plan instead assigns every physical
+proof shard to exactly one contraction partition, alongside a separate global
+`database-bindings` job for metadata and facet-list structure. A bindings job
+neither reads proof payloads nor confers mathematical acceptance. CI must
+require ALL planned contraction partitions, bindings, facet/ray ranks and
+graphs at the same immutable checkout. This removes a duplicate full-cube
+pass, not an independent construction/verification method. No measured CI
+runtime improvement or live workflow rollout is claimed here.
+
+Each contraction partition preflights exact expected proof and original-cube
+edge counts against the bound indexes, executes every selected audit, rejects
+duplicate/missing/out-of-partition results, and checks complete coverage.
+It reads no original source tables or stored validity flags. A missing or
+corrupt proof payload fails the mathematical job even if metadata checks pass.
+Empty datasets cannot silently pass. The full CI plan has no party/subset
+switch; individual contraction commands require an explicit party count and
+physical partition. The standalone `database` command still executes BOTH
+global bindings and every full-map audit, including extra nonfacet proofs.
+
+For example, against a completed, fully staged repository-layout dataset:
+
+```bash
+PYTHONPATH=src VENV_PYTHON -m hec.reconstruction_checks plan \
+  --root VERIFIED_DATA --lfs-ns-json '[6]'
+PYTHONPATH=src VENV_PYTHON -m hec.reconstruction_checks database \
+  --root VERIFIED_DATA --n 6
+```
+
+The mathematical commands require the trusted closure/full-cube native
+backends through `HEC_RECONSTRUCTION_CLOSURE` and
+`HEC_RECONSTRUCTION_VERIFIER`, except for the explicitly bounded complete
+arbitrary-precision reference cases. No proof document selects an executable.
+CI runner memory sizing remains a required integration gate: the current
+native auditor materializes the full cube, so a small fixture or the local
+128-GiB host cannot establish hosted-runner capacity for the largest cases.
+
+A metadata-only census of the CURRENT research checkout (October 14 late
+PDT, not the new full-corpus export) planned all 80,227 indexed proofs and
+9,501,708,505 original-cube edges: nine contraction partitions, six binding
+jobs, thirteen facet-rank jobs, six graph jobs and six ray-rank jobs. That
+40-job plan executed zero new mathematical audits and changed no payload,
+LFS cache, reader registration or workflow. The actual migration target
+remains all 84,690 unique source identities; this smaller historical-layout
+census is not a substitute for their complete staged-data audit.
+
+The combined regression suite passed 256 tests. After adding the explicit
+duplicate-party-directory guard, the updated 21-test repository/checks suite
+also passed, including actual CLI audits and a full database rejection of an
+invalid extra nonfacet proof. These are software/fixture checks, not a new
+full-corpus mathematical pass. No active controller or worker was restarted.

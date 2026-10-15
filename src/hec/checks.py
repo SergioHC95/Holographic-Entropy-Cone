@@ -273,6 +273,39 @@ def check_stored_contractions(
         yield f"n={current_n}{label}: {selected_count} mathematically valid full maps; {edges} original cube edges"
 
 
+def _check_facet_structure(current_n, facets):
+    """Facet-list structure only; neither contraction nor rank acceptance."""
+    lift_counts = {1: 0, 2: 1, 3: 1, 4: 2, 5: 3, 6: 11}
+    lift_count = lift_counts.get(current_n, 0)
+    if lift_count > len(facets):
+        raise ValueError(f"n={current_n}: lift count {lift_count} exceeds facet count {len(facets)}")
+    for index, row in enumerate(facets):
+        if not _is_primitive_row(row):
+            raise ValueError(f"n={current_n}, index={index}: facet is not primitive")
+    workers = check_worker_count()
+    if workers > 1 and len(facets) >= 32:
+        keys: list[tuple[int, ...]] = [()] * len(facets)
+        chunk_size = max(1, math.ceil(len(facets) / (workers * 8)))
+        chunks = (
+            (offset, facets[offset : offset + chunk_size], current_n) for offset in range(0, len(facets), chunk_size)
+        )
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            for offset, chunk_keys in _bounded_parallel_map(
+                pool,
+                _facet_orbit_keys_chunk,
+                chunks,
+                max_pending=2 * workers,
+            ):
+                keys[offset : offset + len(chunk_keys)] = chunk_keys
+    else:
+        keys = [_facet_orbit_key(row, current_n) for row in facets]
+    if len(keys) != len(set(keys)):
+        raise ValueError(f"n={current_n}: duplicate facet symmetry orbit")
+    expected = sorted(facets[:lift_count]) + sorted(facets[lift_count:])
+    if facets != expected:
+        raise ValueError(f"n={current_n}: facets are not ordered lifts-first, then row-lexicographically")
+
+
 def check_stored_facet_database_format(
     root: str | Path | None = None,
     *,
@@ -292,38 +325,9 @@ def check_stored_facet_database_format(
     if shard_count != 1:
         raise ValueError("database format check cannot be split into shards")
 
-    lift_counts = {1: 0, 2: 1, 3: 1, 4: 2, 5: 3, 6: 11}
     for current_n in _selected_ns(root, n):
         facets = load_hec_data(current_n, "facets", root=root)
-        lift_count = lift_counts.get(current_n, 0)
-        if lift_count > len(facets):
-            raise ValueError(f"n={current_n}: lift count {lift_count} exceeds facet count {len(facets)}")
-        for index, row in enumerate(facets):
-            if not _is_primitive_row(row):
-                raise ValueError(f"n={current_n}, index={index}: facet is not primitive")
-        workers = check_worker_count()
-        if workers > 1 and len(facets) >= 32:
-            keys: list[tuple[int, ...]] = [()] * len(facets)
-            chunk_size = max(1, math.ceil(len(facets) / (workers * 8)))
-            chunks = (
-                (offset, facets[offset : offset + chunk_size], current_n)
-                for offset in range(0, len(facets), chunk_size)
-            )
-            with ProcessPoolExecutor(max_workers=workers) as pool:
-                for offset, chunk_keys in _bounded_parallel_map(
-                    pool,
-                    _facet_orbit_keys_chunk,
-                    chunks,
-                    max_pending=2 * workers,
-                ):
-                    keys[offset : offset + len(chunk_keys)] = chunk_keys
-        else:
-            keys = [_facet_orbit_key(row, current_n) for row in facets]
-        if len(keys) != len(set(keys)):
-            raise ValueError(f"n={current_n}: duplicate facet symmetry orbit")
-        expected = sorted(facets[:lift_count]) + sorted(facets[lift_count:])
-        if facets != expected:
-            raise ValueError(f"n={current_n}: facets are not ordered lifts-first, then row-lexicographically")
+        _check_facet_structure(current_n, facets)
 
         _proof_bindings(current_n, root)
         # Standalone database integrity is mathematical, not a hash-only or
