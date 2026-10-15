@@ -5,13 +5,14 @@ import hashlib
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import zstandard as zstd
 from corpus_derivations.pipeline_import import import_recipe
 
 from hec.count_proofs import canonical_json, geometry, inequality_id, make_count_proof, proof_id
 from hec.proof_store import CATALOG_FORMAT, ProofCatalog
+from hec.reconstruction import ReconstructionProgram
 from hec.reconstruction_store import ReconstructionCatalog
 from hec.reconstruction_verify import ReconstructionVerifier
 
@@ -92,6 +93,60 @@ class ReconstructionStoreTests(unittest.TestCase):
             ReconstructionCatalog(path).verify(
                 Mock(verify=Mock(return_value={"ok": True, "scope": "compatible-seed-only"}))
             )
+
+    def test_audit_entry_constructs_one_checked_program_and_public_read_still_checks(self):
+        path = stage(self.directory, [self.document])
+        catalog = ReconstructionCatalog(path)
+        verifier = ReconstructionVerifier(closure_binary="", cube_binary="")
+        with (
+            patch("hec.reconstruction_store.ReconstructionProgram", wraps=ReconstructionProgram) as syntax,
+            patch("hec.reconstruction_verify.ReconstructionProgram", wraps=ReconstructionProgram) as actual,
+        ):
+            self.assertEqual(catalog[0], self.document)
+            syntax.assert_called_once()
+            syntax.reset_mock()
+            result = catalog.audit_entry(0, verifier)
+            syntax.assert_not_called()
+            actual.assert_called_once()
+        self.assertEqual((result["checked_vertices"], result["checked_edges"]), (4, 4))
+
+    def test_single_parse_path_rejects_unknown_syntax_and_legacy_definitions(self):
+        bad = copy.deepcopy(self.document)
+        bad["verified"] = True
+        verifier = ReconstructionVerifier(closure_binary="", cube_binary="")
+        for index, document in enumerate((bad, self.old)):
+            directory = self.directory / str(index)
+            directory.mkdir()
+            catalog = ReconstructionCatalog(stage(directory, [document]))
+            with self.assertRaises(ValueError):
+                catalog.audit_entry(0, verifier)
+
+    def test_single_parse_path_checks_actual_coverage_types_and_identity(self):
+        path = stage(self.directory, [self.document])
+        catalog = ReconstructionCatalog(path)
+        correct = ReconstructionVerifier(closure_binary="", cube_binary="").verify(self.document)
+        for key, value in (
+            ("ok", 1),
+            ("checked_vertices", True),
+            ("checked_edges", 3),
+            ("proof_id", "0" * 64),
+            ("inequality_id", "0" * 64),
+            ("scope", "compatible-seed-only"),
+            ("source_tables_read", True),
+        ):
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, "complete independent"):
+                catalog.audit_entry(0, Mock(verify=Mock(return_value={**correct, key: value})))
+        with self.assertRaisesRegex(ValueError, "complete independent"):
+            catalog.audit_entry(0, Mock(verify=Mock(return_value=None)))
+
+    def test_single_parse_path_still_hashes_payload_before_calling_verifier(self):
+        path = stage(self.directory, [self.document])
+        shard = next((self.directory / "proof-shards").iterdir())
+        shard.write_bytes(shard.read_bytes() + b"trailing")
+        verifier = Mock()
+        with self.assertRaisesRegex(ValueError, "SHA256"):
+            ReconstructionCatalog(path).audit_entry(0, verifier)
+        verifier.verify.assert_not_called()
 
     def test_well_formed_wrong_boundary_is_readable_but_rejected_by_verify(self):
         p = geometry(2, (2, 1, -1))

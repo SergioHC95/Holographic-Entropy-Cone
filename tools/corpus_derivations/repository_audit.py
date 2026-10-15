@@ -79,8 +79,11 @@ def audit_one(item):
     entry = catalog.entries[item["index"]]
     if (entry["proof_id"], entry["inequality_id"]) != (item["proof_id"], item["inequality_id"]):
         raise ValueError("staged audit input changed before worker read")
-    proof = catalog[item["index"]]
-    result = {"task": item["task"], "actual_new_full_cube_audit_executed": True, "audit": _VERIFIER.verify(proof)}
+    result = {
+        "task": item["task"],
+        "actual_new_full_cube_audit_executed": True,
+        "audit": catalog.audit_entry(item["index"], _VERIFIER),
+    }
     validate_result(result, item)
     return result
 

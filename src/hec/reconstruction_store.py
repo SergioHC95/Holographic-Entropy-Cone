@@ -35,27 +35,39 @@ class ReconstructionCatalog(ProofCatalog):
         # actual verifier, not the proof document or storage catalogue.
         ReconstructionProgram(proof, closure_backend=_SyntaxOnlyClosure())
 
+    def audit_entry(self, index, verifier):
+        """Read once and execute the verifier, without a discarded program.
+
+        The canonical frame/hash/identity checks remain in _read_record. The
+        verifier constructs the same closed ReconstructionProgram and executes
+        the complete original-cube audit. This does not return an unchecked
+        document, cache acceptance, or rely on a previous stored receipt.
+        """
+        proof = self._read_record(index)
+        result = verifier.verify(proof)
+        p = proof_geometry(proof)
+        expected = {
+            "ok": True,
+            "scope": "original-cube-all-edges",
+            "proof_id": proof_id(proof),
+            "inequality_id": inequality_id(p),
+            "checked_vertices": p.vertices,
+            "checked_edges": p.L * (p.vertices // 2),
+            "source_tables_read": False,
+        }
+        if not isinstance(result, dict) or any(
+            type(result.get(key)) is not type(value) or result[key] != value for key, value in expected.items()
+        ):
+            raise ValueError("unified catalogue lacks actual complete independent cube verification")
+        return result
+
     def verify(self, verifier=None):
         owned = verifier is None
         verifier = ReconstructionVerifier() if owned else verifier
         checked_edges, checked_vertices = 0, 0
         try:
-            for proof in self:
-                result = verifier.verify(proof)
-                p = proof_geometry(proof)
-                expected = {
-                    "ok": True,
-                    "scope": "original-cube-all-edges",
-                    "proof_id": proof_id(proof),
-                    "inequality_id": inequality_id(p),
-                    "checked_vertices": p.vertices,
-                    "checked_edges": p.L * (p.vertices // 2),
-                    "source_tables_read": False,
-                }
-                if any(
-                    type(result.get(key)) is not type(value) or result[key] != value for key, value in expected.items()
-                ):
-                    raise ValueError("unified catalogue lacks actual complete independent cube verification")
+            for index in range(len(self)):
+                result = self.audit_entry(index, verifier)
                 checked_edges += result["checked_edges"]
                 checked_vertices += result["checked_vertices"]
         finally:

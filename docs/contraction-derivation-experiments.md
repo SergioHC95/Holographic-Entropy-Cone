@@ -757,3 +757,55 @@ refine the rule while minimizing its description length. Comparator, transfer,
 MMI, and exclusion blocks are candidates for shared certified primitives.
 The current pilot establishes neither a universal small circuit nor a fast
 inequality-only generator for the hard corpus.
+
+### Single-parse installed-package audits (October 14, late PDT)
+
+The upcoming repository-layout QA path previously constructed a complete
+checked reconstruction program in the catalogue reader, discarded it, then
+constructed the same program again in the mathematical verifier. The new
+`ReconstructionCatalog.audit_entry` keeps the canonical frame, shard hash,
+proof identity and inequality identity checks, and delegates the closed
+program construction and actual original-cube audit directly to the same
+`ReconstructionVerifier`. Ordinary public catalogue reads still perform their
+syntax checks. No unchecked document, stored acceptance cache, legacy runtime
+fallback, sampling or skipped cube edge is introduced.
+
+The full staged-corpus runner now uses that path, before its own exact
+task/proof/semantic-identity and coverage checks. This is preparation for the
+next frozen QA generation, not a modification of the running conversion or
+a promotion of the repository's primary reader. All 244 combined regression
+tests passed, including the actual staged-run/resume fixtures, rejected
+unknown syntax and legacy documents, corrupted shard hashes, incorrect or
+boolean coverage counts, wrong identities, seed-only receipts, bad boundaries,
+and a constructor-count control showing one program construction per audit.
+
+`corpus_derivations.catalog_audit_benchmark` preserves the paired experiment.
+Five saved controls (18, 68492, 84667, 80289 and 80263) cover all four seed
+primitives, including two large rational cases. Both arms use the SAME saved
+canonical definitions and exact package verifier; each performs an actual
+complete cube audit. Two alternating-order timing pairs include private
+native-process startup, shutdown and reaped CPU. All expected proof and
+semantic identities and exact vertex/edge counts agreed.
+
+Across those controls, combined Python-plus-reaped-child CPU was 20.320647 s
+for the double-parse path and 18.809438 s for single-parse: 1.0803x, or 7.44%
+less measured CPU. The rational table control was 1.1427x and the rational
+DAG 1.0907x; closure controls were essentially unchanged (0.9974x and
+0.9979x), not demonstrated improvements. Aggregate wall time was 1.0491x,
+but the DAG wall measurement was slightly slower under host contention.
+These hand-picked results are not a population-wide performance estimate or
+a universal speedup guarantee.
+
+The timing repetitions actually checked 279,183,680 original-cube edges in
+total, including repeated audits of the same five maps; they are not new
+whole-corpus coverage or newly proved inequalities. Maximum sampled combined
+experiment-plus-conversion RSS was 1,397,587,968 bytes, below the unchanged
+64 GiB cap; this is a sample maximum, not a peak-memory guarantee. Eight
+conversion workers were preserved and no new persistent corpus pool started.
+
+The immutable experiment report is
+`/Users/sergio/.hec/contraction-single-parse-audit-20261014.mMwDUv/report.json`,
+SHA256 `fa1d8cc2b995ad5ac9eaa9234ec5f6dda3f28c698246f7d6c0e7a164dec9583b`.
+Full conversion/export, actual complete staged-data audits, final integration
+review and repository/CI promotion remain separate required gates. LFS and
+the clean PR-preparation branch were not changed.

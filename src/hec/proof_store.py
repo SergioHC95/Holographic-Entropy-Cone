@@ -108,6 +108,17 @@ class ProofCatalog(Sequence[dict]):
     def __getitem__(self, index: int | slice) -> dict | list[dict]:
         if isinstance(index, slice):
             return [self[i] for i in range(*index.indices(len(self)))]
+        proof = self._read_record(index)
+        self._check_definition(proof)
+        return proof
+
+    def _read_record(self, index: int) -> dict:
+        """Read canonical, identity-bound bytes, NOT mathematical acceptance.
+
+        Subclasses may send this record directly to a verifier which performs
+        the complete syntax and mathematical checks itself. Public reads still
+        call _check_definition; this is not an unchecked public reader.
+        """
         entry = self.entries[index]
         with self._shard_path(entry["shard"]).open("rb") as source:
             source.seek(entry["offset"])
@@ -123,7 +134,6 @@ class ProofCatalog(Sequence[dict]):
             raise ValueError("proof record is not canonical or differs from its identity")
         if inequality_id(proof_geometry(proof)) != entry["inequality_id"]:
             raise ValueError("proof differs from its indexed inequality")
-        self._check_definition(proof)
         return proof
 
     def _check_definition(self, proof):
