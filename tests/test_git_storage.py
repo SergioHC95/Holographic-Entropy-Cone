@@ -236,6 +236,12 @@ class GitStorageTests(unittest.TestCase):
         self.assertIn("hec storage audit", text)
         self.assertIn('"$STORAGE_RESULT" != "success"', text)
 
+    def test_history_cutover_candidate_can_run_the_complete_gate_without_a_pr_merge(self):
+        text = (Path(__file__).parents[1] / ".github/workflows/database-integrity.yml").read_text()
+        self.assertIn('branches: [main, "codex/lfs-free-main-*"]', text)
+        self.assertIn("  workflow_dispatch:", text)
+        self.assertIn("needs: [quality, distribution, storage, discover, validate]", text)
+
 
 if __name__ == "__main__":
     unittest.main()
