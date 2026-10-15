@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 
 from ._count_transport import CompatibleRank, SeedLookup, clearing_scale, evaluate_transport
+from ._reconstruction_cuts import cut_integer_rows
 from .count_proofs import (
     FORMAT,
     RATIONAL_ROWS,
@@ -190,6 +191,8 @@ class SeedProgram:
         if used != set(range(len(terms))) or references > limits.max_nodes:
             raise ValueError("unreachable or oversized logical cut program")
         self.scale = 1
+        self.cut_terms = tuple(terms)
+        self.cut_groups = tuple(tuple(tuple(layer) for layer in group) for group in f["groups"])
 
         def at(vertex):
             truth = [vertex & one == one and not vertex & zero for one, zero in terms]
@@ -306,12 +309,29 @@ class ReconstructionProgram:
         rows, divisor = [], scale
         semantic = hashlib.sha256(b"hec-compatible-seed-semantics/1\0")
         semantic.update(canonical_json(p.inequality()) + b"\n" + str(scale).encode() + b"\n")
-        for vertex in vertices:
-            values = self[vertex]
-            row = tuple(value * scale for value in values)
-            if any(value.denominator != 1 for value in row):
-                raise ValueError("seed denominator does not clear exact counts")
-            row = tuple(value.numerator for value in row)
+        integral_cuts = self._seed.definition["kind"] == CUTS
+        if integral_cuts:
+            integer_rows = cut_integer_rows(vertices, p.L, self._seed.cut_terms, self._seed.cut_groups)
+            if not isinstance(integer_rows, (tuple, list)) or len(integer_rows) != len(vertices):
+                raise ValueError("bulk cut evaluator returned an incomplete seed")
+        else:
+            integer_rows = None
+        for at, vertex in enumerate(vertices):
+            if integral_cuts:
+                row = integer_rows[at]
+                if len(row) != p.G or any(
+                    type(value) is not int or not 0 <= value <= cap * scale
+                    for value, cap in zip(row, p.beta, strict=True)
+                ):
+                    raise ValueError("seed value outside exact count shape or bounds")
+            else:
+                # Retain the original exact path and bounds checks for all
+                # other constructors; do not add a duplicate per-cell pass.
+                values = self[vertex]
+                row = tuple(value * scale for value in values)
+                if any(value.denominator != 1 for value in row):
+                    raise ValueError("seed denominator does not clear exact counts")
+                row = tuple(value.numerator for value in row)
             for value in row:
                 divisor = math.gcd(divisor, value)
             rows.append(row)
