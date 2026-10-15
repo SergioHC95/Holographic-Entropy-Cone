@@ -159,6 +159,17 @@ class SeedProgram:
 
         self.at = at
 
+        def numerators(vertex):
+            result = []
+            for ref in roots:
+                while ref >= count:
+                    axis, low, high = nodes[ref - count]
+                    ref = high if vertex >> axis & 1 else low
+                result.append(terminals[ref])
+            return tuple(result)
+
+        self.numerator_at = numerators
+
     def _cuts(self, f, limits):
         fields(f, ("kind", "terms", "groups"), "logical cut seed")
         if not isinstance(f["terms"], list) or not isinstance(f["groups"], list):
@@ -228,17 +239,66 @@ class SeedProgram:
         self.scale = 1
         problem, domain, cached = self.problem, self.domain, []
 
-        def at(vertex):
+        def integer_rows():
             if not cached:
                 rows = backend.decode(problem, f)
-                if len(rows) != domain.count or any(
-                    len(row) != problem.G or any(type(value) is not int for value in row) for row in rows
+                if (
+                    not isinstance(rows, (list, tuple))
+                    or len(rows) != domain.count
+                    or any(
+                        not isinstance(row, (list, tuple))
+                        or len(row) != problem.G
+                        or any(type(value) is not int for value in row)
+                        for row in rows
+                    )
                 ):
                     raise ValueError("closure backend returned an incomplete or non-integral seed")
                 cached.append(tuple(tuple(row) for row in rows))
-            return tuple(Fraction(value) for value in cached[0][domain.rank(vertex)])
+            return cached[0]
+
+        def at(vertex):
+            return tuple(Fraction(value) for value in integer_rows()[domain.rank(vertex)])
 
         self.at = at
+        self.closure_integer_rows = integer_rows
+
+    def numerator_rows(self, vertices):
+        """Internal exact materialization algebra on the caller's complete C.
+
+        Counts stay as arbitrary-precision integer numerators over self.scale;
+        public rational queries remain separate. This is evaluation, not an
+        acceptance shortcut: the caller retains every seed/full-cube check.
+        """
+        kind = self.definition["kind"]
+        if kind == CUTS:
+            rows = cut_integer_rows(vertices, self.problem.L, self.cut_terms, self.cut_groups)
+            if not isinstance(rows, (tuple, list)) or len(rows) != len(vertices):
+                raise ValueError("bulk cut evaluator returned an incomplete seed")
+            return rows
+        if kind == CLOSURE:
+            return self.closure_integer_rows()
+        if kind == DAG:
+            return (self.numerator_at(vertex) for vertex in vertices)
+        return self.table_numerator_rows()
+
+    def table_numerator_rows(self):
+        """Ordinal order is the ascending complete compatible-domain order."""
+        lookup, scale = self.lookup, self.scale
+        if lookup.rows is not None:
+            for denominator, values in lookup.rows:
+                if scale % denominator:
+                    raise ValueError("seed denominator does not clear exact counts")
+                factor = scale // denominator
+                yield tuple(value * factor for value in values)
+            return
+        for ordinal in range(lookup.domain.count):
+            cursor, values = ordinal * lookup.row_bits, []
+            for width in lookup.widths:
+                byte, shift = divmod(cursor, 8)
+                value = int.from_bytes(lookup.data[byte : (cursor + width + 7) // 8], "little") >> shift
+                values.append(value & ((1 << width) - 1))
+                cursor += width
+            yield tuple(values)
 
 
 @dataclass(frozen=True)
@@ -309,29 +369,16 @@ class ReconstructionProgram:
         rows, divisor = [], scale
         semantic = hashlib.sha256(b"hec-compatible-seed-semantics/1\0")
         semantic.update(canonical_json(p.inequality()) + b"\n" + str(scale).encode() + b"\n")
-        integral_cuts = self._seed.definition["kind"] == CUTS
-        if integral_cuts:
-            integer_rows = cut_integer_rows(vertices, p.L, self._seed.cut_terms, self._seed.cut_groups)
-            if not isinstance(integer_rows, (tuple, list)) or len(integer_rows) != len(vertices):
-                raise ValueError("bulk cut evaluator returned an incomplete seed")
-        else:
-            integer_rows = None
-        for at, vertex in enumerate(vertices):
-            if integral_cuts:
-                row = integer_rows[at]
-                if len(row) != p.G or any(
+        for vertex, row in zip(vertices, self._seed.numerator_rows(vertices), strict=True):
+            if (
+                not isinstance(row, (tuple, list))
+                or len(row) != p.G
+                or any(
                     type(value) is not int or not 0 <= value <= cap * scale
                     for value, cap in zip(row, p.beta, strict=True)
-                ):
-                    raise ValueError("seed value outside exact count shape or bounds")
-            else:
-                # Retain the original exact path and bounds checks for all
-                # other constructors; do not add a duplicate per-cell pass.
-                values = self[vertex]
-                row = tuple(value * scale for value in values)
-                if any(value.denominator != 1 for value in row):
-                    raise ValueError("seed denominator does not clear exact counts")
-                row = tuple(value.numerator for value in row)
+                )
+            ):
+                raise ValueError("seed value outside exact count shape or bounds")
             for value in row:
                 divisor = math.gcd(divisor, value)
             rows.append(row)

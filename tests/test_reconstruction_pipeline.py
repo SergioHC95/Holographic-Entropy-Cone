@@ -215,6 +215,44 @@ class ReconstructionPipelineTests(unittest.TestCase):
             if enabled:
                 gc.enable()
 
+    def test_integer_materialization_matches_separate_scalar_queries_for_every_primitive(self):
+        sources = [
+            make_count_proof(self.p, self.rows, transport=True),
+            diagrams.build(self.p, self.vertices, 1, self.rows),
+            cut_recipe(self.p, self.vertices, self.rows)[0],
+        ]
+        for source in sources:
+            document, _ = import_recipe(source)
+            program = ReconstructionProgram(document)
+            scalar = tuple(tuple(int(value) for value in program[vertex]) for vertex in self.vertices)
+            with patch.object(
+                program._seed, "at", side_effect=AssertionError("materializer made scalar Fraction queries")
+            ):
+                materialized = program.materialize_seed()
+            self.assertEqual(materialized.numerators, scalar)
+            self.assertEqual(program.audit_reference()["checked_edges"], 12)
+
+    def test_arbitrary_precision_mixed_row_denominators_match_table_and_dag(self):
+        scale = (1 << 130) + 51
+        rows = mmi(self.p, scale)
+        rows[7] = (1, 0, 0, scale)
+        exact = [[Fraction(value, scale) for value in row] for row in rows]
+        seeds = [
+            table(self.p, exact, integral=False),
+            canonical_dag(diagrams.build(self.p, self.vertices, scale, rows)["function"]),
+        ]
+        identities = set()
+        for seed in seeds:
+            program = ReconstructionProgram(make_pipeline(self.p, seed))
+            materialized = program.materialize_seed()
+            self.assertEqual(materialized.scale, scale)
+            self.assertEqual(materialized.numerators, tuple(rows))
+            for vertex, row in zip(self.vertices, rows, strict=True):
+                self.assertEqual(tuple(value * scale for value in program[vertex]), row)
+            identities.add(program.semantic_identity())
+            self.assertEqual(program.audit_reference()["checked_edges"], 12)
+        self.assertEqual(len(identities), 1)
+
     def test_unknown_execution_paths_and_forged_acceptance_fields_fail_closed(self):
         document = make_pipeline(self.p, table(self.p, self.rows))
         for location, key, value in (
@@ -369,6 +407,21 @@ class ClosurePipelineTests(unittest.TestCase):
         finally:
             if enabled:
                 gc.enable()
+
+    def test_closure_materializes_integer_rows_once_without_fraction_roundtrip(self):
+        p = geometry(3, (-1, -1, -1, 3, 3, 3, -1))
+        rows, vertices = mmi(p), list(compatible_vertices(p))
+        source = choice_recipe(p, closure_call(self.binary, p, mode="encode", rows=rows))
+        backend = NativeClosure(self.binary, self.sha256)
+        target, _ = import_recipe(source, closure_backend=backend)
+        program = ReconstructionProgram(target, closure_backend=backend)
+        with patch.object(backend, "decode", wraps=backend.decode) as decode:
+            with patch.object(program._seed, "at", side_effect=AssertionError("scalar closure path used")):
+                self.assertEqual(program.materialize_seed().numerators, tuple(rows))
+            for vertex in vertices:
+                self.assertEqual(program[vertex], rows[vertex])
+            decode.assert_called_once()
+        self.assertEqual(program.audit_reference()["checked_edges"], 12)
 
 
 @unittest.skipUnless(shutil.which("c++"), "independent pipeline control needs a C++17 compiler")

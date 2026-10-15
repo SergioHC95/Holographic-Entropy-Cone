@@ -1,4 +1,4 @@
-"""Small paired controls of unified-pipeline cut materialization, not a cohort.
+"""Small paired controls of exact unified-pipeline materialization, not a cohort.
 
 The scalar reference is the actual hash-bound pre-optimization implementation.
 Both reconstruct all compatible values and retain every local mathematical
@@ -18,15 +18,14 @@ from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
 
-from derivation_pilot import recipes
-
-from hec.count_proofs import canonical_json, parse_json
+from hec.count_proofs import canonical_json, inequality_id, parse_json
 from hec.reconstruction import ReconstructionProgram
 
 from . import run as derivations
-from .pipeline_import import NativePipelineAuditor, import_recipe
-from .speedup_benchmark import guard, load_control, measure
-from .synthesize import EXPECTED_TOTAL
+from .pipeline_import import NativeClosure, NativePipelineAuditor, import_recipe
+from .selected_corpus import check_audit
+from .speedup_benchmark import guard, measure
+from .synthesize import EXPECTED_TOTAL, decode_frame, geometry_only
 
 
 def scalar_reference(synthesis):
@@ -49,8 +48,8 @@ def scalar_reference(synthesis):
     return module.ReconstructionProgram, {"path": str(path), "sha256": expected}
 
 
-def materialized(program_class, raw):
-    program = program_class(raw)
+def materialized(program_class, raw, closure_backend):
+    program = program_class(raw, closure_backend=closure_backend)
     program.materialize_seed()
     return program
 
@@ -84,17 +83,11 @@ def benchmark(source, synthesis, output, tasks, *, repeats=2):
         raise ValueError("control source changed its bound full corpus identity")
     manifest = parse_json((source / "manifest.json").read_bytes())
     reference, reference_binding = scalar_reference(synthesis)
-    files = [path for path in (checkout / "src/hec").rglob("*.py") if path.is_file()]
-    files += [
-        checkout / relative
-        for relative in (
-            "tools/corpus_derivations/pipeline_speedup_benchmark.py",
-            "tools/corpus_derivations/pipeline_import.py",
-            "tools/corpus_derivations/speedup_benchmark.py",
-            "tools/corpus_derivations/selected_corpus.py",
-            "tools/corpus_derivations/native.py",
-            "tools/derivation_pilot/recipes.py",
-        )
+    files = [
+        path
+        for folder in ("src/hec", "tools/corpus_derivations", "tools/derivation_pilot")
+        for path in (checkout / folder).rglob("*")
+        if path.is_file() and path.suffix in (".py", ".cpp")
     ]
     implementation = {str(path.relative_to(checkout)): derivations.digest(path) for path in sorted(files)}
     resources, cases = [guard(synthesis)], []
@@ -119,14 +112,33 @@ def benchmark(source, synthesis, output, tasks, *, repeats=2):
     derivations.save_new(output / "binding.json", settings)
     info = binding["binaries"]["wide"]
     auditor = NativePipelineAuditor(info["path"], info["sha256"])
+    info = binding["binaries"]["closure"]
+    closure = NativeClosure(info["path"], info["sha256"])
     try:
         with closing(sqlite3.connect(f"file:{source / 'checkpoint.sqlite3'}?mode=ro", uri=True)) as db:
             for task in tasks:
-                raw, identity = load_control(db, task, manifest)
+                if not 0 <= task < len(manifest):
+                    raise ValueError("invalid source control task")
+                row = db.execute(
+                    "SELECT inequality_id,recipe_sha256,json_bytes,compressed FROM results WHERE task=?", (task,)
+                ).fetchone()
+                if row is None or row[0] != manifest[task]["inequality_id"] or row[2] > 32 * 1024**2:
+                    raise ValueError("control missing, out of scope or too large")
+                raw = decode_frame(row[3], row[2])
                 document = parse_json(raw)
-                if document.get("format") != recipes.FORMAT or document.get("function", {}).get("kind") != recipes.CUTS:
-                    raise ValueError("choose a saved integral cut program, not a newly synthesized control")
-                target, receipt = import_recipe(document)
+                p = geometry_only(document)
+                if (
+                    hashlib.sha256(raw).hexdigest() != row[1]
+                    or canonical_json(document) != raw
+                    or inequality_id(p) != row[0]
+                ):
+                    raise ValueError("control changed its canonical source identity")
+                fresh = db.execute("SELECT report FROM fresh WHERE task=? AND ok=1", (task,)).fetchone()
+                if fresh is None:
+                    raise ValueError("control lacks its executed source-free full-cube audit")
+                check_audit(parse_json(fresh[0].encode()), task, row[1], p)
+                identity = {"task": task, "inequality_id": row[0], "source_sha256": row[1]}
+                target, receipt = import_recipe(document, closure_backend=closure)
                 target_raw, comparisons = canonical_json(target), []
                 derivations.save_new(output / f"{task}.pipeline.json", target)
                 for repeat in range(repeats):
@@ -134,7 +146,7 @@ def benchmark(source, synthesis, output, tasks, *, repeats=2):
                     for name in ("scalar", "bulk") if repeat % 2 == 0 else ("bulk", "scalar"):
                         resources.append(guard(synthesis))
                         cls = reference if name == "scalar" else ReconstructionProgram
-                        programs[name], measured[name] = measure(partial(materialized, cls, target_raw))
+                        programs[name], measured[name] = measure(partial(materialized, cls, target_raw, closure))
                     compare(programs["scalar"], programs["bulk"])
                     comparisons.append({"repeat": repeat, "timings": measured})
                 program = programs["bulk"]
@@ -147,6 +159,8 @@ def benchmark(source, synthesis, output, tasks, *, repeats=2):
                     "semantic_map_id": program.semantic_identity(),
                     "L": program.problem.L,
                     "G": program.problem.G,
+                    "seed_primitive": program.stages[1],
+                    "seed_scale": str(program.materialize_seed().scale),
                     "compatible_vertices": len(seed.vertices),
                     "compatible_cells_compared": len(seed.vertices) * program.problem.G,
                     "conversion": receipt,
@@ -169,7 +183,7 @@ def benchmark(source, synthesis, output, tasks, *, repeats=2):
             "live_cohort_modified": False,
             "caveats": [
                 "Hand-picked bounded controls, not corpus-wide coverage or a universal speedup.",
-                "Wall timings include host contention; own-process CPU is measured separately.",
+                "Wall timings include host contention; own-process and reaped closure child CPU are separate.",
                 "Each materialization retains complete local seed checks; these are not cube acceptance.",
                 "Independent native cube audits were additionally executed once per identical full map.",
                 "Full-scope conversion, separate saved-map audits and integration remain required.",
