@@ -1012,3 +1012,27 @@ duplicate selections, mutation, bad boundaries, corrupted payload reuse and
 late failure. This function is not yet registered as the primary repository
 writer; the current full-data audit is running its unchanged frozen code.
 That audit and final reader/data/schema/CI integration remain required.
+
+### Complete read-only acceptance review before cutover
+
+`repository_acceptance` is a separate read-only promotion precondition, not
+another mathematical pass or a command that changes the repository. It
+requires the audit controller and native helpers to be idle and takes the
+audit lock before reviewing anything. Its CLI cannot narrow the corpus.
+
+It checks every frozen source/binary and actual payload hash, reconciles the
+original source identity set, all conversion selections, the party indexes
+and every actual successful audit row, then re-reads every stored frame.
+Expected vertex/edge totals come from the actual indexed inequalities, not
+only duplicate manifest/report claims. Missing rows, unresolved errors,
+seed-only or boolean coverage, substituted geometry, changed source/payload
+bytes, a different native binary/buffer profile, or an incomplete report
+cannot authorize cutover. Review reports explicitly count ZERO newly
+executed mathematical audits and inherit no facet/rank claim.
+
+Six complete/tampered tiny fixtures passed, and the combined regression suite
+passed 285 tests. The real live audit was also correctly refused without any
+worker signal, data write or restart. A passing fixture is not acceptance of
+the 84,690-case run: its actual complete idle ledger/report must still pass
+this gate, followed by the primary reader/writer/data/schema/CI integration
+and independent final review. No LFS, billing or publishing action is implied.
