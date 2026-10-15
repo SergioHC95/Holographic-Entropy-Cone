@@ -918,3 +918,26 @@ unchanged. No proof format, source artifact, LFS state or PR branch changed.
 The report is
 `/Users/sergio/.hec/contraction-tiled-controls-20261014.x434S7/report.json`,
 SHA256 `4a8415c937d0d151bb9c5ac5b5260e08eedc19a18bb4924270c0d73f18bbec39`.
+
+The subsequent `large_tiled_control` used existing task 80231, binding its
+actual saved source definition and its own previously executed source-free
+fresh audit. It converted all compatible values exactly, saved and re-read
+the standard standalone pipeline, then executed a NEW full-cube audit using
+the tiled prototype. No solver or synthesis search ran, and the earlier
+budget-limited alternative disposition remains unchanged.
+
+For this L=25/G=26 case the native auditor actually checked 33,554,432
+vertices and 419,430,400 original-cube edges, with exact rational constructor
+query differentials as additional implementation controls, not sampling-based
+acceptance. Its primary output buffers occupied 218,103,808 bytes under the
+268,435,456-byte budget; measured private-native peak RSS was 383,303,680
+bytes (about 366 MiB). The avoided full output-table allocation is calculated
+as 6,979,321,856 bytes (6.5 GiB), NOT a measured baseline peak for this case.
+Measured native CPU was 66.677196 s and request wall time 82.805954167 s.
+
+This is one existing valid inequality, not another new proof/solve or
+whole-corpus/hosted-runner certification. The result is
+`/Users/sergio/.hec/contraction-tiled-largest-20261014.nDAXrg/report.json`,
+SHA256 `d5316f389726aa156e95b296e7d9bdd265bacfaa93768794d9eb3fff7c0fd8f0`.
+The fast production binaries and live conversion were preserved. Selecting
+the final CI memory policy and verifying all staged artifacts remain required.
