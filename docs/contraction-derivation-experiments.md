@@ -878,3 +878,43 @@ duplicate-party-directory guard, the updated 21-test repository/checks suite
 also passed, including actual CLI audits and a full database rejection of an
 invalid extra nonfacet proof. These are software/fixture checks, not a new
 full-corpus mathematical pass. No active controller or worker was restarted.
+
+### Bounded-memory full-cube auditor prototype
+
+`audit_tiled.cpp` is an opt-in mode-0-only experiment, not the production
+backend. It reuses the existing independent geometry, complete-domain, seed
+and protocol checks, preserving uint64 values and uint128 distance sums.
+Small maps keep the existing full-table path. Above a trusted primary-buffer
+budget, it evaluates fixed low-axis tiles and one adjacent tile at a time.
+Every vertex receives its bound checks in exactly one base tile; low-axis
+edges belong to that tile, and high-axis edges belong to their bit-zero
+endpoint tile. Every boundary image is checked, and the exact total must be
+`L*2**(L-1)`. Repeated evaluation trades CPU for storage, not for sampling.
+
+Eight native controls exercised forced one-row/tiny tiles, every queried
+vertex of the small weighted/nested/rational fixtures, a real n=5 fixture,
+empty outputs, zero-dimensional cubes and explicit insufficient-budget
+failures. A distance exceeding uint64 but correctly rejected using uint128
+could not wrap into acceptance. The combined suite passed 265 tests.
+
+The saved five-control paired benchmark uses a 256-MiB PRIMARY output-buffer
+budget. It does not bound the whole process to 256 MiB: the seed, compatible
+domain index, protocol buffers and Python parent are separate. Unix `wait4`
+measures each private native child's actual peak RSS, without conflating it
+with a later live sample or summing independent historical peaks.
+
+Both arms executed complete cube audits and exact rational query
+differentials, checking 279,183,680 edges across timing repetitions. For the
+L=21/G=22 control, native peak RSS fell from 385,024,000 to 200,425,472 bytes,
+but combined measured CPU increased by about 1.62x. For L=22/G=25 it fell from
+864,665,600 to 235,503,616 bytes, with about 1.87x CPU cost. Smaller controls
+retained the full-table path. These are native-request timings on warm seeds,
+not end-to-end construction or population-wide performance estimates.
+
+Accordingly this is NOT deployed as a general production speedup. It offers
+a possible bounded-memory CI path, pending largest-case/full-data checks and
+a resource policy; the healthy conversion and its fast bound binaries stay
+unchanged. No proof format, source artifact, LFS state or PR branch changed.
+The report is
+`/Users/sergio/.hec/contraction-tiled-controls-20261014.x434S7/report.json`,
+SHA256 `4a8415c937d0d151bb9c5ac5b5260e08eedc19a18bb4924270c0d73f18bbec39`.
