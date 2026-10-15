@@ -1,5 +1,149 @@
 # Contraction proof derivation experiments
 
+## Final whole-corpus result — October 15, 2026
+
+All **84,690 unique inequality/proof identities** have deterministic standard
+full-map definitions. A NEW exact audit of the actual staged artifacts checked
+**2,191,303,534 vertices and 18,029,658,329 weighted source-cube edges**, with
+zero errors. A separate read-only review reconciled every original identity,
+successful audit row, frozen source/binary and stored frame. Conversion and
+review are not counted as new cube audits. These records establish inequality
+validity, not new facethood or rank claims.
+
+The single reader/writer, schema, data and CI cutover is committed locally as
+`e468b3b52cc8ed7add2b0a00d08bbef3ba9b9fe2`. Public API readback covered every
+accepted frame; all exact inequality/proof/known-facet bindings and disjoint
+CI partitions passed. All 379 discovered tests and Ruff passed. Existing
+facet/ray/graph files are byte-identical. No remote CI run, payload upload,
+push, PR publication, LFS-history deletion or billing change is claimed.
+
+The machine-readable reconciled results are in
+[`contraction-corpus-results-20261015.json`](contraction-corpus-results-20261015.json).
+They include input/report hashes and a reproducible read-only generator,
+`corpus_derivations.final_report`. The remaining sections below retain the
+historical experiments; their pilot scopes and old-profile costs must not be
+substituted for this completed result.
+
+### Scope, final constructions and actual failures
+
+| Population | Unique proofs | Strictly smaller final-profile maps | Final definition JSON bytes | Compressed frames |
+| :-- | --: | --: | --: | --: |
+| Baseline n=6 | 80,213 | 22,684 | 446,043,567 | 120,244,444 |
+| Newer primitive | 4,387 | 2,543 | 88,044,027 | 23,360,357 |
+| Scaled exact | 76 | 66 | 126,750,674 | 34,083,304 |
+| n<=5 | 14 | 0 | 6,117 | 3,748 |
+| **Total** | **84,690** | **25,293** | **660,844,385** | **177,691,853** |
+
+Final seed primitives are 59,246 exact interval-closure programs, 24,898
+logical cut programs, 442 shared scalar DAGs and 104 explicit compatible
+tables. All feed ONE fixed exact cancel/fill/common-threshold extension;
+they are not incompatible full-map formats or byte-compression variants.
+The two rule-oriented kinds cover 84,144 cases. The explicit seed primitive
+guarantees representation when a valid rational count map exists; no universal
+small program or fast inequality-only discovery algorithm is asserted.
+
+The first pass independently handled all cases using explicit seeds and
+shared compatible DAGs. Its older bounded closure pilot reported 84,150
+successful exact conversions and 540 outside-capability attempts. Cut
+formulas reported 84,146 successful conversions, four work-budget stops and
+540 outside-capability attempts. Those failures were NOT proofs; verified
+source/other constructors supplied full coverage.
+
+Synthesis processed every source identity. It produced 30,701 old-profile
+strictly smaller candidates, all separately saved and source-free freshly
+audited; 52,072 changed seeds without strict description improvement were
+not retained, 1,913 were unchanged and four hit the unchanged work budget.
+The four budget-limited tasks are **80231, 80253, 80259 and 80285**; their
+existing verified sources remain authoritative, not unfinished alternatives.
+
+Both source and candidate were compared AGAIN in the same final pipeline
+profile. **25,293** genuinely changed maps remain strictly smaller;
+**5,408** candidates honestly reverted to shorter verified sources. The
+retained final maps change 1,826,818 compatible count cells. The full-cube
+source and candidate audits stay separately bound to their own definitions;
+an alternative never inherits the source's acceptance.
+
+### Storage comparisons on matched scopes
+
+| Stage/cost | Canonical mathematical JSON bytes |
+| :-- | --: |
+| Initial compact definitions, all 84,690 inputs | 1,150,343,950 |
+| Phase-one chosen research definitions | 624,101,792 |
+| After old-profile synthesis | 602,807,688 |
+| All verified sources in the FINAL pipeline profile | 683,253,126 |
+| Convert the old selections to that final profile | 669,325,021 |
+| Final same-profile choices | 660,844,385 |
+
+Same-profile synthesis saves **22,408,741** mathematical-definition bytes.
+Standardization is not hidden as a storage gain: pure encoding/wrapper
+overhead adds **66,517,333** bytes when converting the old selected definitions.
+Final-profile re-ranking recovers **8,480,636** bytes relative to those
+converted old choices. The net final definitions are 58,036,697 bytes larger
+than the pre-unified research selections, though smaller than the initial
+compact definitions. All figures exclude optional enumerated audit downloads.
+
+Final compressed frames total **177,691,853** bytes, compared with
+177,079,116 before unification: a **612,737-byte increase**, not a compression
+improvement. The earlier active proof payloads occupied 301,253,965 bytes
+for 80,227 proofs; the new active set covers 84,690. New proof/inequality
+indexes occupy 60,536,237 ordinary-Git bytes. Tiny n<=5 payloads occupy 3,748
+Git bytes; n=6 uses 177,688,105 bytes in 11 LFS shards. Conversion provenance
+is a separate 36,208,003-byte immutable archive stream. Thus **12 objects /
+213,896,108 bytes** await separately authorized LFS import/upload.
+
+The historical **16,496,405,260 JSON bytes** concern ONLY the 76 enumerated
+input maps. That partial-scope table total is not the baseline for all 84,690
+proofs, nor can comparing it to compressed rule payloads isolate mathematical
+encoding gains. The matched 76-case definition cost is 139,421,193 initial
+compact JSON bytes versus 126,750,674 final JSON bytes; its final compressed
+frames occupy 34,083,304 bytes. Original large tables remain recoverable.
+
+### Construction cost, resources and performance limits
+
+The synthesis method is exact tight-component/interval smoothing, with the
+same two-sweep and 50,000,000 charged-work budget. Complete compatible values,
+coupled edges, boundary images and bounds are checked, and every accepted
+winner receives full original-cube acceptance plus a separate saved-source-free
+audit. Exact integer numerators, shared logical bitsets, winner-only replay
+and validated native smoothing remove execution overhead without weakening
+these mathematical checks. The algorithm/ordering/work charges are unchanged.
+
+The documented controls measured stage-specific CPU gains around 2.75–4.48x
+for selected large native-smoothing cases and 7.97x on one rational control;
+tiny cases can be slower, so they retain the reference path. These are NOT
+whole-campaign or universal speedups. Aggregate campaign CPU was not collected.
+Overlapping per-case wall times and native microseconds are not CPU totals.
+
+The staged audit used the later explicitly approved eight-worker target,
+memory-aware admission, a two-GiB reserve and unchanged 64-GiB aggregate /
+per-process RSS guards. Original goal text's two-worker limit was superseded
+by the user's explicit eight-worker choice; unrelated jobs were left alone.
+The native 256-MiB setting bounds primary output buffers, NOT total RSS.
+An L=25/G=26 control actually checked 419,430,400 edges at 383,303,680-byte
+native peak RSS, avoiding a calculated 6.5-GiB full output-table allocation.
+Tiling costs extra CPU on large cases, so it is not advertised as a general
+speedup. Native whole-corpus precision stayed exact: final seed denominators
+reach 55 bits and sufficient full-map clearing scales reach 60 bits.
+
+### Recovery, local readiness and publication boundary
+
+Before replacing any active artifact, all 35 old paths and all 23 referenced
+payloads were copied and checked. Their final working-tree files were retired
+recoverably, not erased. The local archive is
+`/Users/sergio/.hec/contraction-local-cutover-20261015.p2mqqX/originals`.
+Git/LFS history and stored old objects remain untouched: no physical-space or
+quota reclamation is claimed. New large payloads remain in immutable external
+staging; committed pointers were staged through no-filter Git plumbing.
+
+`/Users/sergio/.hec/contraction-local-cutover-20261015.p2mqqX/publication-assets.json`
+lists exact paths, SHA256s, sizes and available local sources for later
+authorized import/upload. A pointer is never evidence that its object exists
+on the server. No new solver run, old production/research restart, proof
+overwrite, LFS mutation, billing action or publication was needed for this
+local deliverable.
+
+## Historical pilot and rollout record
+
 Exact derivation recipes reduced a 182-proof pilot from 1,897,232 to 878,196
 canonical JSON bytes: a 53.71% reduction before any file compression. Every
 selected recipe was reconstructed in a fresh process without source tables
