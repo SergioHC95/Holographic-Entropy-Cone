@@ -110,6 +110,9 @@ def benchmark(controls, observed_run, binary, output, *, working_bytes=256 * 102
         for path in sorted((checkout / folder).rglob("*"))
         if path.is_file() and path.suffix in (".py", ".cpp")
     }
+    primary_source = checkout / "tools/verify_reconstruction.cpp"
+    if primary_source.is_file():
+        implementation[str(primary_source.relative_to(checkout))] = derivations.digest(primary_source)
     samples, cases, executed_edges = [guard(observed_run)], [], 0
     output.mkdir(parents=True, exist_ok=True)
     derivations.save_new(
@@ -206,8 +209,7 @@ def benchmark(controls, observed_run, binary, output, *, working_bytes=256 * 102
             "Tile storage excludes the seed, domain index, protocol buffers and parent; "
             "child peak RSS is separately measured.",
             "CPU is native-request stage on a warm seed, including reaped child; wall time includes host contention.",
-            "Repeated reconstruction for lower memory need not be a CPU speedup; "
-            "no live backend is replaced here.",
+            "Repeated reconstruction for lower memory need not be a CPU speedup; no live backend is replaced here.",
         ],
     }
     derivations.save_new(output / "report.json", report)

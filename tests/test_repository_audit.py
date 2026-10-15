@@ -1,6 +1,9 @@
 """Actual spawn audit, source/identity binding, checkpoint resume; private tiny scope."""
 
+import copy
+import hashlib
 import sqlite3
+import sys
 import tempfile
 import unittest
 from contextlib import closing
@@ -84,6 +87,90 @@ class RepositoryAuditTests(unittest.TestCase):
         path.write_bytes(path.read_bytes() + b"\n")
         with self.assertRaisesRegex(ValueError, "implementation changed"):
             audit.execute(self.output, **self.options)
+
+    def test_standard_native_source_is_frozen_and_checked_on_resume(self):
+        self.prepare()
+        path = self.output / "implementation/tools/verify_reconstruction.cpp"
+        self.assertTrue(path.is_file())
+        path.write_bytes(path.read_bytes() + b"\n")
+        with self.assertRaisesRegex(ValueError, "implementation changed"):
+            audit.execute(self.output, **self.options)
+
+    def test_backend_override_cannot_be_partial_or_use_wrong_binary_hash(self):
+        root = Path(__file__).resolve().parents[1]
+        binary = Path(sys.executable).resolve()
+        self.assertIsNone(audit.cube_backend(None, None, None, root))
+        with self.assertRaisesRegex(ValueError, "requires an explicit"):
+            audit.cube_backend(binary, None, None, root)
+        controls = Path(self.temporary.name) / "controls.json"
+        controls.write_bytes(b"{}")
+        with self.assertRaisesRegex(ValueError, "binary SHA256"):
+            audit.cube_backend(binary, "0" * 64, controls, root)
+
+    def test_control_evidence_cannot_authorize_seed_only_boolean_or_wrong_source(self):
+        # Pure evidence-validation fixture; this never runs the configured
+        # executable and never constitutes mathematical acceptance.
+        root = Path(self.temporary.name) / "fixture-root"
+        source = root / "tools/verify_reconstruction.cpp"
+        source.parent.mkdir(parents=True)
+        source.write_bytes(b"source hash fixture\n")
+        controls = root / "report.json"
+        binding_path = root / "binding.json"
+        binary = Path(sys.executable).resolve()
+        binary_sha = audit.derivations.digest(binary)
+        binding = {
+            "format": "hec-tiled-audit-control/1",
+            "prototype_binary": {"sha256": binary_sha},
+            "primary_output_buffer_budget_bytes": 256 * 1024**2,
+            "implementation": {"tools/verify_reconstruction.cpp": hashlib.sha256(source.read_bytes()).hexdigest()},
+        }
+        binding_path.write_bytes(canonical_json(binding))
+        cases = []
+        for primitive in (
+            "integer-interval-closure/1",
+            "integer-cut-dnf/1",
+            "compatible-count-table/1",
+            "compatible-scalar-dag/1",
+        ):
+            result = {
+                "ok": True,
+                "scope": "original-cube-all-edges",
+                "source_tables_read": False,
+                "checked_vertices": 4,
+                "checked_edges": 4,
+                "proof_id": "0" * 64,
+                "inequality_id": "1" * 64,
+                "semantic_map_id": "2" * 64,
+                "output_row_storage_limit": 256 * 1024**2,
+                "output_row_storage_bytes": 32,
+            }
+            cases.append(
+                {
+                    "L": 2,
+                    "primitive": primitive,
+                    "pairs": [{"arms": {"full": {"audit": dict(result)}, "bounded": {"audit": dict(result)}}}],
+                }
+            )
+        report = {
+            "format": "hec-tiled-audit-report/1",
+            "binding_sha256": audit.derivations.digest(binding_path),
+            "primary_output_buffer_budget_bytes": 256 * 1024**2,
+            "cases": cases,
+            "actual_original_cube_edges_including_timing_repeats": 32,
+        }
+        controls.write_bytes(canonical_json(report))
+        selected = audit.cube_backend(binary, binary_sha, controls, root)
+        self.assertEqual(selected["primary_output_buffer_bytes"], 256 * 1024**2)
+        for key, value in (("checked_edges", True), ("scope", "compatible-seed-only"), ("output_row_storage_limit", 1)):
+            bad = copy.deepcopy(report)
+            bad["cases"][0]["pairs"][0]["arms"]["bounded"]["audit"][key] = value
+            controls.write_bytes(canonical_json(bad))
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                audit.cube_backend(binary, binary_sha, controls, root)
+        controls.write_bytes(canonical_json(report))
+        source.write_bytes(b"changed source\n")
+        with self.assertRaisesRegex(ValueError, "exact standard source"):
+            audit.cube_backend(binary, binary_sha, controls, root)
 
 
 if __name__ == "__main__":

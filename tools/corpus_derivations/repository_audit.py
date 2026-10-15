@@ -43,9 +43,11 @@ def initialize(settings):
     global _SETTINGS, _CATALOGS, _VERIFIER
     _SETTINGS, _CATALOGS = settings, {}
     binaries = settings["binaries"]
+    profile = settings.get("cube_backend_profile")
     _VERIFIER = ReconstructionVerifier(
         closure_binary=binaries.get("closure", {}).get("path", ""),
         cube_binary=binaries.get("wide", {}).get("path", ""),
+        cube_working_bytes=profile["primary_output_buffer_bytes"] if profile is not None else None,
     )
     atexit.register(_VERIFIER.close)
 
@@ -88,7 +90,105 @@ def audit_one(item):
     return result
 
 
-def prepare(stage, conversion, output, *, _expected_total=EXPECTED_TOTAL, _expected_counts=None):
+def cube_backend(binary, expected_sha, controls, root):
+    """Trusted operator configuration, never a field inside a proof document.
+
+    Controls qualify an implementation, not a mathematical proof. The full
+    staged run still executes every original-cube audit independently.
+    """
+    if binary is None and expected_sha is None and controls is None:
+        return None
+    if binary is None or expected_sha is None or controls is None:
+        raise ValueError("cube override requires an explicit binary, SHA256 and actual control report")
+    binary, controls = Path(binary), Path(controls)
+    if binary.is_symlink() or controls.is_symlink() or not binary.is_file() or not controls.is_file():
+        raise ValueError("cube override binary/control must be explicit regular files")
+    if derivations.digest(binary) != expected_sha:
+        raise ValueError("cube override binary SHA256 mismatch")
+    report = parse_json(controls.read_bytes())
+    control_binding = controls.with_name("binding.json")
+    if derivations.digest(control_binding) != report.get("binding_sha256"):
+        raise ValueError("cube control implementation binding changed")
+    binding = parse_json(control_binding.read_bytes())
+    source = root / "tools/verify_reconstruction.cpp"
+    if (
+        report.get("format") != "hec-tiled-audit-report/1"
+        or binding.get("format") != "hec-tiled-audit-control/1"
+        or report.get("primary_output_buffer_budget_bytes") != 256 * 1024**2
+        or binding.get("primary_output_buffer_budget_bytes") != 256 * 1024**2
+        or binding.get("prototype_binary", {}).get("sha256") != expected_sha
+        or binding.get("implementation", {}).get("tools/verify_reconstruction.cpp") != derivations.digest(source)
+        or not isinstance(report.get("cases"), list)
+        or not 4 <= len(report["cases"]) <= 8
+        or {case.get("primitive") for case in report["cases"]}
+        != {"integer-interval-closure/1", "integer-cut-dnf/1", "compatible-count-table/1", "compatible-scalar-dag/1"}
+    ):
+        raise ValueError("cube override lacks the exact standard source and all-four-primitive controls")
+    edges = 0
+    for case in report["cases"]:
+        L = case.get("L")
+        if type(L) is not int or not 0 <= L <= 25 or not case.get("pairs"):
+            raise ValueError("invalid cube control geometry or repeated-pair scope")
+        for pair in case["pairs"]:
+            if set(pair.get("arms", {})) != {"full", "bounded"}:
+                raise ValueError("cube control lacks actual full/reference and bounded arms")
+            reference = pair["arms"]["full"]["audit"]
+            for name, arm in pair["arms"].items():
+                result = arm["audit"]
+                expected = {
+                    "ok": True,
+                    "scope": "original-cube-all-edges",
+                    "source_tables_read": False,
+                    "checked_vertices": 1 << L,
+                    "checked_edges": L * ((1 << L) // 2),
+                }
+                if any(
+                    type(result.get(key)) is not type(value) or result[key] != value for key, value in expected.items()
+                ):
+                    raise ValueError("cube control is partial, seed-only or has inexact coverage types")
+                if any(
+                    result.get(key) != reference.get(key)
+                    or not isinstance(result.get(key), str)
+                    or len(result[key]) != 64
+                    for key in ("proof_id", "inequality_id", "semantic_map_id")
+                ):
+                    raise ValueError("cube control changed exact definition/inequality/map identities")
+                if name == "bounded" and (
+                    type(result.get("output_row_storage_limit")) is not int
+                    or result["output_row_storage_limit"] != 256 * 1024**2
+                    or type(result.get("output_row_storage_bytes")) is not int
+                    or not 0 <= result["output_row_storage_bytes"] <= 256 * 1024**2
+                ):
+                    raise ValueError("cube control did not acknowledge its exact primary buffer budget")
+                edges += result["checked_edges"]
+    if (
+        type(report.get("actual_original_cube_edges_including_timing_repeats")) is not int
+        or report["actual_original_cube_edges_including_timing_repeats"] != edges
+    ):
+        raise ValueError("cube control actual coverage total differs")
+    return {
+        "path": str(binary.resolve()),
+        "sha256": expected_sha,
+        "source_sha256": derivations.digest(source),
+        "primary_output_buffer_bytes": 256 * 1024**2,
+        "controls": str(controls.resolve()),
+        "controls_sha256": derivations.digest(controls),
+        "control_binding": str(control_binding.resolve()),
+        "control_binding_sha256": derivations.digest(control_binding),
+    }
+
+
+def prepare(
+    stage,
+    conversion,
+    output,
+    *,
+    cube_binary=None,
+    cube_sha256=None,
+    cube_controls=None,
+    _expected_total=EXPECTED_TOTAL,
+    _expected_counts=None,
+):
     stage, conversion, output = (Path(value).resolve() for value in (stage, conversion, output))
     counts = EXPECTED_COUNTS if _expected_counts is None else _expected_counts
     if not idle(conversion, set()):
@@ -108,6 +208,7 @@ def prepare(stage, conversion, output, *, _expected_total=EXPECTED_TOTAL, _expec
     ):
         raise ValueError("staged audit requires complete bound corpus staging, never a subset")
     root = Path(__file__).resolve().parents[2]
+    selected_cube = cube_backend(cube_binary, cube_sha256, cube_controls, root)
     for protected in (stage, conversion, root):
         if output.is_relative_to(protected) or protected.is_relative_to(output):
             raise ValueError("audit output must be outside protected data/run/worktree paths")
@@ -154,7 +255,10 @@ def prepare(stage, conversion, output, *, _expected_total=EXPECTED_TOTAL, _expec
             record = records.entries[iid]
             p = geometry(n, tuple(map(decimal, record["coefficients"])))
             C = CompatibleRank(p).count
-            budget = 1024**3 + p.vertices * max(1, p.G) * 8 + 128 * C * max(1, p.G)
+            table_bytes = p.vertices * max(1, p.G) * 8
+            if selected_cube is not None:
+                table_bytes = min(table_bytes, selected_cube["primary_output_buffer_bytes"]) + p.vertices * 4
+            budget = 1024**3 + table_bytes + 128 * C * max(1, p.G)
             manifest.append(
                 {
                     "task": len(manifest),
@@ -184,9 +288,14 @@ def prepare(stage, conversion, output, *, _expected_total=EXPECTED_TOTAL, _expec
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(path, target)
                 implementation[str(relative)] = derivations.digest(target)
+    relative = Path("tools/verify_reconstruction.cpp")
+    target = output / "implementation" / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(root / relative, target)
+    implementation[str(relative)] = derivations.digest(target)
     for label in ("closure", "wide"):
         if label in original["binaries"]:
-            info = original["binaries"][label]
+            info = selected_cube if label == "wide" and selected_cube is not None else original["binaries"][label]
             if derivations.digest(info["path"]) != info["sha256"]:
                 raise ValueError("independent audit binary changed")
             target = output / label
@@ -208,6 +317,7 @@ def prepare(stage, conversion, output, *, _expected_total=EXPECTED_TOTAL, _expec
         "catalogs": catalogs,
         "implementation": implementation,
         "binaries": binaries,
+        "cube_backend_profile": selected_cube,
         "runtime": runtime_versions(),
         "python_sha256": derivations.digest(sys.executable),
     }
@@ -243,6 +353,13 @@ def load_binding(output, expected_total, expected_counts):
     for info in binding["binaries"].values():
         if derivations.digest(info["path"]) != info["sha256"]:
             raise ValueError("independent staged audit binary changed")
+    profile = binding.get("cube_backend_profile")
+    if profile is not None:
+        if binding["binaries"].get("wide", {}).get("sha256") != profile["sha256"]:
+            raise ValueError("selected standard cube backend changed")
+        for label in ("controls", "control_binding"):
+            if derivations.digest(profile[label]) != profile[label + "_sha256"]:
+                raise ValueError("selected cube control evidence changed")
     if derivations.digest(Path(binding["stage"]) / "stage-report.json") != binding["stage_report_sha256"]:
         raise ValueError("staged input provenance changed")
     if derivations.digest(Path(binding["conversion"]) / "run-binding.json") != binding["conversion_binding_sha256"]:
@@ -414,9 +531,23 @@ def main():
     setup = commands.add_parser("prepare")
     setup.add_argument("--stage", type=Path, required=True)
     setup.add_argument("--conversion", type=Path, required=True)
+    setup.add_argument("--cube-binary", type=Path)
+    setup.add_argument("--cube-sha256")
+    setup.add_argument("--cube-controls", type=Path)
     commands.add_parser("run")
     args = parser.parse_args()
-    value = prepare(args.stage, args.conversion, args.output) if args.command == "prepare" else execute(args.output)
+    value = (
+        prepare(
+            args.stage,
+            args.conversion,
+            args.output,
+            cube_binary=args.cube_binary,
+            cube_sha256=args.cube_sha256,
+            cube_controls=args.cube_controls,
+        )
+        if args.command == "prepare"
+        else execute(args.output)
+    )
     print(canonical_json(value).decode())
 
 

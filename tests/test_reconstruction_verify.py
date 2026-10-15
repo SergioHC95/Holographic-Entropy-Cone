@@ -193,5 +193,68 @@ class ReconstructionVerifierTests(unittest.TestCase):
         subprocess.run([sys.executable, "-c", code], cwd=self.temporary.name, env=env, check=True)
 
 
+@unittest.skipUnless(shutil.which("c++"), "standard verifier configuration needs C++17")
+class StandardCubeConfigurationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.temporary = tempfile.TemporaryDirectory(prefix="hec-standard-native-")
+        cls.binary = Path(os.environ.get("HEC_STANDARD_AUDITOR", str(Path(cls.temporary.name) / "verify")))
+        if not cls.binary.is_file():
+            subprocess.run(
+                [
+                    "c++",
+                    "-O3",
+                    "-std=c++17",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    str(ROOT / "tools/verify_reconstruction.cpp"),
+                    "-o",
+                    str(cls.binary),
+                ],
+                check=True,
+            )
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temporary.cleanup()
+
+    def test_configured_buffer_is_in_actual_command_and_exact_tiled_reply(self):
+        p, _vertices, rows = fixture()
+        document = import_recipe(make_count_proof(p, rows, transport=True))[0]
+        verifier = ReconstructionVerifier(closure_binary="", cube_binary=self.binary, cube_working_bytes=64)
+        try:
+            result = verifier.verify(document)
+            self.assertEqual(verifier.auditor.process.args, [str(self.binary), "--working-bytes", "64"])
+            self.assertEqual((result["checked_vertices"], result["checked_edges"]), (8, 12))
+            self.assertEqual(result["working_layout"], "exact-tiles/1")
+            self.assertEqual(result["output_row_storage_limit"], 64)
+            self.assertLessEqual(result["output_row_storage_bytes"], 64)
+        finally:
+            verifier.close()
+
+    def test_trusted_configuration_rejects_inexact_or_missing_backend(self):
+        for value in (True, 0, -1, 1.5, "64", 31 * 1024**3):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                ReconstructionVerifier(closure_binary="", cube_binary=self.binary, cube_working_bytes=value)
+        with self.assertRaisesRegex(ValueError, "explicit exact backend"):
+            ReconstructionVerifier(closure_binary="", cube_binary="", cube_working_bytes=64)
+        for raw in ("01", "1.0", "-1", " 64", ""):
+            with patch.dict(os.environ, {"HEC_RECONSTRUCTION_WORKING_BYTES": raw}), self.assertRaises(ValueError):
+                ReconstructionVerifier(closure_binary="", cube_binary=self.binary)
+
+    def test_shared_full_point_rule_handles_empty_output(self):
+        p = geometry(1, (1,))
+        document = import_recipe(make_count_proof(p, [(), ()], transport=True))[0]
+        verifier = ReconstructionVerifier(closure_binary="", cube_binary=self.binary, cube_working_bytes=64)
+        try:
+            result = verifier.verify(document)
+        finally:
+            verifier.close()
+        self.assertEqual((result["checked_vertices"], result["checked_edges"]), (2, 1))
+        self.assertEqual(result["working_layout"], "full-table/1")
+        self.assertEqual(result["output_row_storage_bytes"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

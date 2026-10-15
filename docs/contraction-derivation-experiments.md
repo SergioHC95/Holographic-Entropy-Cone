@@ -941,3 +941,43 @@ whole-corpus/hosted-runner certification. The result is
 SHA256 `d5316f389726aa156e95b296e7d9bdd265bacfaa93768794d9eb3fff7c0fd8f0`.
 The fast production binaries and live conversion were preserved. Selecting
 the final CI memory policy and verifying all staged artifacts remain required.
+
+### Standalone standard verifier selected for staged QA
+
+`tools/verify_reconstruction.cpp` is now a standalone standard-proof native
+verifier, without includes or runtime fallback to the experimental/Boolean
+import tools. Its full-table and tiled paths call ONE exact point evaluator.
+The mode-0 protocol, complete compatible-domain reconstruction, exact scaled
+bounds, occurrence images and exhaustive original-cube edges are unchanged.
+The default primary-output-buffer budget is 256 MiB; total RSS also includes
+the domain index, seed, protocol buffers and Python parent.
+
+The package adapter can bind a trusted working-byte limit to its actual native
+launch arguments and requires the reply to acknowledge that exact limit.
+The field is operator/CI configuration, never proof-specified executable code
+or a way to reduce mathematical coverage. Invalid/inexact limits fail closed.
+The QA runner may select this binary only with its explicit SHA256 and a
+source-bound, complete all-four-primitive control report. Source changes,
+partial/boolean coverage and unacknowledged budgets invalidate the selection.
+Admission uses the bound output-buffer budget plus the full domain index and
+conservative Python/seed reserves; 64-GiB RSS guards and eight approved workers
+remain unchanged.
+
+The standalone binary passed the eight forced-layout/native differential
+tests, package-adapter controls and the full 271-test regression suite. Five
+actual saved controls repeated 279,183,680 original-cube edges against the
+earlier independent full-table binary. These qualify the implementation, not
+all 84,690 proofs: the upcoming staged-data run must still execute every map's
+full audit itself, without accepting stored flags or these control results.
+
+The selected local binary is
+`/Users/sergio/.hec/contraction-standard-verifier-20261014.KgDfUR/verify-reconstruction`,
+SHA256 `dee60188230e495cab9896cb647871c4cdaf2bb67824c9ce77c41c679809c777`;
+its source SHA256 is
+`f45c756c826c2e7719b9d38f3c00d989f71ed7b4774e4f5d1cc4c5e3b939bb35`.
+Qualification is saved beside it in `qualification.json`. The actual paired
+report is
+`/Users/sergio/.hec/contraction-standard-controls-20261014.FBi9Sb/report.json`,
+SHA256 `05ed742787d0ea77278db79ca4be34bd8906ec14295e94f522ce780f44628c26`.
+No live conversion, primary repository reader, LFS state or CI workflow was
+switched by this preparation. The full-data mathematical gate remains pending.

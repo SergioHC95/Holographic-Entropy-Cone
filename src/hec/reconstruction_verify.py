@@ -139,8 +139,11 @@ class IndependentCubeAuditor:
 
     extension = EXTENSION
 
-    def __init__(self, binary, expected_sha256=None):
+    def __init__(self, binary, expected_sha256=None, *, working_bytes=None):
         self.binding = BoundBinary(binary, expected_sha256)
+        if working_bytes is not None and (type(working_bytes) is not int or not 1 <= working_bytes <= 30 * 1024**3):
+            raise ValueError("trusted primary output-buffer budget must be an exact positive bounded integer")
+        self.working_bytes = working_bytes
         self.process, self.sequence = None, 0
 
     def close(self):
@@ -185,7 +188,10 @@ class IndependentCubeAuditor:
         if len(data) > 1024**3:
             raise ValueError("seed exceeds bounded exact cube-audit request")
         if self.process is None:
-            self.process = subprocess.Popen([str(self.binding.path)], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+            command = [str(self.binding.path)]
+            if self.working_bytes is not None:
+                command.extend(("--working-bytes", str(self.working_bytes)))
+            self.process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
         self.sequence += 1
         self.process.stdin.write(
             struct.pack(
@@ -226,17 +232,31 @@ class IndependentCubeAuditor:
         }
         if any(type(result.get(key)) is not type(value) or result[key] != value for key, value in expected.items()):
             raise ValueError("independent exact backend returned incomplete or misbound cube coverage")
+        if self.working_bytes is not None and (
+            type(result.get("output_row_storage_limit")) is not int
+            or result["output_row_storage_limit"] != self.working_bytes
+            or type(result.get("output_row_storage_bytes")) is not int
+            or not 0 <= result["output_row_storage_bytes"] <= self.working_bytes
+        ):
+            raise ValueError("independent exact backend did not honor its bound output-buffer budget")
         return {**result, "binary_sha256": self.binding.sha256}
 
 
 class ReconstructionVerifier:
     """One verification entry point for all four primitives; opt-in until promotion."""
 
-    def __init__(self, *, closure_binary=None, cube_binary=None):
+    def __init__(self, *, closure_binary=None, cube_binary=None, cube_working_bytes=None):
         closure = closure_binary if closure_binary is not None else os.environ.get("HEC_RECONSTRUCTION_CLOSURE")
         cube = cube_binary if cube_binary is not None else os.environ.get("HEC_RECONSTRUCTION_VERIFIER")
+        if cube_working_bytes is None and "HEC_RECONSTRUCTION_WORKING_BYTES" in os.environ:
+            raw = os.environ["HEC_RECONSTRUCTION_WORKING_BYTES"]
+            if not raw.isascii() or not raw.isdecimal() or str(int(raw)) != raw:
+                raise ValueError("trusted working-byte configuration must be a canonical exact integer")
+            cube_working_bytes = int(raw)
         self.closure = IntervalClosureDecoder(closure) if closure else None
-        self.auditor = IndependentCubeAuditor(cube) if cube else None
+        if cube_working_bytes is not None and not cube:
+            raise ValueError("an explicit exact backend is required with a bound working budget")
+        self.auditor = IndependentCubeAuditor(cube, working_bytes=cube_working_bytes) if cube else None
 
     def close(self):
         if self.auditor is not None:
