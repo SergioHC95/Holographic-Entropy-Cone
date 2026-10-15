@@ -3,7 +3,9 @@ name: database integrity
 on:
   pull_request:
   push:
-    branches: [main]
+    # Validate a clean candidate head before the coordinated main-history cutover.
+    branches: [main, "codex/lfs-free-main-*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
