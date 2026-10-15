@@ -123,9 +123,12 @@ class ProofCatalog(Sequence[dict]):
             raise ValueError("proof record is not canonical or differs from its identity")
         if inequality_id(proof_geometry(proof)) != entry["inequality_id"]:
             raise ValueError("proof differs from its indexed inequality")
+        self._check_definition(proof)
+        return proof
+
+    def _check_definition(self, proof):
         if proof.get("format") != FORMAT or proof.get("function", {}).get("kind") not in (DAG, KERNEL, TRANSPORT):
             raise ValueError("authoritative catalogue accepts compact definitions, not audit tables")
-        return proof
 
     def iter_selected(self, shard: int = 0, shards: int = 1) -> Iterator[tuple[int, dict]]:
         if type(shard) is not int or type(shards) is not int or shards < 1 or not 0 <= shard < shards:
