@@ -11,19 +11,17 @@ from typing import Any
 from .data import available_ns, load_hec_data
 from .serialization import save_json
 
-write_timings = save_json
-
 # A worker maps (n, index, item) to (record, timing, log_line).
 Worker = Callable[[int, int, Any], tuple[Any, dict, str]]
 Writer = Callable[[Path, Sequence[Any]], None]
 
 
-def create_run_output(prefix: str, root: str | Path) -> tuple[Path, Path]:
+def create_run_output(prefix: str, root: str | Path) -> Path:
     path = Path(root) / f"{prefix}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
     if path.exists():
         raise FileExistsError(f"output root already exists: {path}")
     path.mkdir()
-    return path, path / "timings.json"
+    return path
 
 
 def run_generation(
@@ -45,7 +43,8 @@ def run_generation(
     finish: every ``write_every`` completions (and at the end of each ``n``) the
     longest gap-free prefix of finished records is written, alongside timings.
     """
-    run_root, timings_path = create_run_output(prefix, run_root_parent)
+    run_root = create_run_output(prefix, run_root_parent)
+    timings_path = run_root / "timings.json"
     print(f"writing {run_root}", flush=True)
     print(f"writing {timings_path}", flush=True)
     print(f"workers {workers}", flush=True)
@@ -68,7 +67,7 @@ def run_generation(
                 print(log_line, flush=True)
                 if completed % write_every == 0 or completed == len(items):
                     ready = next((i for i, item in enumerate(records) if item is None), len(records))
-                    write_timings(
+                    save_json(
                         timings_path,
                         {key: [row for row in rows if row is not None] for key, rows in timings.items()},
                     )

@@ -3,9 +3,13 @@
 import copy
 import hashlib
 import importlib.util
+import json
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -20,6 +24,8 @@ from hec.proof_builders import proof_from_boolean_table, proof_from_seed_rows
 from hec.proof_store import ProofCatalog, write_proof_dataset
 from hec.reconstruction import PIPELINE, ReconstructionProgram
 from hec.reconstruction_verify import ReconstructionVerifier
+from hec.runs import create_run_output, run_generation
+from hec.serialization import save_json
 
 
 class AuthoringTests(unittest.TestCase):
@@ -107,7 +113,72 @@ class AuthoringTests(unittest.TestCase):
             InequalityCatalog(target / "inequalities.json").check_bindings(stored)
 
 
+class GenerationOutputTests(unittest.TestCase):
+    def test_output_helper_returns_only_a_new_directory_and_refuses_collisions(self):
+        with tempfile.TemporaryDirectory() as temporary, patch("hec.runs.datetime") as clock:
+            clock.now.return_value.strftime.return_value = "fixture"
+            output = create_run_output("graphs", temporary)
+            self.assertEqual(output, Path(temporary) / "graphs_fixture")
+            self.assertTrue(output.is_dir())
+            self.assertEqual(list(output.iterdir()), [])
+            with self.assertRaises(FileExistsError):
+                create_run_output("graphs", temporary)
+
+    def test_generation_preserves_ordered_records_and_timings_when_workers_finish_out_of_order(self):
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch("hec.runs.datetime") as clock,
+            patch("hec.runs.available_ns", return_value=[2]),
+            patch("hec.runs.load_hec_data", return_value=[11, 22, 33]),
+            patch("hec.runs.as_completed", side_effect=lambda futures: reversed(tuple(futures))),
+        ):
+            clock.now.return_value.strftime.return_value = "fixture"
+            writer = Mock(side_effect=save_json)
+            run_generation(
+                prefix="graphs",
+                run_root_parent=temporary,
+                data_root=temporary,
+                kind="rays",
+                record_name="graphs",
+                worker=lambda n, index, value: (value, {"index": index}, f"n={n}, index={index}"),
+                writer=writer,
+                executor=lambda: ThreadPoolExecutor(max_workers=2),
+                workers=2,
+                write_every=1,
+            )
+            output = Path(temporary) / "graphs_fixture"
+            writer.assert_called_once_with(output / "graphs_n2.json", [11, 22, 33])
+            self.assertEqual(json.loads((output / "graphs_n2.json").read_text()), [11, 22, 33])
+            self.assertEqual(json.loads((output / "timings.json").read_text()), {"2": [{"index": i} for i in range(3)]})
+
+
 class DistributionTests(unittest.TestCase):
+    def test_checks_require_the_supported_cli_and_the_canonical_route_still_works(self):
+        unsupported = subprocess.run(
+            [sys.executable, "-m", "hec.checks", "facets", "--n", "1"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(unsupported.returncode, 0)
+        self.assertIn("hec check", unsupported.stderr)
+        supported = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "hec",
+                "check",
+                "database-bindings",
+                "--n",
+                "1",
+                "--root",
+                str(Path(__file__).resolve().parents[1] / "data"),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        self.assertIn("1 inequality/1 proof", supported.stdout)
+
     def test_no_historical_acceptance_implementations_ship(self):
         for module in (
             "hec.reconstruction_store",

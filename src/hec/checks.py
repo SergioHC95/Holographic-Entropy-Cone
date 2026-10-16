@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import math
 import os
 from collections.abc import Callable, Iterable, Iterator
@@ -301,25 +300,5 @@ def check_stored_graphs(
         yield f"n={current_n}{label}: {selected_count} ok"
 
 
-def main() -> None:
-    """Run one repository-data validation from the command line."""
-
-    checks = {
-        "contractions": check_stored_contractions,
-        "database": check_stored_facet_database_format,
-        "database-bindings": check_stored_database_bindings,
-        "facets": check_stored_facets,
-        "graphs": check_stored_graphs,
-        "rays": check_stored_rays,
-    }
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("kind", choices=checks)
-    parser.add_argument("--n", type=int, help="check only this stored party count")
-    parser.add_argument("--shard-index", type=int, default=0, help="zero-based round-robin shard index")
-    parser.add_argument("--shard-count", type=int, default=1, help="number of round-robin shards")
-    args = parser.parse_args()
-    run_check(checks[args.kind](n=args.n, shard_index=args.shard_index, shard_count=args.shard_count))
-
-
 if __name__ == "__main__":
-    main()
+    raise SystemExit("Use 'hec check' or 'python -m hec check' to run repository checks.")

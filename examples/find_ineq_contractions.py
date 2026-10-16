@@ -35,7 +35,7 @@ def _worker(item: tuple[int, int, Sequence[int]]) -> tuple[dict, dict]:
 
 def main() -> None:
     ensure_contraction_extensions()
-    run_root, _timings = create_run_output("contractions", REPO_ROOT)
+    run_root = create_run_output("contractions", REPO_ROOT)
     for n in available_ns(root=default_data_root()):
         facets = load_hec_data(n, "facets")
         directory = run_root / f"n={n}"
