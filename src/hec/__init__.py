@@ -2,6 +2,7 @@
 
 from .contractions import (
     check_contraction,
+    construct_contraction,
     find_contraction,
     read_contractions,
     write_contractions,
@@ -31,6 +32,7 @@ __all__ = [
     "check_contraction",
     "check_graph",
     "check_support_rank",
+    "construct_contraction",
     "data_path",
     "default_data_root",
     "dim",

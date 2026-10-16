@@ -1,8 +1,8 @@
 # Holographic Entropy Cone
 
 Exact facet inequalities, extreme rays, graph realizations and contraction
-proofs for the holographic entropy cones. The cones are complete for
-\(n\leq5\); the six-party data is partial.
+proofs for the holographic entropy cones. The facet and ray catalogues are
+complete for $n\leq5$; the six-party catalogues are partial.
 
 ## Setup and checks
 
@@ -14,10 +14,15 @@ macOS.
 uv sync --locked --dev --python 3.13.14
 uv run hec native build --directory .hec-native
 export HEC_NATIVE_DIR="$PWD/.hec-native"
+export HEC_CHECK_WORKERS=4
+export HEC_RECONSTRUCTION_WORKING_BYTES=268435456
 
 uv run hec storage audit
-HEC_RECONSTRUCTION_WORKING_BYTES=268435456 HEC_CHECK_WORKERS=4 \
-  uv run hec check database --root data
+uv run hec storage history
+uv run hec check database --root data
+uv run hec check facets --root data
+uv run hec check rays --root data
+uv run hec check graphs --root data
 uv run python -m unittest discover -s tests
 uv run ruff check .
 ```
@@ -29,26 +34,35 @@ Kissat and its raw C symbols; the tracked Cython extensions build on first use.
 
 ## Data
 
-`data/n=*/` stores one representative per known full-symmetry orbit under
-\(S_{n+1}\):
+`data/n=*/facets.json` and `rays.json` store representatives of distinct
+full-symmetry orbits under $S_{n+1}$, including permutations of the purifier.
+Facet and proof identities bind exact party-labelled coefficient vectors;
+the two catalogues cover exactly the same listed representatives.
 
 | File | Contents |
 | --- | --- |
 | `facets.json` | Listed facet representatives, with lower-party lifts first. |
 | `rays.json` | Extreme-ray representatives, with lifts first. |
-| `graphs.json` | Exact ray realizations as edges and weights. |
-| `inequalities.json` | Primitive inequality identities and their selected proofs. |
+| `graphs.json` | One exact graph realization per `rays.json` row, in the same order. |
+| `inequalities.json` | Exact facet identities and their selected full-map proofs. |
 | `proofs.json` | Content-addressed proof/frame index. |
 | `proof-shards/*.proofpack` | Seekable exact definitions, stored in ordinary Git. |
 
 Rows use cardinality-then-lexicographic subset order. Non-lift facet rows are
-row-lexicographically sorted. Proofs bind to inequalities by content, not row
-position; additional validity proofs do not assert facethood.
+row-lexicographically sorted. There is exactly one full-map proof per listed facet,
+bound by content rather than facet-row position. The six-party data has
+**84,976 listed facet representatives**, with exactly matching inequality
+and proof catalogues. Candidates without facet certification do not belong
+in the accepted data tree.
 `data/storage.json` binds every payload to its byte length and SHA256.
+
+Across all party counts, **84,990 full-map proofs** occupy **16 proof shards**
+totalling **151,955,224 bytes**. Git LFS is not required.
 
 One [mathematical specification](docs/proofs.md) defines the reconstruction
 contract. One [schema](schemas/repository.schema.json) describes proofs,
-catalogues and the byte inventory. The Python API is `hec.proof_store`:
+catalogues and the byte inventory.
+The Python API is `hec.proof_store`:
 `ProofCatalog`, `write_proof_catalog` and `write_proof_dataset`.
 The reader rejects unknown syntax; the writer independently verifies each
 complete map before publishing a new immutable dataset.
@@ -65,16 +79,21 @@ uv run hec storage snapshot --replace   # intentional byte-inventory update
 Hash/schema checks are not mathematical acceptance. The required CI gate also
 reconstructs every proof and checks all original-cube bounds, occurrence images
 and weighted edges, plus exact facet/ray ranks, graph realizations and global
-bindings. Complete maps belong to disjoint, cost-balanced jobs; each uses at
+bindings. Membership must agree in both directions: no facet without a proof
+and no unlisted proof inequality. Facet ranks are established against the
+stored rays and their independently verified graph realizations, never from
+saved rank or validity flags.
+Complete maps belong to disjoint, cost-balanced jobs; each uses at
 most four workers and only its owned shards. All jobs must pass at one commit.
 
 ## Construct proofs and graphs
 
-`hec.find_contraction(coefficients, n)` returns a self-contained proof only
-after exact independent verification. For compact-domain authoring:
+The production constructor `hec.construct_contraction(coefficients, n, scale=1)`
+searches a compatible seed and returns a self-contained current-standard proof
+only after exact independent verification. To construct a catalogue:
 
 ```bash
-uv run python examples/compatible_seed_authoring.py \
+uv run hec construct \
   --rows data/n=2/facets.json --n 2 --output contractions_example
 ```
 
@@ -85,28 +104,41 @@ SAT edge constraints, reconstructs the fixed full map and exhaustively audits
 it. Solver models are transient; a resource limit or unfinished search is not
 a proof or a mathematical impossibility result.
 
-The examples `find_ineq_contractions.py` and `find_ray_graphs.py` use
-`HEC_WORKERS` and `HEC_GRAPH_WORKERS`; checks use `HEC_CHECK_WORKERS`.
+The implementation is `hec.authoring`; there is no separate example-only
+constructor or alternate proof format. The CLI streams proposals to the
+standard writer, which audits each complete map once and atomically publishes
+the two bound indexes and immutable shards. Proof construction establishes
+inequality validity; repository admission additionally requires facet rank.
+
+The graph-generation example `find_ray_graphs.py` uses `HEC_GRAPH_WORKERS`;
+checks use `HEC_CHECK_WORKERS`.
 In PowerShell, set variables with `$env:HEC_CHECK_WORKERS = "4"`.
 
 ## Cone summary
 
-Orbit-image counts discard stabilizer-related repeats.
+Counts below come from the tracked data, not solver runs. Facet/ray images
+count distinct $S_{n+1}$ relabelings, discarding stabilizer-related repeats.
+The proof column counts selected full maps, one per listed facet. Complete
+proof coverage does not mean the six-party cone is fully known.
 
-| n | facet reps (lifts) | facet images | ray reps (lifts) | ray images | status |
-| :-: | ----------------: | -----------: | ---------------: | ----------: | :----- |
-| 1 | 1 (0) | 1 | 1 (0) | 1 | complete |
-| 2 | 1 (0) | 3 | 1 (1) | 3 | complete |
-| 3 | 2 (1) | 7 | 2 (1) | 7 | complete |
-| 4 | 2 (2) | 20 | 3 (2) | 20 | complete |
-| 5 | 8 (3) | 372 | 19 (3) | 2,267 | complete |
-| 6 | 80,570 (11) | — | 4,161 (19) | 15,455,986 | incomplete |
+| n | facet reps | facet images | ray reps / graphs | ray images | full-map proofs | cone catalogue |
+| :-: | ---------: | -----------: | ----------------: | ---------: | --------------: | :------------- |
+| 1 | 1 | 1 | 1 | 1 | 1 | complete |
+| 2 | 1 | 3 | 1 | 3 | 1 | complete |
+| 3 | 2 | 7 | 2 | 7 | 2 | complete |
+| 4 | 2 | 20 | 3 | 20 | 2 | complete |
+| 5 | 8 | 372 | 19 | 2,267 | 8 | complete |
+| 6 | 84,976 | 421,819,538 | 4,161 | 15,455,986 | 84,976 | partial |
+
+CI recomputes this table and the proof-storage totals from the data; stale
+README counts fail the tests. These documentation checks do not replace
+independent mathematical verification.
 
 ## Attribution
 
 If you use this data, please consider citing the following papers.
 
-* Complete description of \(H_n\) for \(n \leq 5\) from
+* Complete description of $H_n$ for $n \leq 5$ from
   [arXiv:1903.09148](https://arxiv.org/abs/1903.09148):
 
   ```bibtex
@@ -126,7 +158,7 @@ If you use this data, please consider citing the following papers.
   }
   ```
 
-* Partial description of \(H_6\) from
+* Partial description of $H_6$ from
   [arXiv:2309.06296](https://arxiv.org/abs/2309.06296):
 
   ```bibtex

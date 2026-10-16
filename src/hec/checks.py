@@ -126,6 +126,10 @@ def _check_stored_rank(
         selected = _shard_indices(len(fixed_rows), shard_index, shard_count)
         selected_count = len(selected)
         label = _shard_label(shard_index, shard_count)
+        fixed_bound = max((abs(value) for row in fixed_rows for value in row), default=0)
+        candidate_bound = max((abs(value) for row in candidate_rows for value in row), default=0)
+        if fixed_bound * candidate_bound * ((1 << current_n) - 1) > (1 << 63) - 1:
+            raise ValueError("integer dot-product bound exceeds the exact rank backend capacity")
         prepared = prepare_rank_candidates(candidate_rows, current_n)
         workers = check_worker_count()
 

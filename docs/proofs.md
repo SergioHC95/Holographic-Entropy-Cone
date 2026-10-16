@@ -172,5 +172,17 @@ atomically publishes the proof and inequality indexes. Existing datasets,
 corrupt immutable payloads, duplicate selections and incomplete audits fail.
 Each shard contains independently seekable Zstd frames; compression and shard
 boundaries do not enter proof identities. `inequalities.json` binds exactly
-one selected proof to each accepted inequality. A contraction does not add
-an inequality to the facet list without a separate exact rank check.
+one selected proof to each listed facet, with no missing or additional
+inequality identities. A contraction does not establish facethood by itself.
+The independent facet gate proves the required support rank using the stored
+rays and their purifier-inclusive symmetry images; a separate exact graph gate
+verifies the ray realizations. Candidates requiring additional witnesses remain
+outside this accepted corpus until separately resolved.
+
+Production construction lives in `hec.authoring`, exposed by `hec construct`
+and `hec.construct_contraction`. Compatible-domain SAT produces only a proposal;
+the sole fixed extension and full original-cube verifier determine acceptance.
+The CLI streams proposals directly through `write_proof_dataset`, so each map
+receives one complete audit before atomic publication, not duplicate constructor
+and writer audits. Programmatic construction independently audits before returning
+a proof. No SAT model, historical receipt or stored flag substitutes for an audit.
