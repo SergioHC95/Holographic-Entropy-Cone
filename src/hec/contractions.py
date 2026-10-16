@@ -65,6 +65,19 @@ def _build_problem(coeffs: Sequence[int], n: int) -> tuple[ContractionProblem | 
     ), info
 
 
+def construct_contraction(coeffs: Sequence[int], n: int, *, scale: int = 1) -> dict:
+    """Construct the current standard from a compatible seed and audit once.
+
+    Search only the compatible domain. The sole fixed extension defines every
+    original-cube image; resource limits and fixed-scale failures confer no
+    inequality-invalidity or facethood claim. Solver imports remain lazy.
+    """
+    from .authoring import construct
+
+    proof, result = construct(_exact_coefficients(coeffs), n, scale)
+    return result if proof is None else {**result, "proof": proof}
+
+
 def find_contraction(coeffs: Sequence[int], n: int) -> dict:
     """Search and return a standard proof only after exhaustive exact verification.
 

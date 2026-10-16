@@ -53,6 +53,9 @@ def main():
     search = hec.find_contraction((1, 1, -1), 2)
     if search["status"] != "proved" or search["audit"]["checked_edges"] != 4 or "images" in search:
         raise ValueError("installed-wheel search did not return an audited standard proof")
+    constructed = hec.construct_contraction((1, 1, -1), 2)
+    if constructed["status"] != "proved" or constructed["audit"]["checked_edges"] != 4 or "images" in constructed:
+        raise ValueError("installed production constructor did not return an audited standard proof")
     print(
         canonical_json(
             {

@@ -1,23 +1,18 @@
 """Exact compact-domain proposals must still pass the sole full-cube verifier."""
 
 import contextlib
-import importlib.util
 import io
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from hec import authoring, construct_contraction
+from hec.cli import main as cli_main
 from hec.count_proofs import geometry, inequality_id
 from hec.proof_store import ProofCatalog
 from hec.reconstruction import PIPELINE, ReconstructionProgram
-
-ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location(
-    "compatible_seed_authoring", ROOT / "examples/compatible_seed_authoring.py"
-)
-authoring = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(authoring)
+from hec.reconstruction_verify import ReconstructionVerifier
 
 
 class CompatibleSeedAuthoringTests(unittest.TestCase):
@@ -139,6 +134,28 @@ class CompatibleSeedAuthoringTests(unittest.TestCase):
             self.assertEqual(catalog.entries[0]["inequality_id"], wanted)
             with self.assertRaises(ValueError), contextlib.redirect_stdout(io.StringIO()):
                 authoring.main(args)
+
+    def test_public_production_constructor_returns_only_a_freshly_audited_standard_proof(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = construct_contraction((1, 1, -1), 2)
+        self.assertEqual(result["status"], "proved")
+        self.assertEqual(result["proof"]["function"]["kind"], PIPELINE)
+        self.assertEqual(result["audit"]["checked_edges"], 4)
+        self.assertTrue(ReconstructionProgram(result["proof"]).audit_reference()["ok"])
+
+    def test_supported_cli_audits_once_per_map_instead_of_constructor_plus_writer_twice(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            rows, output = root / "rows.json", root / "proofs"
+            rows.write_text("[[1,1,-1]]")
+            actual_verify = ReconstructionVerifier.verify
+            with (
+                contextlib.redirect_stdout(io.StringIO()),
+                patch.object(ReconstructionVerifier, "verify", autospec=True, side_effect=actual_verify) as audit,
+            ):
+                cli_main(["construct", "--rows", str(rows), "--n", "2", "--output", str(output)])
+            self.assertEqual(audit.call_count, 1)
+            self.assertEqual(len(ProofCatalog(output / "proofs.json")), 1)
 
 
 if __name__ == "__main__":
