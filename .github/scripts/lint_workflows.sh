@@ -20,7 +20,7 @@ case "$(uname -s)-$(uname -m)" in
 esac
 hec_actionlint_dir=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/hec-actionlint.XXXXXX")
 trap 'rm -f "$hec_actionlint_dir/actionlint" "$hec_actionlint_dir/actionlint.tar.gz"; rmdir "$hec_actionlint_dir"' EXIT
-curl --fail --location --retry 2 --silent --show-error \
+curl --fail --location --retry 3 --retry-all-errors --connect-timeout 15 --max-time 120 --retry-max-time 180 --silent --show-error \
   "https://github.com/rhysd/actionlint/releases/download/v${hec_actionlint_version}/actionlint_${hec_actionlint_version}_${hec_actionlint_platform}.tar.gz" \
   --output "$hec_actionlint_dir/actionlint.tar.gz"
 printf '%s  %s\n' "$hec_actionlint_sha" "$hec_actionlint_dir/actionlint.tar.gz" | shasum -a 256 --check --status

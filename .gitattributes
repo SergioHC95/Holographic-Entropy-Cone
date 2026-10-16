@@ -2,6 +2,7 @@
 *.proofpack -filter -text -diff
 *.zst -filter -text -diff
 *.json text eol=lf
+*.jsonl -filter text eol=lf
 *.py text eol=lf
 *.cpp text eol=lf
 *.yml text eol=lf

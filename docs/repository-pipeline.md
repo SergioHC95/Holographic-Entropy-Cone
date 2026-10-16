@@ -38,6 +38,11 @@ and textual diffs, not Git storage.
 Current receipts live under `provenance/contractions/`. Historical recovery
 artifacts live outside the active repository. The archived originals are not
 alternate accepted inputs, dependencies of CI or part of normal clone storage.
+New authoring provenance is required ordinary-Git payload, bound to the exact
+proof identity, party frame, primitive source normal and recorded audit scope.
+Storage checks validate those bindings and complete declared identity coverage,
+but never accept stored `ok` flags as mathematical evidence. All maps still
+undergo the same independent complete-cube CI checks.
 
 ```bash
 uv run hec storage plan                 # metadata only; NOT byte or math acceptance
@@ -62,6 +67,12 @@ table/DAG; named closure rules and logical cuts share the same fixed extension.
 audits and atomically publishes both proof and inequality indexes. It captures
 metadata from owned snapshots, without decompressing saved maps again merely
 to construct their inequality index. Existing datasets are not replaced.
+
+For exact compact-domain candidate construction, see
+[Compatible seed authoring](compatible-seed-authoring.md). This saved example
+searches only the complete compatible seed, uses the existing fixed extension,
+and requires the same full original-cube audit before publication. It does not
+introduce another proof format or silently replace the public search API.
 
 ## Required CI and sparse checkouts
 
