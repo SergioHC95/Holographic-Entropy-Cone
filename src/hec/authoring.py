@@ -1,4 +1,4 @@
-"""Exact compact-domain authoring for the sole standard full-map proof language.
+"""Production compact-domain authoring for the sole standard full-map proof language.
 
 Only the complete compatible seed is searched. The standard fixed extension
 defines every source-cube image; actual full-cube verification is mandatory.
@@ -16,16 +16,16 @@ import numpy as np
 from pysat.card import CardEnc, EncType
 from pysat.solvers import Solver
 
-from hec._reconstruction_extension import CompatibleRank
-from hec.contraction_solver import _KISSAT_LIB, KISSAT_OPTIONS, _kissat_inner_ptr
-from hec.count_proofs import compatible_vertices, geometry, inequality_id, proof_id
-from hec.proof_builders import proof_from_seed_rows
-from hec.proof_store import write_proof_dataset
-from hec.reconstruction_verify import ReconstructionVerifier
-from hec.serialization import read_integer_rows
+from ._reconstruction_extension import CompatibleRank
+from .contraction_solver import _KISSAT_LIB, KISSAT_OPTIONS, _kissat_inner_ptr
+from .count_proofs import compatible_vertices, geometry, inequality_id, proof_id
+from .proof_builders import proof_from_seed_rows
+from .proof_store import _full_result, write_proof_dataset
+from .reconstruction_verify import ReconstructionVerifier
+from .serialization import read_integer_rows
 
 
-def intervals(p, vertices):
+def _boundary_intervals(p, vertices):
     """Necessary half-integer bounds from exact boundary-pair triangle excess."""
     if not p.G or sum(p.alpha) >= 1 << 40 or max(p.beta) >= 1 << 40:
         raise ValueError("boundary-interval authoring capability exceeded, not mathematical rejection")
@@ -53,7 +53,8 @@ def intervals(p, vertices):
     return lower, upper
 
 
-def construct(coefficients, n=6, scale=1):
+def _propose(coefficients, n, scale):
+    """Propose a standard definition without claiming full-map acceptance."""
     start = time.monotonic()
     if type(scale) is not int or scale < 1:
         raise ValueError("authoring scale must be an exact positive integer")
@@ -69,7 +70,7 @@ def construct(coefficients, n=6, scale=1):
         width = offsets[-1]
         if len(vertices) * width > 1000000:
             raise ValueError("Finite seed-authoring resource cap; not a mathematical rejection")
-        low2, high2 = intervals(p, vertices)
+        low2, high2 = _boundary_intervals(p, vertices)
         lower, upper = (low2 * scale + 1) // 2, high2 * scale // 2
         if np.any(lower > upper):
             return None, {"status": "no_integral_seed_at_this_scale", "inequality_invalidity_claimed": False}
@@ -178,28 +179,29 @@ def construct(coefficients, n=6, scale=1):
         ):
             raise ValueError("SAT proposal violates an exact compatible edge")
         proof = proof_from_seed_rows(p, (tuple(Fraction(value, scale) for value in row) for row in counts))
-    verifier = ReconstructionVerifier()
-    try:
-        audit = verifier.verify(proof)
-    finally:
-        verifier.close()
-    if (
-        audit.get("ok") is not True
-        or audit.get("scope") != "original-cube-all-edges"
-        or audit.get("checked_vertices") != p.vertices
-        or audit.get("checked_edges") != p.L * (p.vertices // 2)
-    ):
-        raise ValueError("Actual complete original-cube verification is required")
     return proof, {
-        "status": "proved",
+        "status": "candidate",
         "proof_id": proof_id(proof),
         "inequality_id": inequality_id(p),
         "method": "exact compatible-domain prefix SAT; same Kissat settings; standard fixed extension",
         "scale": scale,
-        "audit": audit,
         "elapsed_s": time.monotonic() - start,
         "floating_point_acceptance": False,
     }
+
+
+def construct(coefficients, n, scale=1):
+    """Return a standard proof only after one complete independent cube audit."""
+    start = time.monotonic()
+    proof, result = _propose(coefficients, n, scale)
+    if proof is None:
+        return None, result
+    verifier = ReconstructionVerifier()
+    try:
+        audit = _full_result(proof, verifier.verify(proof))
+    finally:
+        verifier.close()
+    return proof, {**result, "status": "proved", "audit": audit, "elapsed_s": time.monotonic() - start}
 
 
 def main(argv=None):
@@ -215,14 +217,12 @@ def main(argv=None):
 
     def definitions():
         for row in rows:
-            proof, result = construct(row, n=args.n, scale=args.scale)
+            proof, result = _propose(row, args.n, args.scale)
             if proof is None:
                 raise ValueError(f"No candidate constructed at this scale: {result}; no invalidity claim")
             print(json.dumps(result), flush=True)
             yield proof
 
-    print(json.dumps(write_proof_dataset(args.output, definitions())), flush=True)
-
-
-if __name__ == "__main__":
-    main()
+    # The writer audits each proposal once, then atomically publishes both indexes.
+    result = write_proof_dataset(args.output, definitions())
+    print(json.dumps({"status": "proved", **result}), flush=True)

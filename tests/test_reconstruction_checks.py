@@ -58,7 +58,7 @@ class ReconstructionChecksTests(unittest.TestCase):
             text=True,
         )
 
-    def test_full_audit_uses_single_parse_and_accepts_valid_nonfacet_extras(self):
+    def test_full_map_validity_does_not_authorize_unlisted_nonfacet_extras(self):
         self.stage()
         before = self.directory.joinpath("facets.json").read_bytes()
         with patch.object(ProofCatalog, "__getitem__", side_effect=AssertionError("double parse")):
@@ -67,13 +67,12 @@ class ReconstructionChecksTests(unittest.TestCase):
         self.assertFalse(result["source_tables_read"])
         self.assertFalse(result["stored_acceptance_flags_used"])
         self.assertFalse(result["facethood_or_rank_claims_established"])
-        bindings = list(checks.check_stored_database_bindings(self.root, n=2))
-        self.assertIn("3 inequality/3 proof", bindings[0])
-        self.assertIn("1 listed facets covered", bindings[0])
+        with self.assertRaisesRegex(ValueError, "exactly the same unique identities"):
+            list(checks.check_stored_database_bindings(self.root, n=2))
         self.assertEqual(self.directory.joinpath("facets.json").read_bytes(), before)
 
     def test_metadata_needs_no_payload_but_is_never_full_map_acceptance(self):
-        self.stage()
+        self.stage(self.documents[:1])
         self.directory.joinpath("proof-shards").rename(self.directory / "offline-shards")
         with patch.object(checks, "ReconstructionVerifier", side_effect=AssertionError("metadata executed a verifier")):
             result = list(checks.check_stored_database_bindings(self.root, n=2))
@@ -94,13 +93,16 @@ class ReconstructionChecksTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "boundary"):
             list(checks.check_stored_facet_database_format(self.root, n=2))
 
-    def test_standalone_database_does_not_skip_invalid_extra_nonfacet_proof(self):
+    def test_unlisted_invalid_proof_fails_membership_and_explicit_mathematical_audit(self):
         bad = copy.deepcopy(self.documents[1])
         bad["function"]["seed"] = {"kind": "integer-cut-dnf", "terms": [], "groups": [[[]]]}
         self.stage([self.documents[0], bad])
-        self.assertIn("1 listed facets covered", list(checks.check_stored_database_bindings(self.root, n=2))[0])
-        with self.assertRaisesRegex(ValueError, "boundary"):
+        with self.assertRaisesRegex(ValueError, "exactly the same unique identities"):
+            list(checks.check_stored_database_bindings(self.root, n=2))
+        with self.assertRaisesRegex(ValueError, "exactly the same unique identities"):
             list(checks.check_stored_facet_database_format(self.root, n=2))
+        with self.assertRaisesRegex(ValueError, "boundary"):
+            checks.audit_partition(2, self.root)
 
     def test_all_physical_partitions_are_disjoint_complete_and_actually_audited(self):
         self.stage()

@@ -75,12 +75,12 @@ def check_stored_database_bindings(root=None, *, n=None, shard_index=0, shard_co
         facets = load_hec_data(current_n, "facets", root=root)
         _check_facet_structure(current_n, facets)
         facet_ids = {inequality_id(geometry(current_n, tuple(row))) for row in facets}
-        if len(facet_ids) != len(facets) or not facet_ids <= inequalities.entries.keys():
-            raise ValueError("known facets must have unique exact inequality/proof bindings")
-        # Extra validity proofs are NOT silently added to the facet list.
+        if len(facet_ids) != len(facets) or facet_ids != inequalities.entries.keys():
+            raise ValueError("known facets and proof inequalities must have exactly the same unique identities")
         yield (
             f"n={current_n}: {len(inequalities.entries)} inequality/{len(proofs)} proof index bindings; "
-            f"{len(facets)} listed facets covered; metadata only, no mathematical audit or rank claim"
+            f"{len(facets)} facets in exact one-to-one correspondence; "
+            "metadata only, no mathematical audit or rank claim"
         )
 
 

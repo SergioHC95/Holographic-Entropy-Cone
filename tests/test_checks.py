@@ -112,6 +112,25 @@ class StoredRankCheckTests(unittest.TestCase):
         self.assertEqual(list(check_stored_facets(temporary.name, n=1)), ["n=1: 1 ok"])
         self.assertEqual(list(check_stored_rays(temporary.name, n=1)), ["n=1: 1 ok"])
 
+    def test_valid_contraction_for_a_nonfacet_does_not_pass_the_facet_rank_gate(self):
+        from hec.reconstruction import ReconstructionProgram
+
+        proof = document(geometry(2, (2, 1, -1)), [(0,), (1,), (1,)])
+        self.assertTrue(ReconstructionProgram(proof).audit_reference()["ok"])
+        temporary, target, _records = _temporary_dataset(2, "facets", "rays")
+        self.addCleanup(temporary.cleanup)
+        (target / "facets.json").write_text("[[2,1,-1]]")
+        with self.assertRaisesRegex(ValueError, "rank 1 < 2"):
+            list(check_stored_facets(temporary.name, n=2))
+
+    def test_rank_batch_rejects_integer_dot_product_overflow_before_jit(self):
+        temporary, target, _records = _temporary_dataset(1, "facets", "rays")
+        self.addCleanup(temporary.cleanup)
+        (target / "facets.json").write_text(json.dumps([[1 << 62]]))
+        (target / "rays.json").write_text("[[4]]")
+        with self.assertRaisesRegex(ValueError, "integer dot-product bound"):
+            list(check_stored_facets(temporary.name, n=1))
+
 
 if __name__ == "__main__":
     unittest.main()

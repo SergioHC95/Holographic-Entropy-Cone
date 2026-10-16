@@ -36,32 +36,33 @@ Kissat and its raw C symbols; the tracked Cython extensions build on first use.
 
 `data/n=*/facets.json` and `rays.json` store representatives of distinct
 full-symmetry orbits under $S_{n+1}$, including permutations of the purifier.
-Inequality and proof identities instead bind exact party-labelled coefficient
-vectors; they are not a separate list of symmetry-inequivalent facets.
+Facet and proof identities bind exact party-labelled coefficient vectors;
+the two catalogues cover exactly the same listed representatives.
 
 | File | Contents |
 | --- | --- |
 | `facets.json` | Listed facet representatives, with lower-party lifts first. |
 | `rays.json` | Extreme-ray representatives, with lifts first. |
 | `graphs.json` | One exact graph realization per `rays.json` row, in the same order. |
-| `inequalities.json` | Primitive inequality identities and their selected proofs. |
+| `inequalities.json` | Exact facet identities and their selected full-map proofs. |
 | `proofs.json` | Content-addressed proof/frame index. |
 | `proof-shards/*.proofpack` | Seekable exact definitions, stored in ordinary Git. |
 
 Rows use cardinality-then-lexicographic subset order. Non-lift facet rows are
-row-lexicographically sorted. Each `inequalities.json` entry selects exactly
-one full-map proof in `proofs.json`, bound by content rather than facet-row
-position. The six-party data has **85,033 inequality/proof records** but
-**80,570 listed facet representatives**: the **4,463 additional records**
-establish inequality validity, not an additional facethood claim.
+row-lexicographically sorted. There is exactly one full-map proof per listed facet,
+bound by content rather than facet-row position. The six-party data has
+**84,976 listed facet representatives**, with exactly matching inequality
+and proof catalogues. Candidates without facet certification do not belong
+in the accepted data tree.
 `data/storage.json` binds every payload to its byte length and SHA256.
 
-Across all party counts, **85,047 full-map proofs** occupy **16 proof shards**
-totalling **178,245,333 bytes**. Git LFS is not required.
+Across all party counts, **84,990 full-map proofs** occupy **16 proof shards**
+totalling **151,955,224 bytes**. Git LFS is not required.
 
 One [mathematical specification](docs/proofs.md) defines the reconstruction
 contract. One [schema](schemas/repository.schema.json) describes proofs,
-catalogues and the byte inventory. The Python API is `hec.proof_store`:
+catalogues and the byte inventory.
+The Python API is `hec.proof_store`:
 `ProofCatalog`, `write_proof_catalog` and `write_proof_dataset`.
 The reader rejects unknown syntax; the writer independently verifies each
 complete map before publishing a new immutable dataset.
@@ -78,16 +79,21 @@ uv run hec storage snapshot --replace   # intentional byte-inventory update
 Hash/schema checks are not mathematical acceptance. The required CI gate also
 reconstructs every proof and checks all original-cube bounds, occurrence images
 and weighted edges, plus exact facet/ray ranks, graph realizations and global
-bindings. Complete maps belong to disjoint, cost-balanced jobs; each uses at
+bindings. Membership must agree in both directions: no facet without a proof
+and no unlisted proof inequality. Facet ranks are established against the
+stored rays and their independently verified graph realizations, never from
+saved rank or validity flags.
+Complete maps belong to disjoint, cost-balanced jobs; each uses at
 most four workers and only its owned shards. All jobs must pass at one commit.
 
 ## Construct proofs and graphs
 
-`hec.find_contraction(coefficients, n)` returns a self-contained proof only
-after exact independent verification. For compact-domain authoring:
+The production constructor `hec.construct_contraction(coefficients, n, scale=1)`
+searches a compatible seed and returns a self-contained current-standard proof
+only after exact independent verification. To construct a catalogue:
 
 ```bash
-uv run python examples/compatible_seed_authoring.py \
+uv run hec construct \
   --rows data/n=2/facets.json --n 2 --output contractions_example
 ```
 
@@ -98,16 +104,22 @@ SAT edge constraints, reconstructs the fixed full map and exhaustively audits
 it. Solver models are transient; a resource limit or unfinished search is not
 a proof or a mathematical impossibility result.
 
-The examples `find_ineq_contractions.py` and `find_ray_graphs.py` use
-`HEC_WORKERS` and `HEC_GRAPH_WORKERS`; checks use `HEC_CHECK_WORKERS`.
+The implementation is `hec.authoring`; there is no separate example-only
+constructor or alternate proof format. The CLI streams proposals to the
+standard writer, which audits each complete map once and atomically publishes
+the two bound indexes and immutable shards. Proof construction establishes
+inequality validity; repository admission additionally requires facet rank.
+
+The graph-generation example `find_ray_graphs.py` uses `HEC_GRAPH_WORKERS`;
+checks use `HEC_CHECK_WORKERS`.
 In PowerShell, set variables with `$env:HEC_CHECK_WORKERS = "4"`.
 
 ## Cone summary
 
 Counts below come from the tracked data, not solver runs. Facet/ray images
 count distinct $S_{n+1}$ relabelings, discarding stabilizer-related repeats.
-The proof column counts selected full maps, one per inequality record; a
-complete proof catalogue does not mean the six-party cone is fully known.
+The proof column counts selected full maps, one per listed facet. Complete
+proof coverage does not mean the six-party cone is fully known.
 
 | n | facet reps | facet images | ray reps / graphs | ray images | full-map proofs | cone catalogue |
 | :-: | ---------: | -----------: | ----------------: | ---------: | --------------: | :------------- |
@@ -116,7 +128,7 @@ complete proof catalogue does not mean the six-party cone is fully known.
 | 3 | 2 | 7 | 2 | 7 | 2 | complete |
 | 4 | 2 | 20 | 3 | 20 | 2 | complete |
 | 5 | 8 | 372 | 19 | 2,267 | 8 | complete |
-| 6 | 80,570 | 399,910,238 | 4,161 | 15,455,986 | 85,033 | partial |
+| 6 | 84,976 | 421,819,538 | 4,161 | 15,455,986 | 84,976 | partial |
 
 CI recomputes this table and the proof-storage totals from the data; stale
 README counts fail the tests. These documentation checks do not replace

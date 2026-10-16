@@ -59,6 +59,7 @@ class ReadmeDataTests(unittest.TestCase):
             with self.subTest(n=n):
                 self.assertEqual(len(docs["graphs"]), len(rays))
                 self.assertEqual(len(proofs), len(inequalities))
+                self.assertEqual(len(facets), len(proofs))
             maps = permutation_array(n)
             facet_images = _orbit_image_count(np.asarray(facets, dtype=np.int64), maps)
             ray_images = _orbit_image_count(np.asarray(rays, dtype=np.int64), maps)
@@ -69,20 +70,16 @@ class ReadmeDataTests(unittest.TestCase):
             )
         self.assertEqual(actual, expected)
 
-    def test_documented_proof_totals_and_additional_inequalities_match_catalogues(self):
+    def test_documented_totals_and_facet_only_membership_match_catalogues(self):
         proofs = sum(len(docs["proofs"]["entries"]) for _, docs in self.datasets)
         shards = sum(len(docs["proofs"]["shards"]) for _, docs in self.datasets)
         payload_bytes = sum(shard["bytes"] for _, docs in self.datasets for shard in docs["proofs"]["shards"].values())
         for phrase in (f"{proofs:,} full-map proofs", f"{shards:,} proof shards", f"{payload_bytes:,} bytes"):
             self.assertIn(f"**{phrase}**", self.readme)
         n6 = dict(self.datasets)[6]
-        count, facets = len(n6["inequalities"]["entries"]), len(n6["facets"])
-        for phrase in (
-            f"{count:,} inequality/proof records",
-            f"{facets:,} listed facet representatives",
-            f"{count - facets:,} additional records",
-        ):
-            self.assertIn(f"**{phrase}**", self.readme)
+        self.assertEqual(len(n6["facets"]), len(n6["inequalities"]["entries"]))
+        self.assertIn(f"**{len(n6['facets']):,} listed facet representatives**", self.readme)
+        self.assertIn("exactly one full-map proof per listed facet", self.readme)
 
     def test_orbit_stabilizer_matches_explicit_unique_images_on_small_controls(self):
         rng = np.random.default_rng(12301)
