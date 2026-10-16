@@ -22,7 +22,7 @@ from hec.reconstruction import PIPELINE, ReconstructionProgram
 from hec.reconstruction_verify import ReconstructionVerifier
 
 
-class ModernAuthoringTests(unittest.TestCase):
+class AuthoringTests(unittest.TestCase):
     def setUp(self):
         self.p = geometry(2, (1, 1, -1))
         self.rows = [(0,), (1,), (1,)]
@@ -67,7 +67,7 @@ class ModernAuthoringTests(unittest.TestCase):
         self.assertEqual(canonical_json(a), canonical_json(b))
         self.assertNotIn("verified", a)
         self.assertTrue(ReconstructionProgram(a).audit_reference()["ok"])
-        expected = hashlib.sha256(b"hec-count-proof/1\0" + canonical_json(a)).hexdigest()
+        expected = hashlib.sha256(b"hec-count-proof\0" + canonical_json(a)).hexdigest()
         self.assertEqual(proof_id(a), expected)
 
     def test_dataset_stream_audits_once_and_atomically_publishes_exact_bindings(self):
@@ -107,9 +107,15 @@ class ModernAuthoringTests(unittest.TestCase):
             InequalityCatalog(target / "inequalities.json").check_bindings(stored)
 
 
-class ModernDistributionTests(unittest.TestCase):
+class DistributionTests(unittest.TestCase):
     def test_no_historical_acceptance_implementations_ship(self):
-        for module in ("hec._archive_proof_store", "hec._count_kernel", "hec._count_dag", "hec._count_verify"):
+        for module in (
+            "hec.reconstruction_store",
+            "hec._archive_proof_store",
+            "hec._count_kernel",
+            "hec._count_dag",
+            "hec._count_verify",
+        ):
             self.assertIsNone(importlib.util.find_spec(module))
 
     def test_bound_native_release_is_reusable_and_source_binary_checked(self):

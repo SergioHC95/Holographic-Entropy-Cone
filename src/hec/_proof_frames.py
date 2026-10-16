@@ -17,7 +17,7 @@ import zstandard as zstd
 
 from .count_proofs import FORMAT, canonical_json, inequality_id, parse_json, proof_geometry, proof_id
 
-CATALOG_FORMAT = "hec-proof-catalog/1"
+CATALOG_FORMAT = "hec-proof-catalog"
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 DEFAULT_SHARD_BYTES = 16 * 1024**2
 MAX_RECORD_BYTES = 1024**3
@@ -212,7 +212,7 @@ def _write_catalog(
         )
         blocks.extend(compressed)
     if require_nonempty and not identities:
-        raise ValueError("authoritative unified catalogue requires at least one actually verified proof")
+        raise ValueError("authoritative catalogue requires at least one actually verified proof")
     finish()
     catalog = {"format": CATALOG_FORMAT, "entries": entries, "shards": shards}
     # Only this process's temporary file is cleaned up. Original tables and

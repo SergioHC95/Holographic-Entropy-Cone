@@ -20,7 +20,7 @@ from .checks import _bounded_parallel_map, _check_facet_structure, check_worker_
 from .count_proofs import canonical_json, decimal, geometry, inequality_id
 from .data import available_ns, data_path, load_hec_data
 from .inequality_records import InequalityCatalog
-from .reconstruction_store import ReconstructionCatalog
+from .proof_store import ProofCatalog
 from .reconstruction_verify import ReconstructionVerifier
 from .serialization import load_json
 
@@ -35,7 +35,7 @@ def _close_process_verifier():
 
 def _initialize_audit_process(path):
     global _process_catalog, _process_verifier
-    _process_catalog = ReconstructionCatalog(path)
+    _process_catalog = ProofCatalog(path)
     _process_verifier = ReconstructionVerifier()
     Finalize(None, _close_process_verifier, exitpriority=10)
 
@@ -47,19 +47,19 @@ def _audit_in_process(index):
 def selected_ns(root, n):
     available = available_ns(root=root)
     if not available:
-        raise ValueError("no unified datasets found; an empty check is not acceptance")
+        raise ValueError("no exact datasets found; an empty check is not acceptance")
     if len(available) != len(set(available)):
         raise ValueError("ambiguous repeated party-count directories cannot define a complete CI plan")
     if n is not None and (type(n) is not int or n not in available):
-        raise ValueError(f"no stored unified data for n={n}")
+        raise ValueError(f"no stored exact data for n={n}")
     return available if n is None else [n]
 
 
 def bound_catalog(current_n, root):
     path = data_path(current_n, "contractions", root=root)
-    proofs, inequalities = ReconstructionCatalog(path), InequalityCatalog(path.with_name("inequalities.json"))
+    proofs, inequalities = ProofCatalog(path), InequalityCatalog(path.with_name("inequalities.json"))
     if not len(proofs):
-        raise ValueError("empty authoritative unified catalogue is not acceptance")
+        raise ValueError("empty authoritative exact catalogue is not acceptance")
     inequalities.check_bindings(proofs)
     if any(entry["n"] != current_n for entry in inequalities.entries.values()):
         raise ValueError("inequality/proof catalogue is stored under the wrong party count")

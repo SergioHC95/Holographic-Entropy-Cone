@@ -81,10 +81,10 @@ class ReconstructionPipelineTests(unittest.TestCase):
             auditor.close()
 
     def test_documented_example_and_self_contained_schema(self):
-        text = (ROOT / "docs/contraction-proof-standard.md").read_text()
+        text = (ROOT / "docs/proofs.md").read_text()
         example = text.split("```json", 1)[1].split("```", 1)[0]
         self.assertTrue(ReconstructionProgram(parse_json(example.encode())).audit_reference()["ok"])
-        schema = json.loads((ROOT / "schemas/count-proof-v1.schema.json").read_text())
+        schema = json.loads((ROOT / "schemas/repository.schema.json").read_text())
 
         def visit(value):
             if isinstance(value, dict):

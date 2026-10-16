@@ -10,18 +10,18 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from proof_fixtures import departed_definition, document, write_frames
+from proof_fixtures import document, unsupported_definition, write_frames
 
 from hec import reconstruction_checks as checks
 from hec._proof_partitions import partition_entries, proof_work
 from hec.count_proofs import geometry, inequality_id, proof_id
 from hec.inequality_records import write_inequality_catalog
-from hec.reconstruction_store import ReconstructionCatalog
+from hec.proof_store import ProofCatalog
 
 
 class ReconstructionChecksTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix="hec-unified-ci-")
+        self.temporary = tempfile.TemporaryDirectory(prefix="hec-exact-ci-")
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.directory = self.root / "n=2"
@@ -46,7 +46,7 @@ class ReconstructionChecksTests(unittest.TestCase):
             entries.append({"id": inequality_id(p), **p.inequality(), "proof_ids": [proof_id(doc)]})
         write_inequality_catalog(
             self.directory / "inequalities.json",
-            {"format": "hec-inequality-catalog/1", "entries": sorted(entries, key=lambda entry: entry["id"])},
+            {"format": "hec-inequality-catalog", "entries": sorted(entries, key=lambda entry: entry["id"])},
         )
         for name, value in (("facets", [[1, 1, -1]]), ("rays", [[1, 0, 1]]), ("graphs", [])):
             self.directory.joinpath(f"{name}.json").write_text(json.dumps(value))
@@ -61,7 +61,7 @@ class ReconstructionChecksTests(unittest.TestCase):
     def test_full_audit_uses_single_parse_and_accepts_valid_nonfacet_extras(self):
         self.stage()
         before = self.directory.joinpath("facets.json").read_bytes()
-        with patch.object(ReconstructionCatalog, "__getitem__", side_effect=AssertionError("double parse")):
+        with patch.object(ProofCatalog, "__getitem__", side_effect=AssertionError("double parse")):
             result = checks.audit_partition(2, self.root, expect_proofs=3, expect_edges=12)
         self.assertEqual((result["proofs"], result["checked_vertices"], result["checked_edges"]), (3, 12, 12))
         self.assertFalse(result["source_tables_read"])
@@ -87,16 +87,16 @@ class ReconstructionChecksTests(unittest.TestCase):
 
     def test_standalone_database_executes_math_and_rejects_well_formed_bad_boundary(self):
         bad = copy.deepcopy(self.documents[0])
-        bad["function"]["seed"] = {"kind": "integer-cut-dnf/1", "terms": [], "groups": [[[]]]}
+        bad["function"]["seed"] = {"kind": "integer-cut-dnf", "terms": [], "groups": [[[]]]}
         self.stage([bad])
-        self.assertEqual(ReconstructionCatalog(self.directory / "proofs.json")[0], bad)
+        self.assertEqual(ProofCatalog(self.directory / "proofs.json")[0], bad)
         self.assertIn("metadata only", list(checks.check_stored_database_bindings(self.root, n=2))[0])
         with self.assertRaisesRegex(ValueError, "boundary"):
             list(checks.check_stored_facet_database_format(self.root, n=2))
 
     def test_standalone_database_does_not_skip_invalid_extra_nonfacet_proof(self):
         bad = copy.deepcopy(self.documents[1])
-        bad["function"]["seed"] = {"kind": "integer-cut-dnf/1", "terms": [], "groups": [[[]]]}
+        bad["function"]["seed"] = {"kind": "integer-cut-dnf", "terms": [], "groups": [[[]]]}
         self.stage([self.documents[0], bad])
         self.assertIn("1 listed facets covered", list(checks.check_stored_database_bindings(self.root, n=2))[0])
         with self.assertRaisesRegex(ValueError, "boundary"):
@@ -113,7 +113,7 @@ class ReconstructionChecksTests(unittest.TestCase):
         self.assertEqual(sum(job["kind"] == "database-bindings" for job in plan), 1)
         self.assertNotIn("database", {job["kind"] for job in plan})
         self.assertTrue(all(bool(job["checkout_paths"]) is (job["kind"] == "contractions") for job in plan))
-        catalog = ReconstructionCatalog(self.directory / "proofs.json")
+        catalog = ProofCatalog(self.directory / "proofs.json")
         seen, total = set(), 0
         for job in jobs:
             _, inequalities = checks.bound_catalog(2, self.root)
@@ -160,7 +160,7 @@ class ReconstructionChecksTests(unittest.TestCase):
 
     def test_splitting_a_payload_cannot_hide_a_mathematically_invalid_map(self):
         bad = copy.deepcopy(self.documents[1])
-        bad["function"]["seed"] = {"kind": "integer-cut-dnf/1", "terms": [], "groups": [[[]]]}
+        bad["function"]["seed"] = {"kind": "integer-cut-dnf", "terms": [], "groups": [[[]]]}
         self.stage([self.documents[0], bad, self.documents[2]], individual=False)
         failed = 0
         for group in range(3):
@@ -281,14 +281,14 @@ class ReconstructionChecksTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "wrong party"):
             checks.audit_partition(3, self.root)
 
-    def test_legacy_definition_never_becomes_a_unified_fallback(self):
-        old = departed_definition(geometry(2, (1, 1, -1)))
+    def test_unsupported_definition_never_becomes_a_exact_fallback(self):
+        old = unsupported_definition(geometry(2, (1, 1, -1)))
         self.stage([old])
         with self.assertRaises(ValueError):
             checks.audit_partition(2, self.root)
 
     def test_empty_data_invalid_partition_and_retired_options_fail_closed(self):
-        with self.assertRaisesRegex(ValueError, "no unified datasets"):
+        with self.assertRaisesRegex(ValueError, "no exact datasets"):
             checks.ci_matrix(self.root)
         self.stage()
         self.assertNotEqual(self.cli("plan", "--lfs-ns-json", "[2]").returncode, 0)

@@ -26,7 +26,7 @@ class CompactDatabaseTests(unittest.TestCase):
         write_inequality_catalog(directory / "inequalities.json", inequality_catalog([proof]))
         return directory, proof
 
-    def test_normal_reader_and_database_are_new_format_only(self):
+    def test_normal_reader_and_database_require_exact_proof_catalogues(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             data, _proof = self.fixture(root)

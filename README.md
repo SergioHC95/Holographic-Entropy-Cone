@@ -1,113 +1,97 @@
 # Holographic Entropy Cone
 
-The Holographic Entropy Cone (HEC) is a family of polyhedral cones
-\(H_n\), labelled by the number of parties \(n\). Each cone has a dual
-description in terms of facet inequalities and extreme rays. The cones are
-known completely for \(n \leq 5\); the \(n=6\) data in this repository is
-partial.
+Exact facet inequalities, extreme rays, graph realizations and contraction
+proofs for the holographic entropy cones. The cones are complete for
+\(n\leq5\); the six-party data is partial.
 
-## Data
+## Setup and checks
 
-The repository contains one representative from each known full-symmetry orbit
-under \(S_{n+1}\). Data files live under `data/n=*/`:
-
-- `facets.json` contains facet-inequality representatives.
-- `rays.json` contains extreme-ray representatives.
-- `graphs.json` contains exact graph realizations for the listed rays.
-- `inequalities.json` binds primitive inequality identities to proof identities.
-- `proofs.json` indexes the exact compact contraction proofs.
-- `proof-shards/*.proofpack` contains immutable, independently seekable exact
-  definitions, committed directly in ordinary Git for every party count.
-- `data/storage.json` binds current data paths to byte lengths and hashes.
-
-Rows use primitive integer coefficients in cardinality-then-lexicographic
-subset order. Facet and ray files list lifts from lower-party cones first. The
-remaining facet rows—historical and newly added—are mixed and sorted
-row-lexicographically. Proofs bind to inequalities by content identity, not
-by their position in the facet file. Database checks require exact proof bindings for every listed facet. Additional
-validity proofs are recorded separately; a contraction does not certify facethood.
-
-Graphs contain only `edges` and `weights`. A contraction proof defines an
-exact rational count map on every vertex of the original source cube.
-Repeated RHS terms are grouped; clearing scales are explicit. Enumerated
-Boolean tables are optional audit exports rather than the active interface.
-
-The authoritative format is specified in
-[Exact contraction proof standard](docs/contraction-proof-standard.md).
-`hec.reconstruction` defines one closed reconstruction pipeline with four seed
-primitives. `hec.proof_store` exposes only that strict reader/writer. No historical
-format readers, migration tools, compatibility adapters or fallback paths remain.
-The supported CLI, storage inventory, authoring and CI lifecycle are documented
-in [The supported repository pipeline](docs/repository-pipeline.md).
-
-The corpus contains **85,047 self-contained proofs**, including 85,033 n=6
-inequality identities. Not every validity proof is asserted to define a facet.
-Proof frames occupy 178,456,073 bytes in 17 ordinary-Git shards.
-
-CI independently reconstructs every saved map and checks all bounds,
-party/purifier images and weighted cube edges. Complete-proof partitions avoid
-duplicate audits; metadata bindings and existing rank/graph checks are
-separate required jobs. Required data arrives with Git: no Git LFS installation,
-payload hydration service, transfer cache or external artifact host is needed.
-CI verifies all data hashes and rejects pointers or oversize blobs throughout
-the checked-out commit's ancestry. Sparse Git checkouts limit each mathematical
-partition to its owned proof shards. Historical recovery artifacts are kept
-outside the current repository, not as alternate accepted formats.
-
-## Python package
-
-The `hec` package under `src/hec/` provides:
-
-- contraction search and certificate checking;
-- facet and ray rank checks;
-- exact graph realization and verification;
-- loading and validating the repository data;
-- symmetry actions, canonicalization, and shared serialization utilities.
-
-Install the locked dependencies in an environment on the operating system
-where the code will run:
+Python dependencies are locked in `uv.lock`. Native exact verification needs
+GCC/Clang-compatible C++17 with unsigned 128-bit integers. CI covers Linux and
+macOS.
 
 ```bash
 uv sync --locked --dev --python 3.13.14
 uv run hec native build --directory .hec-native
 export HEC_NATIVE_DIR="$PWD/.hec-native"
-export HEC_RECONSTRUCTION_WORKING_BYTES=268435456
+
 uv run hec storage audit
-HEC_CHECK_WORKERS=2 uv run hec check database --root data
+HEC_RECONSTRUCTION_WORKING_BYTES=268435456 HEC_CHECK_WORKERS=4 \
+  uv run hec check database --root data
+uv run python -m unittest discover -s tests
 uv run ruff check .
 ```
 
-The contraction solver requires a PySAT build exposing Kissat and its raw C
-symbols. The tracked Cython sources are built automatically on first use when
-the local extensions are absent. On Windows, run the installation and checks
-with a compiler/toolchain providing the required exact native integer types.
-The maintained CI platforms are Linux and macOS; proof verification requires
-GCC/Clang-compatible C++17 with unsigned 128-bit integer support.
+The buffer limit bounds native output storage, not total RSS. Data is separate
+from the Python wheel: use the repository root, `HEC_DATA_ROOT`, or an explicit
+data root. Contraction search additionally requires a PySAT build exposing
+Kissat and its raw C symbols; the tracked Cython extensions build on first use.
 
-Set worker counts explicitly when desired:
+## Data
+
+`data/n=*/` stores one representative per known full-symmetry orbit under
+\(S_{n+1}\):
+
+| File | Contents |
+| --- | --- |
+| `facets.json` | Listed facet representatives, with lower-party lifts first. |
+| `rays.json` | Extreme-ray representatives, with lifts first. |
+| `graphs.json` | Exact ray realizations as edges and weights. |
+| `inequalities.json` | Primitive inequality identities and their selected proofs. |
+| `proofs.json` | Content-addressed proof/frame index. |
+| `proof-shards/*.proofpack` | Seekable exact definitions, stored in ordinary Git. |
+
+Rows use cardinality-then-lexicographic subset order. Non-lift facet rows are
+row-lexicographically sorted. Proofs bind to inequalities by content, not row
+position; additional validity proofs do not assert facethood.
+`data/storage.json` binds every payload to its byte length and SHA256.
+
+One [mathematical specification](docs/proofs.md) defines the reconstruction
+contract. One [schema](schemas/repository.schema.json) describes proofs,
+catalogues and the byte inventory. The Python API is `hec.proof_store`:
+`ProofCatalog`, `write_proof_catalog` and `write_proof_dataset`.
+The reader rejects unknown syntax; the writer independently verifies each
+complete map before publishing a new immutable dataset.
+
+Useful storage commands:
 
 ```bash
-HEC_WORKERS=2 uv run python examples/find_ineq_contractions.py
-HEC_GRAPH_WORKERS=4 uv run python examples/find_ray_graphs.py
-HEC_CHECK_WORKERS=2 uv run hec check facets
+uv run hec storage plan                 # expected payloads; metadata only
+uv run hec storage audit                # actual bytes and hashes
+uv run hec storage history              # complete HEAD ancestry hygiene
+uv run hec storage snapshot --replace   # intentional byte-inventory update
 ```
 
-The corresponding PowerShell environment-variable form is:
+Hash/schema checks are not mathematical acceptance. The required CI gate also
+reconstructs every proof and checks all original-cube bounds, occurrence images
+and weighted edges, plus exact facet/ray ranks, graph realizations and global
+bindings. Complete maps belong to disjoint, cost-balanced jobs; each uses at
+most four workers and only its owned shards. All jobs must pass at one commit.
 
-```powershell
-$env:HEC_WORKERS = "2"
-uv run python examples\find_ineq_contractions.py
-$env:HEC_GRAPH_WORKERS = "4"
-uv run python examples\find_ray_graphs.py
-$env:HEC_CHECK_WORKERS = "2"
-uv run hec check facets
+## Construct proofs and graphs
+
+`hec.find_contraction(coefficients, n)` returns a self-contained proof only
+after exact independent verification. For compact-domain authoring:
+
+```bash
+uv run python examples/compatible_seed_authoring.py \
+  --rows data/n=2/facets.json --n 2 --output contractions_example
 ```
 
-## Summary
+Input rows must be exact integers. Output must be a new directory.
+`--scale D` sets an explicit positive search scale. The constructor bounds
+compatible counts with exact triangle inequalities, imposes prefix-layer
+SAT edge constraints, reconstructs the fixed full map and exhaustively audits
+it. Solver models are transient; a resource limit or unfinished search is not
+a proof or a mathematical impossibility result.
 
-The table gives orbit-representative counts and the number of distinct images
-of those representatives. Stabilizer-related repeats within an orbit are
-counted once.
+The examples `find_ineq_contractions.py` and `find_ray_graphs.py` use
+`HEC_WORKERS` and `HEC_GRAPH_WORKERS`; checks use `HEC_CHECK_WORKERS`.
+In PowerShell, set variables with `$env:HEC_CHECK_WORKERS = "4"`.
+
+## Cone summary
+
+Orbit-image counts discard stabilizer-related repeats.
 
 | n | facet reps (lifts) | facet images | ray reps (lifts) | ray images | status |
 | :-: | ----------------: | -----------: | ---------------: | ----------: | :----- |

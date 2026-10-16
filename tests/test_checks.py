@@ -72,7 +72,7 @@ class StoredContractionCheckTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         mutated = copy.deepcopy(records["contractions"])
         mutated[0]["function"]["seed"] = {
-            "kind": "compatible-scalar-dag/1",
+            "kind": "compatible-scalar-dag",
             "scale": "1",
             "terminals": ["0"],
             "nodes": [],

@@ -18,7 +18,7 @@ from pathlib import Path
 from .count_proofs import canonical_json, parse_json
 
 INVENTORY = "data/storage.json"
-INVENTORY_FORMAT = "hec-repository-storage/2"
+INVENTORY_FORMAT = "hec-repository-storage"
 MAX_GIT_FILE_BYTES = 100 * 1024**2
 POINTER_PREFIX = b"version https://git-lfs.github.com/spec/v1"
 
@@ -111,7 +111,7 @@ def make_plan(root):
     if expected != actual:
         raise ValueError("missing or unindexed ordinary-Git proof payload")
     return {
-        "format": "hec-git-storage-plan/1",
+        "format": "hec-git-storage-plan",
         "proofs": count,
         "payloads": payloads,
         "payload_bytes": sum(row["bytes"] for row in payloads),

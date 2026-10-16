@@ -2,7 +2,6 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .uv-cache/
-.hec-ci-lfs/
 .hec-native/
 .DS_Store
 *.pyc

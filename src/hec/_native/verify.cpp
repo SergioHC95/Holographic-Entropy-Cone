@@ -404,7 +404,7 @@ int main(int argc, char** argv) {
     }
     while (std::cin.peek() != EOF) {
       auto start = std::chrono::steady_clock::now(); char magic[8];
-      need(bool(std::cin.read(magic, 8)) && std::string(magic, 8) == "HECCRP01", "invalid request magic");
+      need(bool(std::cin.read(magic, 8)) && std::string(magic, 8) == "HECCUBES", "invalid request magic");
       unsigned id = get(4), n = get(4), mode = get(4), dimensions = get(4);
       uint64_t raw_bytes = get(8); unsigned count = get(4); uint64_t d = get(8), t = get(8); unsigned query_count = get(4);
       need(dimensions <= 63 && mode == 0 && query_count <= 64 && raw_bytes <= uint64_t(1) * 1024 * 1024 * 1024,
@@ -439,8 +439,8 @@ int main(int argc, char** argv) {
           << ",\"checked_vertices\":" << result.vertices << ",\"checked_edges\":" << result.edges
           << ",\"seed_scale\":\"" << d << "\",\"clearing_scale\":\"" << t
           << "\",\"scope\":\"original-cube-all-edges\",\"native_microseconds\":" << micros
-          << ",\"arithmetic\":\"uint64-values-uint128-sums\",\"working_layout\":\"" << (tiled ? "exact-tiles/1" : "full-table/1")
-          << "\",\"edge_metric\":\"" << (RowMetric(p, t).words ? "unary-prefix-hamming/1" : "exact-count-l1/1")
+          << ",\"arithmetic\":\"uint64-values-uint128-sums\",\"working_layout\":\"" << (tiled ? "exact-tiles" : "full-table")
+          << "\",\"edge_metric\":\"" << (RowMetric(p, t).words ? "unary-prefix-hamming" : "exact-count-l1")
           << "\",\"output_row_storage_bytes\":" << result.working_bytes << ",\"output_row_storage_limit\":" << limit
           << ",\"reconstruction_evaluations\":" << result.evaluations << "}";
       reply(out.str(), {}, query_values);
