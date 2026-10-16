@@ -1,8 +1,8 @@
 # Holographic Entropy Cone
 
 Exact facet inequalities, extreme rays, graph realizations and contraction
-proofs for the holographic entropy cones. The cones are complete for
-\(n\leq5\); the six-party data is partial.
+proofs for the holographic entropy cones. The facet and ray catalogues are
+complete for $n\leq5$; the six-party catalogues are partial.
 
 ## Setup and checks
 
@@ -14,10 +14,15 @@ macOS.
 uv sync --locked --dev --python 3.13.14
 uv run hec native build --directory .hec-native
 export HEC_NATIVE_DIR="$PWD/.hec-native"
+export HEC_CHECK_WORKERS=4
+export HEC_RECONSTRUCTION_WORKING_BYTES=268435456
 
 uv run hec storage audit
-HEC_RECONSTRUCTION_WORKING_BYTES=268435456 HEC_CHECK_WORKERS=4 \
-  uv run hec check database --root data
+uv run hec storage history
+uv run hec check database --root data
+uv run hec check facets --root data
+uv run hec check rays --root data
+uv run hec check graphs --root data
 uv run python -m unittest discover -s tests
 uv run ruff check .
 ```
@@ -29,22 +34,30 @@ Kissat and its raw C symbols; the tracked Cython extensions build on first use.
 
 ## Data
 
-`data/n=*/` stores one representative per known full-symmetry orbit under
-\(S_{n+1}\):
+`data/n=*/facets.json` and `rays.json` store representatives of distinct
+full-symmetry orbits under $S_{n+1}$, including permutations of the purifier.
+Inequality and proof identities instead bind exact party-labelled coefficient
+vectors; they are not a separate list of symmetry-inequivalent facets.
 
 | File | Contents |
 | --- | --- |
 | `facets.json` | Listed facet representatives, with lower-party lifts first. |
 | `rays.json` | Extreme-ray representatives, with lifts first. |
-| `graphs.json` | Exact ray realizations as edges and weights. |
+| `graphs.json` | One exact graph realization per `rays.json` row, in the same order. |
 | `inequalities.json` | Primitive inequality identities and their selected proofs. |
 | `proofs.json` | Content-addressed proof/frame index. |
 | `proof-shards/*.proofpack` | Seekable exact definitions, stored in ordinary Git. |
 
 Rows use cardinality-then-lexicographic subset order. Non-lift facet rows are
-row-lexicographically sorted. Proofs bind to inequalities by content, not row
-position; additional validity proofs do not assert facethood.
+row-lexicographically sorted. Each `inequalities.json` entry selects exactly
+one full-map proof in `proofs.json`, bound by content rather than facet-row
+position. The six-party data has **85,033 inequality/proof records** but
+**80,570 listed facet representatives**: the **4,463 additional records**
+establish inequality validity, not an additional facethood claim.
 `data/storage.json` binds every payload to its byte length and SHA256.
+
+Across all party counts, **85,047 full-map proofs** occupy **16 proof shards**
+totalling **178,245,333 bytes**. Git LFS is not required.
 
 One [mathematical specification](docs/proofs.md) defines the reconstruction
 contract. One [schema](schemas/repository.schema.json) describes proofs,
@@ -91,22 +104,29 @@ In PowerShell, set variables with `$env:HEC_CHECK_WORKERS = "4"`.
 
 ## Cone summary
 
-Orbit-image counts discard stabilizer-related repeats.
+Counts below come from the tracked data, not solver runs. Facet/ray images
+count distinct $S_{n+1}$ relabelings, discarding stabilizer-related repeats.
+The proof column counts selected full maps, one per inequality record; a
+complete proof catalogue does not mean the six-party cone is fully known.
 
-| n | facet reps (lifts) | facet images | ray reps (lifts) | ray images | status |
-| :-: | ----------------: | -----------: | ---------------: | ----------: | :----- |
-| 1 | 1 (0) | 1 | 1 (0) | 1 | complete |
-| 2 | 1 (0) | 3 | 1 (1) | 3 | complete |
-| 3 | 2 (1) | 7 | 2 (1) | 7 | complete |
-| 4 | 2 (2) | 20 | 3 (2) | 20 | complete |
-| 5 | 8 (3) | 372 | 19 (3) | 2,267 | complete |
-| 6 | 80,570 (11) | — | 4,161 (19) | 15,455,986 | incomplete |
+| n | facet reps | facet images | ray reps / graphs | ray images | full-map proofs | cone catalogue |
+| :-: | ---------: | -----------: | ----------------: | ---------: | --------------: | :------------- |
+| 1 | 1 | 1 | 1 | 1 | 1 | complete |
+| 2 | 1 | 3 | 1 | 3 | 1 | complete |
+| 3 | 2 | 7 | 2 | 7 | 2 | complete |
+| 4 | 2 | 20 | 3 | 20 | 2 | complete |
+| 5 | 8 | 372 | 19 | 2,267 | 8 | complete |
+| 6 | 80,570 | 399,910,238 | 4,161 | 15,455,986 | 85,033 | partial |
+
+CI recomputes this table and the proof-storage totals from the data; stale
+README counts fail the tests. These documentation checks do not replace
+independent mathematical verification.
 
 ## Attribution
 
 If you use this data, please consider citing the following papers.
 
-* Complete description of \(H_n\) for \(n \leq 5\) from
+* Complete description of $H_n$ for $n \leq 5$ from
   [arXiv:1903.09148](https://arxiv.org/abs/1903.09148):
 
   ```bibtex
@@ -126,7 +146,7 @@ If you use this data, please consider citing the following papers.
   }
   ```
 
-* Partial description of \(H_6\) from
+* Partial description of $H_6$ from
   [arXiv:2309.06296](https://arxiv.org/abs/2309.06296):
 
   ```bibtex
