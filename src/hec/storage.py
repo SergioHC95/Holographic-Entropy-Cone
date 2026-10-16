@@ -15,7 +15,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from .count_proofs import canonical_json, parse_json
+from .count_proofs import canonical_json, decimal, geometry, inequality_id, parse_json
 
 INVENTORY = "data/storage.json"
 INVENTORY_FORMAT = "hec-repository-storage/2"
@@ -90,7 +90,7 @@ def repository_paths(root):
     return set(filter(None, raw.decode("utf-8").split("\0")))
 
 
-def make_plan(root):
+def _storage_plan(root):
     """Plan complete payload ownership without requiring a materialized checkout.
 
     A sparse Git checkout may omit payload bytes while planning. This performs
@@ -101,7 +101,7 @@ def make_plan(root):
 
     root = Path(root).resolve()
     known = repository_paths(root)
-    payloads, count = [], 0
+    payloads, count, bindings = [], 0, {}
     catalogs = sorted(path for path in known if re.fullmatch(r"data/n=[1-9][0-9]*/proofs.json", path))
     if not catalogs:
         raise ValueError("no standard proof catalogs; empty storage is not acceptance")
@@ -111,6 +111,10 @@ def make_plan(root):
         n = int(path.parent.name[2:])
         catalog = ProofCatalog(path)
         count += len(catalog)
+        for entry in catalog.entries:
+            if entry["proof_id"] in bindings:
+                raise ValueError("proof identity is repeated across party-count catalogues")
+            bindings[entry["proof_id"]] = (n, entry["inequality_id"])
         for key, shard in sorted(catalog.shards.items()):
             relative_payload = f"data/n={n}/proof-shards/{key}.proofpack"
             if not 0 < shard["bytes"] <= MAX_GIT_FILE_BYTES:
@@ -139,6 +143,36 @@ def make_plan(root):
         if type(size) is not int or not 0 < size <= MAX_GIT_FILE_BYTES or relative not in known:
             raise ValueError("invalid required ordinary-Git provenance payload")
         payloads.append({"path": relative, "sha256": sha, "bytes": size, "n": None})
+        authoring_keys = {
+            "authoring_provenance",
+            "authoring_provenance_sha256",
+            "authoring_provenance_bytes",
+            "authoring_provenance_proofs",
+        }
+        if authoring_keys & corpus.keys():
+            if not authoring_keys <= corpus.keys():
+                raise ValueError("incomplete current authoring provenance reference")
+            relative, sha = corpus["authoring_provenance"], corpus["authoring_provenance_sha256"]
+            size, authored = corpus["authoring_provenance_bytes"], corpus["authoring_provenance_proofs"]
+            converted = corpus.get("conversion_provenance_proofs")
+            if (
+                not isinstance(relative, str)
+                or re.fullmatch(r"provenance/contractions/[A-Za-z0-9_-]+/authoring-provenance\.jsonl", relative) is None
+                or not isinstance(sha, str)
+                or SHA256.fullmatch(sha) is None
+                or type(size) is not int
+                or not 0 < size <= MAX_GIT_FILE_BYTES
+                or type(authored) is not int
+                or authored < 1
+                or type(converted) is not int
+                or converted < 0
+                or type(corpus.get("proofs")) is not int
+                or authored + converted != corpus["proofs"]
+                or corpus["proofs"] != count
+                or relative not in known
+            ):
+                raise ValueError("invalid required authoring provenance identity, location or coverage")
+            payloads.append({"path": relative, "sha256": sha, "bytes": size, "n": None})
     return {
         "format": "hec-git-storage-plan/1",
         "proofs": count,
@@ -146,12 +180,84 @@ def make_plan(root):
         "payload_bytes": sum(row["bytes"] for row in payloads),
         "content_verified": False,
         "mathematical_acceptance": False,
-    }
+    }, bindings
+
+
+def make_plan(root):
+    """Metadata-only ownership planning; no payload read or mathematical acceptance."""
+    return _storage_plan(root)[0]
+
+
+def _audit_authoring_metadata(root, corpus, bindings):
+    """Cross-bind recorded claims, never treat their flags as mathematical verification."""
+    if "authoring_provenance" not in corpus:
+        return
+    seen = set()
+    path = safe_path(root, corpus["authoring_provenance"])
+    with path.open("rb") as stream:
+        while line := stream.readline(1024**2 + 1):
+            if len(line) > 1024**2 or not line.endswith(b"\n"):
+                raise ValueError("authoring provenance record exceeds the canonical line capability")
+            record = parse_json(line)
+            if (
+                not isinstance(record, dict)
+                or canonical_json(record) + b"\n" != line
+                or record.get("format") != "hec-standard-proof-authoring/1"
+            ):
+                raise ValueError("authoring provenance record is not canonical standard metadata")
+            pid, iid = record.get("proof_id"), record.get("inequality_id")
+            if not isinstance(pid, str) or pid not in bindings or pid in seen or bindings[pid][1] != iid:
+                raise ValueError("authoring provenance differs from exact proof/inequality bindings")
+            n = bindings[pid][0]
+            if not 1 <= n <= 6 or not isinstance(record.get("source_coefficients"), list):
+                raise ValueError("invalid authoring party frame or source normal")
+            problem = geometry(n, tuple(decimal(value) for value in record["source_coefficients"]))
+            if (
+                inequality_id(problem) != iid
+                or record.get("definition_profile") != "compatible-reconstruction-pipeline/1"
+            ):
+                raise ValueError("authoring source normal or primary proof profile differs")
+            if record.get("floating_point_acceptance") is not False:
+                raise ValueError("authoring metadata cannot claim floating-point mathematical acceptance")
+            audit = record.get("full_cube_audit")
+            expected = {
+                "ok": True,
+                "n": n,
+                "proof_id": pid,
+                "inequality_id": iid,
+                "scope": "original-cube-all-edges",
+                "source_tables_read": False,
+                "checked_vertices": problem.vertices,
+                "checked_edges": problem.L * (problem.vertices // 2),
+            }
+            if not isinstance(audit, dict) or any(
+                type(audit.get(key)) is not type(value) or audit[key] != value for key, value in expected.items()
+            ):
+                raise ValueError("recorded authoring audit coverage/context differs from the primary proof")
+            rank = record.get("support_rank_audit")
+            if rank is not None:
+                target = (1 << n) - 2
+                if (
+                    not isinstance(rank, dict)
+                    or rank.get("inequality_id") != iid
+                    or type(rank.get("n")) is not int
+                    or rank["n"] != n
+                    or type(rank.get("rank")) is not int
+                    or not 0 <= rank["rank"] <= target
+                    or type(rank.get("target_rank")) is not int
+                    or rank["target_rank"] != target
+                    or type(rank.get("ok")) is not bool
+                    or rank["ok"] != (rank["rank"] == target)
+                ):
+                    raise ValueError("recorded authoring support-rank context is inconsistent")
+            seen.add(pid)
+    if len(seen) != corpus["authoring_provenance_proofs"]:
+        raise ValueError("authoring provenance lacks its complete declared identity coverage")
 
 
 def inventory_document(root):
     root = Path(root).resolve()
-    plan = make_plan(root)
+    plan, bindings = _storage_plan(root)
     required = {row["path"]: row for row in plan["payloads"]}
     paths = repository_paths(root)
     paths.discard(INVENTORY)
@@ -180,6 +286,8 @@ def inventory_document(root):
         entries.append({"path": relative, "sha256": sha, "bytes": size})
     if not entries or not required.keys() <= {entry["path"] for entry in entries}:
         raise ValueError("incomplete ordinary-Git inventory")
+    if corpus_path.exists():
+        _audit_authoring_metadata(root, corpus, bindings)
     return {"format": INVENTORY_FORMAT, "entries": entries}
 
 

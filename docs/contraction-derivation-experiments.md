@@ -6,6 +6,12 @@ record. Their exact source is recoverable at commit
 are no longer installed or maintained. Current authoring, native builds,
 storage and required CI use [the supported pipeline](repository-pipeline.md).
 
+The 84,690-case results below describe the completed original scope. The
+current 85,047-case corpus additionally contains 357 freshly regenerated
+PR #238 proofs; see [the saved constructor](compatible-seed-authoring.md) and
+`provenance/contractions/pr238-20261015/`. Historical totals are not relabelled
+as new measurements of the expanded corpus.
+
 ## Final whole-corpus result — October 15, 2026
 
 All **84,690 unique inequality/proof identities** have deterministic standard

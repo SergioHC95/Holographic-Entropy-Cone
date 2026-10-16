@@ -5,12 +5,16 @@ The sole authoritative artifact is `hec-count-proof/1` with function kind
 `cancel-fill-common-threshold/1` full-map extension. There is no format
 guessing, legacy-reader fallback, executable proof code or stored-valid flag.
 
-The corpus contains **84,690 unique inequality/proof identities**: 80,213
-baseline n=6, 4,387 newer primitive, 76 scaled exact, and 14 n<=5.
-These are not all asserted to be facets. The fresh staged-data audit checked
-2,191,303,534 source vertices and 18,029,658,329 weighted source-cube edges
-with zero errors; the independent complete ledger/frame review also passed.
-Receipts are in `provenance/contractions/standard-20261015/`.
+The corpus contains **85,047 unique inequality/proof identities**: 80,213
+baseline n=6, 4,387 newer primitive, 76 scaled exact, 357 freshly regenerated
+PR #238 additions, and 14 n<=5. These are not all asserted to be facets.
+The original complete 84,690-map staged audit and fresh 357-map extension
+audit cover 2,196,398,958 source vertices and 18,065,770,713 weighted edges
+with zero errors. This is a composition of executed scopes, not a new single
+85,047-map audit or a substitute for the complete required CI at each commit.
+Receipts are in `provenance/contractions/standard-20261015/` and
+`provenance/contractions/pr238-20261015/`. New authoring uses the same proof
+language; there is no PR-specific reader or acceptance rule.
 
 `hec.proof_store.ProofCatalog` and `write_proof_catalog` are aliases of the
 single implementation in `hec.reconstruction_store`.
@@ -129,9 +133,9 @@ The declared full source cube is precisely `{0,1}^L` with its explicit
 
 The compatible-domain extension theorem below explains why the same full-map
 rule works for every seed representation. It is not a claim that syntax,
-hashes, or seed-only checks substitute for the exhaustive per-map migration
-audit: the running staged-data pass still executes all original-cube bounds,
-occurrence images, and weighted edges on every saved definition.
+hashes, or seed-only checks substitute for exhaustive per-map acceptance:
+the writer and required CI execute all original-cube bounds, occurrence
+images, and weighted edges on every saved definition.
 
 Decision diagrams record their minimal common denominator. The kernel construction
 records a derived sufficient clearing scale, explicitly marked nonminimal.

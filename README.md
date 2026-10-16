@@ -40,11 +40,16 @@ format readers, migration tools, compatibility adapters or fallback paths remain
 The supported CLI, storage inventory, authoring and CI lifecycle are documented
 in [The supported repository pipeline](docs/repository-pipeline.md).
 
-All **84,690 unique proofs** have passed fresh exact staged-data QA, covering
-2,191,303,534 vertices and 18,029,658,329 weighted source-cube edges with zero
-errors. The complete frozen-input/ledger/frame acceptance review also passed.
-The n=6 proof corpus has 84,676 inequality identities, not 84,676 asserted
-facets; the existing facet/ray/graph records remain unchanged.
+The current corpus contains **85,047 unique proofs**, including all 357
+previously unmerged PR #238 inequalities. The original 84,690 definitions and
+payload bytes are unchanged. Their complete staged-data audit plus the fresh
+357-map audit cover 2,196,398,958 vertices and 18,065,770,713 weighted
+source-cube edges with zero errors. These are explicitly composed audit
+scopes, not a claim of a new single whole-corpus run. CI repeats the entire
+expanded corpus independently at the candidate commit.
+The n=6 proof corpus has 85,033 inequality identities, not 85,033 asserted
+facets. The 357 additions separately passed exact tight-support rank 62 and
+strict graph-backed face-witness checks; ray and graph records are unchanged.
 
 CI independently reconstructs every saved map and checks all bounds,
 party/purifier images and weighted cube edges. Whole-payload partitions avoid
@@ -118,9 +123,18 @@ counted once.
 | 3 | 2 (1) | 7 | 2 (1) | 7 | complete |
 | 4 | 2 (2) | 20 | 3 (2) | 20 | complete |
 | 5 | 8 (3) | 372 | 19 (3) | 2,267 | complete |
-| 6 | 80,213 (11) | — | 4,161 (19) | 15,455,986 | incomplete |
+| 6 | 80,570 (11) | — | 4,161 (19) | 15,455,986 | incomplete |
 
 Data updates (older storage formats below are historical, not accepted by the primary reader):
+
+- 2026-10-15, PR #238 integration: reconstructed all 357 missing proofs in
+  the sole current standard, with fresh original-cube audits of 5,095,424
+  vertices and 36,112,384 edges, separate rank/strict-face checks, and exact
+  source-commit/normal bindings. The new immutable shard is 764,220 bytes;
+  all proof frames now total 178,456,073 bytes in ordinary Git. The
+  [compatible-domain constructor](docs/compatible-seed-authoring.md) is saved
+  with reproducible controls. The original proof journals were not recovered;
+  these are fresh certified constructions, not recovered historical bits.
 
 - 2026-10-15: standardized all 84,690 proofs into one deterministic exact
   full-map pipeline. Of the independently audited alternatives, 25,293 remain
