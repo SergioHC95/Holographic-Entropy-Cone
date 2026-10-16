@@ -128,7 +128,7 @@ jobs:
           echo "HEC_RECONSTRUCTION_WORKING_BYTES=268435456" >> "$GITHUB_ENV"
       - name: Validate ${{ matrix.kind }} for n=${{ matrix.n }}
         env:
-          HEC_CHECK_WORKERS: ${{ matrix.kind == 'contractions' && '4' || '2' }}
+          HEC_CHECK_WORKERS: "4"
           OPENBLAS_NUM_THREADS: "1"
           OMP_NUM_THREADS: "1"
           NUMBA_NUM_THREADS: "1"

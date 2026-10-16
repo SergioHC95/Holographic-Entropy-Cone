@@ -234,6 +234,16 @@ def ci_matrix(root=None):
                     priority = sum(
                         proof_work(inequalities.entries[catalog.entries[index]["inequality_id"]]) for index in indices
                     )
+                elif kind == "facets":
+                    # Cubic exact elimination is independently expensive. Give
+                    # rank partitions early slots alongside the largest maps,
+                    # rather than placing every rank job at the queue's tail.
+                    owned_rows = (counts[kind] + groups - 1 - group) // groups
+                    priority = 3 * owned_rows * ((1 << current_n) - 1) ** 3 + (1 << 18)
+                elif kind == "database-bindings":
+                    # Global symmetry/normalization checks must not become a
+                    # late tail after all independent map jobs are finished.
+                    priority = counts[kind] * ((1 << current_n) - 1) * math.factorial(current_n + 1)
                 else:
                     priority = 0
                 tasks.append(task)

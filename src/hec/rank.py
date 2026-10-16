@@ -13,11 +13,43 @@ from .symmetry import permutation_array
 RANK_PRIME = 2_147_483_647
 
 
+def _orbit_representatives(candidates: np.ndarray, inverse_maps: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Exact first-occurrence representatives for a bounded prefix of orbits.
+
+    Equal integer rows, not hashes or approximate equality, establish each
+    duplicate. Unprepared candidates still use every permutation. This is
+    transient shared input preprocessing, never cached rank acceptance.
+    """
+    count = min(64, candidates.shape[0])
+    if inverse_maps.shape[0] > np.iinfo(np.int32).max:
+        raise ValueError("exact orbit representative index capacity exceeded")
+    indices = np.zeros((count, inverse_maps.shape[0]), dtype=np.int32)
+    counts = np.zeros(count, dtype=np.int64)
+    for index in range(count):
+        row = candidates[index]
+        # Narrow only after proving the complete integer range fits exactly.
+        # This reduces temporary comparison bandwidth; no artifact is changed.
+        low, high = int(row.min(initial=0)), int(row.max(initial=0))
+        dtype = np.uint8 if 0 <= low and high <= 255 else np.int16 if -32768 <= low and high <= 32767 else np.int64
+        images = row[inverse_maps].astype(dtype)
+        _, first = np.unique(images, axis=0, return_index=True)
+        first.sort()  # Preserve the original order of distinct image discovery.
+        counts[index] = len(first)
+        indices[index, : len(first)] = first
+    indices.setflags(write=False)
+    counts.setflags(write=False)
+    return indices, counts
+
+
 def prepare_rank_candidates(
     candidates: Sequence[Sequence[int]],
     n: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, int]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, int, np.ndarray, np.ndarray]:
     """Convert shared rank-check inputs once for repeated support-rank calls."""
+    return _prepare_rank_candidates(candidates, n, shared=True)
+
+
+def _prepare_rank_candidates(candidates, n, *, shared):
     width = dim(n)
     target = width - 1
     candidate_arr = np.asarray([row_to_array(row, n, dtype=np.int64) for row in candidates], dtype=np.int64)
@@ -35,11 +67,28 @@ def prepare_rank_candidates(
     for map_index, mapping in enumerate(maps):
         inverse_maps[map_index, mapping] = source_indices
     inverse_maps.setflags(write=False)
-    return candidate_arr, maps, inverse_maps, candidate_indices, candidate_values, candidate_counts, target
+    if shared:
+        orbit_indices, orbit_counts = _orbit_representatives(candidate_arr, inverse_maps)
+    else:
+        # One-off calls must not pay for preprocessing that repeated callers
+        # amortize. Empty representative metadata means all exact images.
+        orbit_indices = np.empty((0, maps.shape[0]), dtype=np.int32)
+        orbit_counts = np.empty(0, dtype=np.int64)
+    return (
+        candidate_arr,
+        maps,
+        inverse_maps,
+        candidate_indices,
+        candidate_values,
+        candidate_counts,
+        target,
+        orbit_indices,
+        orbit_counts,
+    )
 
 
 def support_rank(fixed: Sequence[int], candidates: Sequence[Sequence[int]], n: int) -> dict:
-    prepared = prepare_rank_candidates(candidates, n)
+    prepared = _prepare_rank_candidates(candidates, n, shared=False)
     return support_rank_prepared(fixed, n, *prepared)
 
 
@@ -53,6 +102,8 @@ def support_rank_prepared(
     candidate_values: np.ndarray,
     candidate_counts: np.ndarray,
     target: int,
+    orbit_indices: np.ndarray,
+    orbit_counts: np.ndarray,
 ) -> dict:
     if target == 0:
         return {"rank": 0, "target_rank": 0, "saturating_images": 0, "tested_images": 0}
@@ -61,14 +112,23 @@ def support_rank_prepared(
     nonzero = np.flatnonzero(fixed_arr)
     if nonzero.size * candidate_arr.shape[0] <= int(candidate_counts.sum()):
         rank, saturating_images, tested_images = saturating_image_rank_sparse_fixed(
-            nonzero.astype(np.int64), fixed_arr[nonzero].astype(np.int64), candidate_arr, maps, inverse_maps, target
+            nonzero.astype(np.int64),
+            fixed_arr[nonzero].astype(np.int64),
+            candidate_arr,
+            maps,
+            inverse_maps,
+            target,
+            orbit_indices,
+            orbit_counts,
         )
     elif int(candidate_counts.max()) * 2 < fixed_arr.size:
         rank, saturating_images, tested_images = saturating_image_rank_sparse_candidates(
-            fixed_arr, candidate_indices, candidate_values, candidate_counts, maps, target
+            fixed_arr, candidate_indices, candidate_values, candidate_counts, maps, target, orbit_indices, orbit_counts
         )
     else:
-        rank, saturating_images, tested_images = saturating_image_rank(fixed_arr, candidate_arr, maps, target)
+        rank, saturating_images, tested_images = saturating_image_rank(
+            fixed_arr, candidate_arr, maps, target, orbit_indices, orbit_counts
+        )
     return {
         "rank": rank,
         "target_rank": target,
@@ -92,6 +152,8 @@ def check_support_rank_prepared(
     candidate_values: np.ndarray,
     candidate_counts: np.ndarray,
     target: int,
+    orbit_indices: np.ndarray,
+    orbit_counts: np.ndarray,
 ) -> dict:
     result = support_rank_prepared(
         fixed,
@@ -103,6 +165,8 @@ def check_support_rank_prepared(
         candidate_values,
         candidate_counts,
         target,
+        orbit_indices,
+        orbit_counts,
     )
     return {"ok": result["rank"] == result["target_rank"], "n": n, **result}
 
@@ -128,23 +192,25 @@ def _insert_rank_row(
     target: int,
     width: int,
 ) -> tuple[int, bool]:
-    while True:
-        pivot = -1
-        for index in range(width):
-            if row[index] != 0:
-                pivot = index
-                break
-        if pivot < 0:
-            break
+    # A normalized pivot row has zero columns before its pivot. Eliminating
+    # left-to-right never changes those cleared columns, so neither rescanning
+    # nor modular multiplication of that zero prefix is necessary.
+    for pivot in range(width):
+        if row[pivot] == 0:
+            continue
         if not has_pivot[pivot]:
-            inverse = _mod_pow(row[pivot], RANK_PRIME - 2, RANK_PRIME)
-            for index in range(width):
+            inverse = 1 if row[pivot] == 1 else _mod_pow(row[pivot], RANK_PRIME - 2, RANK_PRIME)
+            for index in range(pivot):
+                basis[pivot, index] = 0
+            basis[pivot, pivot] = 1
+            for index in range(pivot + 1, width):
                 basis[pivot, index] = (row[index] * inverse) % RANK_PRIME
             has_pivot[pivot] = True
             rank += 1
             return rank, rank == target
         factor = row[pivot]
-        for index in range(width):
+        row[pivot] = 0
+        for index in range(pivot + 1, width):
             row[index] = (row[index] - factor * basis[pivot, index]) % RANK_PRIME
     return rank, False
 
@@ -155,6 +221,8 @@ def saturating_image_rank(
     candidates: np.ndarray,
     maps: np.ndarray,
     target: int,
+    orbit_indices: np.ndarray,
+    orbit_counts: np.ndarray,
 ) -> tuple[int, int, int]:
     width = fixed.shape[0]
     basis = np.zeros((width, width), dtype=np.int64)
@@ -164,8 +232,13 @@ def saturating_image_rank(
     saturating_images = 0
     tested_images = 0
 
-    for candidate in candidates:
-        for mapping in maps:
+    for candidate_index in range(candidates.shape[0]):
+        candidate = candidates[candidate_index]
+        prepared = candidate_index < orbit_counts.shape[0]
+        count = orbit_counts[candidate_index] if prepared else maps.shape[0]
+        for position in range(count):
+            map_index = orbit_indices[candidate_index, position] if prepared else position
+            mapping = maps[map_index]
             dot = 0
             for source in range(width):
                 dot += fixed[mapping[source]] * candidate[source]
@@ -192,6 +265,8 @@ def saturating_image_rank_sparse_fixed(
     maps: np.ndarray,
     inverse_maps: np.ndarray,
     target: int,
+    orbit_indices: np.ndarray,
+    orbit_counts: np.ndarray,
 ) -> tuple[int, int, int]:
     width = maps.shape[1]
     basis = np.zeros((width, width), dtype=np.int64)
@@ -201,8 +276,12 @@ def saturating_image_rank_sparse_fixed(
     saturating_images = 0
     tested_images = 0
 
-    for candidate in candidates:
-        for map_index in range(maps.shape[0]):
+    for candidate_index in range(candidates.shape[0]):
+        candidate = candidates[candidate_index]
+        prepared = candidate_index < orbit_counts.shape[0]
+        count = orbit_counts[candidate_index] if prepared else maps.shape[0]
+        for position in range(count):
+            map_index = orbit_indices[candidate_index, position] if prepared else position
             inverse_mapping = inverse_maps[map_index]
             dot = 0
             for pos in range(fixed_indices.shape[0]):
@@ -231,6 +310,8 @@ def saturating_image_rank_sparse_candidates(
     candidate_counts: np.ndarray,
     maps: np.ndarray,
     target: int,
+    orbit_indices: np.ndarray,
+    orbit_counts: np.ndarray,
 ) -> tuple[int, int, int]:
     width = fixed.shape[0]
     basis = np.zeros((width, width), dtype=np.int64)
@@ -242,7 +323,11 @@ def saturating_image_rank_sparse_candidates(
 
     for candidate_index in range(candidate_indices.shape[0]):
         count = candidate_counts[candidate_index]
-        for mapping in maps:
+        prepared = candidate_index < orbit_counts.shape[0]
+        image_count = orbit_counts[candidate_index] if prepared else maps.shape[0]
+        for position in range(image_count):
+            map_index = orbit_indices[candidate_index, position] if prepared else position
+            mapping = maps[map_index]
             dot = 0
             for pos in range(count):
                 source = candidate_indices[candidate_index, pos]
