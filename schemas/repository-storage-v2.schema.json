@@ -15,7 +15,7 @@
         "additionalProperties": false,
         "required": ["path", "sha256", "bytes"],
         "properties": {
-          "path": {"type": "string", "pattern": "^(data/|provenance/contractions/)[A-Za-z0-9=._/-]+$"},
+          "path": {"type": "string", "pattern": "^data/n=[1-9][0-9]*/((facets|rays|graphs|inequalities|proofs)\\.json|proof-shards/[0-9a-f]{64}\\.proofpack)$"},
           "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
           "bytes": {"type": "integer", "minimum": 0, "maximum": 104857600}
         }

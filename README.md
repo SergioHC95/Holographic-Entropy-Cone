@@ -18,7 +18,7 @@ under \(S_{n+1}\). Data files live under `data/n=*/`:
 - `proofs.json` indexes the exact compact contraction proofs.
 - `proof-shards/*.proofpack` contains immutable, independently seekable exact
   definitions, committed directly in ordinary Git for every party count.
-- `data/contraction-corpus.json` records the complete proof scope and audit references.
+- `data/storage.json` binds current data paths to byte lengths and hashes.
 
 Rows use primitive integer coefficients in cardinality-then-lexicographic
 subset order. Facet and ray files list lifts from lower-party cones first. The
@@ -40,16 +40,9 @@ format readers, migration tools, compatibility adapters or fallback paths remain
 The supported CLI, storage inventory, authoring and CI lifecycle are documented
 in [The supported repository pipeline](docs/repository-pipeline.md).
 
-The current corpus contains **85,047 unique proofs**, including all 357
-previously unmerged PR #238 inequalities. The original 84,690 definitions and
-payload bytes are unchanged. Their complete staged-data audit plus the fresh
-357-map audit cover 2,196,398,958 vertices and 18,065,770,713 weighted
-source-cube edges with zero errors. These are explicitly composed audit
-scopes, not a claim of a new single whole-corpus run. CI repeats the entire
-expanded corpus independently at the candidate commit.
-The n=6 proof corpus has 85,033 inequality identities, not 85,033 asserted
-facets. The 357 additions separately passed exact tight-support rank 62 and
-strict graph-backed face-witness checks; ray and graph records are unchanged.
+The corpus contains **85,047 self-contained proofs**, including 85,033 n=6
+inequality identities. Not every validity proof is asserted to define a facet.
+Proof frames occupy 178,456,073 bytes in 17 ordinary-Git shards.
 
 CI independently reconstructs every saved map and checks all bounds,
 party/purifier images and weighted cube edges. Whole-payload partitions avoid
@@ -124,43 +117,6 @@ counted once.
 | 4 | 2 (2) | 20 | 3 (2) | 20 | complete |
 | 5 | 8 (3) | 372 | 19 (3) | 2,267 | complete |
 | 6 | 80,570 (11) | — | 4,161 (19) | 15,455,986 | incomplete |
-
-Data updates (older storage formats below are historical, not accepted by the primary reader):
-
-- 2026-10-15, PR #238 integration: reconstructed all 357 missing proofs in
-  the sole current standard, with fresh original-cube audits of 5,095,424
-  vertices and 36,112,384 edges, separate rank/strict-face checks, and exact
-  source-commit/normal bindings. The new immutable shard is 764,220 bytes;
-  all proof frames now total 178,456,073 bytes in ordinary Git. The
-  [compatible-domain constructor](docs/compatible-seed-authoring.md) is saved
-  with reproducible controls. The original proof journals were not recovered;
-  these are fresh certified constructions, not recovered historical bits.
-
-- 2026-10-15: standardized all 84,690 proofs into one deterministic exact
-  full-map pipeline. Of the independently audited alternatives, 25,293 remain
-  strictly smaller in the final profile. Payload frames total 177,691,853
-  bytes; 5,408 old-profile alternatives reverted honestly to shorter verified
-  sources. Fresh complete-cube QA and acceptance review passed. Original
-  artifacts are recoverable; no Git/LFS history or quota deletion is claimed.
-
-- 2026-10-13: migrated all 80,213 n=6 proofs and the 14 n=1 through n=5
-  proofs to the exact compact standard. The n=6 definitions occupy
-  301,248,490 bytes in 18 LFS shards, compared with 678,582,172 bytes for the
-  old compressed stream. Migration audited all 9,501,700,040 original edges
-  and all reconstructed edges; the database gate repeats the full-map audit
-  from the new payloads alone. Historical tables and receipts are archived.
-  Facet coefficients, ordering, ray data, and graph data are unchanged by
-  this migration. The n=6 facet-image column omits the outdated total for
-  72,318 representatives.
-- 2026-07-30: computed and verified the complete n=6 facet-image total,
-  287,558,243, for the 57,940 stored representatives.
-- 2026-07-28: added 52,211 retained new facet representatives and their
-  proved contraction certificates. Historical representative values were
-  preserved, and all n=1 through n=6 facet files
-  were sorted with lifts first and the remaining old/new rows mixed in
-  row-lexicographic order. The 57,940 aligned n=6 contraction tables are
-  stored as a 251.7 MiB zstd packbits stream (1.83 GiB raw), with exact
-  dimensions and SHA-256 metadata.
 
 ## Attribution
 

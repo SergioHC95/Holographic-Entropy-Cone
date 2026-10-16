@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from hec.count_proofs import canonical_json, geometry, inequality_id
+from hec.count_proofs import geometry, inequality_id
 from hec.proof_store import ProofCatalog
 from hec.reconstruction import PIPELINE, ReconstructionProgram
 
@@ -41,7 +41,7 @@ class CompatibleSeedAuthoringTests(unittest.TestCase):
                 with self.subTest(coefficients=coefficients, scale=scale):
                     self.construct(coefficients, n, scale)
 
-    def test_real_pr238_control_has_actual_complete_original_cube_acceptance(self):
+    def test_real_six_party_control_has_actual_complete_original_cube_acceptance(self):
         coefficients = (
             -1,
             -1,
@@ -125,24 +125,20 @@ class CompatibleSeedAuthoringTests(unittest.TestCase):
         self.assertIsNone(proof)
         self.assertFalse(result["inequality_invalidity_claimed"])
 
-    def test_cli_selects_exact_cases_and_writes_only_the_primary_dataset(self):
+    def test_cli_writes_only_the_primary_dataset_and_never_overwrites(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            rows, index, output = root / "rows.json", root / "case-index.json", root / "proofs"
-            rows.write_text("[[1,1,-1],[2,1,-1]]")
+            rows, output = root / "rows.json", root / "proofs"
+            rows.write_text("[[2,1,-1]]")
             wanted = inequality_id(geometry(2, (2, 1, -1)))
-            selection = {"format": "hec-proof-authoring-case-index/1", "n": 2, "inequality_ids": [wanted]}
-            index.write_bytes(canonical_json(selection))
-            args = ["--rows", str(rows), "--n", "2", "--case-index", str(index), "--output", str(output)]
+            args = ["--rows", str(rows), "--n", "2", "--output", str(output)]
             with contextlib.redirect_stdout(io.StringIO()):
                 authoring.main(args)
             catalog = ProofCatalog(output / "proofs.json")
             self.assertEqual(len(catalog), 1)
             self.assertEqual(catalog.entries[0]["inequality_id"], wanted)
-            for bad in ({**selection, "n": True}, {**selection, "inequality_ids": [wanted, wanted]}):
-                index.write_bytes(canonical_json(bad))
-                with self.assertRaises(ValueError):
-                    authoring.main(args)
+            with self.assertRaises(ValueError), contextlib.redirect_stdout(io.StringIO()):
+                authoring.main(args)
 
 
 if __name__ == "__main__":

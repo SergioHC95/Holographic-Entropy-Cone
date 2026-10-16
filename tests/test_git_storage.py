@@ -3,6 +3,7 @@
 import copy
 import hashlib
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -11,7 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from hec import storage
-from hec.count_proofs import canonical_json, geometry, inequality_id
+from hec.count_proofs import geometry, inequality_id
 
 
 class GitStorageTests(unittest.TestCase):
@@ -128,7 +129,7 @@ class GitStorageTests(unittest.TestCase):
             storage.make_plan(self.root)
         _, payload = self.shard()
         (payload.parent / "extra.proofpack").write_bytes(b"extra")
-        with self.assertRaisesRegex(ValueError, "unindexed"):
+        with self.assertRaisesRegex(ValueError, "unindexed|unexpected production data path"):
             storage.make_plan(self.root)
 
     def test_changed_bytes_or_declared_lengths_cannot_pass_hash_inventory(self):
@@ -242,110 +243,50 @@ class GitStorageTests(unittest.TestCase):
         self.assertIn("  workflow_dispatch:", text)
         self.assertIn("needs: [quality, distribution, storage, discover, validate]", text)
 
-    def authoring(self):
-        """Byte-only fixture: its fake proof shard is deliberately NOT a valid map."""
-        catalog, _ = self.shard(n=2)
-        entry = json.loads(catalog.read_text())["entries"][0]
-        p = geometry(2, (1, 1, 0))
-        directory = self.root / "provenance/contractions/test-authoring"
-        directory.mkdir(parents=True)
-        conversion = b"historical conversion metadata fixture"
-        sha = hashlib.sha256(conversion).hexdigest()
-        relative = f"provenance/contractions/test-authoring/{sha}.conversion-provenance.jsonl.zst"
-        self.root.joinpath(relative).write_bytes(conversion)
-        audit, review = directory / "composition.json", directory / "acceptance-review.json"
-        audit.write_bytes(canonical_json({"scope": "metadata fixture, not a mathematical audit"}))
-        review.write_bytes(canonical_json({"mathematical_acceptance": False}))
-        corpus = {
-            "proofs": 1,
-            "conversion_provenance": relative,
-            "conversion_provenance_sha256": sha,
-            "conversion_provenance_bytes": len(conversion),
-            "conversion_provenance_proofs": 0,
-            "authoring_provenance": "provenance/contractions/test-authoring/authoring-provenance.jsonl",
-            "authoring_provenance_proofs": 1,
-            "audit_report": str(audit.relative_to(self.root)),
-            "audit_report_sha256": storage.file_hash(audit),
-            "acceptance_review_sha256": storage.file_hash(review),
-        }
-        record = {
-            "format": "hec-standard-proof-authoring/1",
-            "proof_id": entry["proof_id"],
-            "inequality_id": entry["inequality_id"],
-            "source_coefficients": [str(value) for value in p.coefficients],
-            "definition_profile": "compatible-reconstruction-pipeline/1",
-            "floating_point_acceptance": False,
-            "full_cube_audit": {
-                "ok": True,
-                "n": 2,
-                "proof_id": entry["proof_id"],
-                "inequality_id": entry["inequality_id"],
-                "scope": "original-cube-all-edges",
-                "source_tables_read": False,
-                "checked_vertices": 4,
-                "checked_edges": 4,
-            },
-        }
-        self.save_authoring(corpus, [record])
-        return corpus, record
+    def test_historical_records_cannot_become_production_dependencies(self):
+        self.shard()
+        for relative in (
+            "provenance/contractions/run/receipt.json",
+            "data/contraction-corpus.json",
+            "data/n=6/inconclusive/candidates.json",
+            "data/n=6/run-report.json",
+        ):
+            path = self.root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('{"ok":true}')
+            with self.subTest(path=relative), self.assertRaisesRegex(ValueError, "unexpected production data path"):
+                storage.make_plan(self.root)
+            path.unlink()
 
-    def save_authoring(self, corpus, records):
-        payload = b"".join(canonical_json(record) + b"\n" for record in records)
-        self.root.joinpath(corpus["authoring_provenance"]).write_bytes(payload)
-        corpus["authoring_provenance_sha256"] = hashlib.sha256(payload).hexdigest()
-        corpus["authoring_provenance_bytes"] = len(payload)
-        self.root.joinpath("data/contraction-corpus.json").write_bytes(canonical_json(corpus))
-
-    def test_authoring_receipts_are_required_git_bytes_but_never_mathematical_acceptance(self):
-        corpus, _ = self.authoring()
+    def test_storage_and_planning_need_only_current_self_contained_data(self):
+        self.shard()
         self.commit()
         plan = storage.make_plan(self.root)
-        self.assertIn(corpus["authoring_provenance"], {row["path"] for row in plan["payloads"]})
+        self.assertEqual(plan["proofs"], 1)
+        self.assertEqual(len(plan["payloads"]), 1)
+        self.assertTrue(all(row["path"].startswith("data/n=6/proof-shards/") for row in plan["payloads"]))
         storage.snapshot(self.root)
-        self.assertFalse(storage.audit_inventory(self.root)["mathematical_acceptance"])
-        self.root.joinpath(corpus["authoring_provenance"]).unlink()
-        self.assertFalse(storage.make_plan(self.root)["content_verified"])
-        with self.assertRaisesRegex(ValueError, "absent"):
-            storage.audit_inventory(self.root)
-
-    def test_rehashed_authoring_claims_cannot_change_identity_normal_or_coverage(self):
-        corpus, record = self.authoring()
-        for change in (
-            {"proof_id": "0" * 64},
-            {"inequality_id": "0" * 64},
-            {"source_coefficients": ["0", "0", "0"]},
-            {"floating_point_acceptance": True},
-            {"full_cube_audit": {**record["full_cube_audit"], "checked_vertices": True}},
-            {"full_cube_audit": {**record["full_cube_audit"], "checked_edges": 0}},
-            {"full_cube_audit": {**record["full_cube_audit"], "source_tables_read": True}},
-            {"support_rank_audit": {"ok": True}},
-        ):
-            with self.subTest(change=change):
-                self.save_authoring(corpus, [{**record, **change}])
-                with self.assertRaises(ValueError):
-                    storage.snapshot(self.root, replace=True)
-        self.save_authoring(corpus, [record, record])
-        with self.assertRaisesRegex(ValueError, "bindings"):
-            storage.snapshot(self.root, replace=True)
-
-    def test_authoring_coverage_and_reference_must_be_complete(self):
-        corpus, record = self.authoring()
-        for key in ("authoring_provenance_bytes", "conversion_provenance_proofs"):
-            bad = {k: value for k, value in corpus.items() if k != key}
-            self.root.joinpath("data/contraction-corpus.json").write_bytes(canonical_json(bad))
-            with self.assertRaises(ValueError):
-                storage.make_plan(self.root)
-        self.save_authoring(corpus, [record])
-        corpus["authoring_provenance_proofs"] = 2
-        self.root.joinpath("data/contraction-corpus.json").write_bytes(canonical_json(corpus))
-        with self.assertRaisesRegex(ValueError, "coverage"):
-            storage.make_plan(self.root)
+        result = storage.audit_inventory(self.root)
+        self.assertTrue(result["content_verified"])
+        self.assertFalse(result["mathematical_acceptance"])
+        self.assertFalse((self.root / "provenance").exists())
 
     def test_proof_ids_cannot_be_reused_in_another_party_frame(self):
         self.shard(n=2)
         self.shard(n=3)
         with self.assertRaisesRegex(ValueError, "repeated"):
             storage.make_plan(self.root)
+
+    def test_inventory_schema_admits_only_current_production_artifacts(self):
+        schema = json.loads((Path(__file__).parents[1] / "schemas/repository-storage-v2.schema.json").read_text())
+        pattern = schema["properties"]["entries"]["items"]["properties"]["path"]["pattern"]
+        self.shard(n=2)
+        storage.snapshot(self.root)
+        inventory = json.loads((self.root / storage.INVENTORY).read_text())
+        for entry in inventory["entries"]:
+            self.assertIsNotNone(re.fullmatch(pattern, entry["path"]))
+        for path in ("provenance/run.json", "data/contraction-corpus.json", "data/n=2/inconclusive/rows.json"):
+            self.assertIsNone(re.fullmatch(pattern, path))
 
 
 if __name__ == "__main__":

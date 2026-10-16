@@ -1,68 +1,42 @@
 # Exact compatible-domain proof authoring
 
-`examples/compatible_seed_authoring.py` is a saved candidate constructor for
-the sole `compatible-reconstruction-pipeline/1` proof language. It changes
-where a candidate is searched, not the mathematical acceptance contract.
+`examples/compatible_seed_authoring.py` constructs candidates in the sole
+`compatible-reconstruction-pipeline/1` proof language. It searches a smaller
+domain without changing the full-map verification contract.
 
 ## Construction
 
 1. Derive the exact weighted source geometry and complete compatible domain
-   from the primitive inequality in its declared party frame.
-2. For every pair of occurrence anchors, apply the triangle inequality to
-   bound each output count. Twice each bound is an integer; no floating
-   arithmetic or tolerance is used.
-3. Search count values only on compatible vertices. An RHS group of capacity
-   `beta` at scale `D` has an ordered prefix of `D*beta` Boolean positions.
-   Prefix Hamming distance equals absolute count distance, so exact SAT
-   cardinality clauses impose every compatible weighted-edge constraint.
-   Prefix order is within an RHS group, not source-coordinate monotonicity.
-   Kissat uses the existing package settings.
-4. Recheck anchors, bounds and compatible edges with exact integers, then
-   divide counts by `D` and build the existing deterministic fixed extension.
-5. Run the independent verifier on every original-cube vertex and edge.
-   The standard dataset writer independently audits every definition again
-   before atomically publishing the new dataset and exact inequality bindings.
+   from a primitive integer inequality in its declared party frame.
+2. Apply boundary-pair triangle inequalities to bound each output count using
+   exact doubled integers, with no floating-point tolerance.
+3. Search compatible vertices with ordered prefix bits within each repeated
+   RHS group. Prefix Hamming distance equals absolute count distance; exact
+   SAT cardinality clauses impose compatible weighted-edge constraints.
+   This is not source-coordinate monotonicity. Kissat uses the package settings.
+4. Recheck anchors, bounds and compatible edges with exact integers, divide
+   counts by the explicit scale, and build the standard fixed extension.
+5. Independently audit every original-cube vertex and weighted edge. The
+   standard dataset writer repeats full-map verification before atomic publication.
 
-The constructor has finite authoring resource capabilities and an explicit
-positive integer scale. Failure, a resource limit or unsatisfiability at one
-scale is **not** a claim that the inequality is invalid or has no other proof.
-There is no solver wall-clock timeout or floating-point acceptance path.
-SAT models and original enumerated tables are not accepted repository artifacts.
+The constructor has finite resource capabilities and an explicit positive
+integer scale. A resource limit or unsuccessful search at one scale is not
+a claim that the inequality is invalid or has no other proof. Solver models
+are transient; only complete self-contained standard definitions are published.
 
-## Reproduce the PR #238 subset
+## Usage
 
 After the locked setup and native build in the repository pipeline guide:
 
 ```bash
 uv run python examples/compatible_seed_authoring.py \
-  --rows data/n=6/facets.json --n 6 \
-  --case-index provenance/contractions/pr238-20261015/case-index.json \
-  --output /tmp/hec-pr238-regenerated
+  --rows data/n=2/facets.json --n 2 --output contractions_example
 ```
 
-Use a new output directory: existing datasets are never overwritten. Each
-saved definition is deterministic to reconstruct and independently check;
-different solver versions can find different valid maps, so regenerated
-proof identities need not equal the committed ones.
+Input is an integer-row JSON file in the repository subset order. To process a
+subset, supply only those rows. Output must be a new directory: existing
+datasets are never overwritten. Use `--scale D` for a larger exact search scale.
 
-All 357 committed PR #238 definitions passed fresh writer audits covering
-5,095,424 vertices and 36,112,384 original weighted-cube edges. Most were
-constructed with the existing public full-cube search API; the new constructor
-independently completed and audited the two remaining compact-domain controls.
-No claim is made that this alternative method has been benchmarked on all
-85,047 maps. Original journals were not recovered: source commit, exact normals,
-new definitions, frozen runtime information and executed audits are recorded
-under `provenance/contractions/pr238-20261015/`.
-
-On this device, compact-domain controls `fe8fb9ef...` and `ef4641b5...`
-completed construction and full-cube auditing in approximately 1.05 s and
-2.94 s. They searched 2,502 and 5,150 compatible vertices instead of 65,536
-original vertices, respectively. These are case-specific observations, not
-a universal speedup guarantee. Unit tests include actual subadditivity,
-weighted and MMI maps at two scales, a real PR row and complete-cube audits.
-
-Contraction validity is separate from facethood. The 357 listed additions
-also passed exact modular tight-support rank 62, a strict positive graph-backed
-witness and nonnegative pairings with every listed representative ray. Their
-source facet representatives were separately checked against the existing
-corpus and each other under the full S7 symmetry action.
+Each saved proof is deterministic to reconstruct and independently check.
+Different solver versions can find different valid maps and proof identities.
+Contraction validity and facet/ray rank are separate mathematical checks.
