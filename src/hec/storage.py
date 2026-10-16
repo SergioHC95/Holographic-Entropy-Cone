@@ -15,12 +15,11 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from .count_proofs import canonical_json, decimal, geometry, inequality_id, parse_json
+from .count_proofs import canonical_json, parse_json
 
 INVENTORY = "data/storage.json"
 INVENTORY_FORMAT = "hec-repository-storage/2"
 MAX_GIT_FILE_BYTES = 100 * 1024**2
-SHA256 = re.compile(r"[0-9a-f]{64}")
 POINTER_PREFIX = b"version https://git-lfs.github.com/spec/v1"
 
 
@@ -48,26 +47,6 @@ def safe_path(root, relative):
     return target
 
 
-def file_hash(path):
-    result = hashlib.sha256()
-    with Path(path).open("rb") as source:
-        for block in iter(lambda: source.read(1024**2), b""):
-            result.update(block)
-    return result.hexdigest()
-
-
-def verify_file(path, sha256, size):
-    if (
-        type(size) is not int
-        or not 0 <= size <= MAX_GIT_FILE_BYTES
-        or not isinstance(sha256, str)
-        or SHA256.fullmatch(sha256) is None
-    ):
-        raise ValueError("invalid ordinary-Git content identity or file size")
-    if inspect_file(path) != (size, sha256):
-        raise ValueError(f"Git payload length/SHA256 mismatch: {path}")
-
-
 def inspect_file(path):
     if path.is_symlink() or not path.is_file():
         raise ValueError(f"required Git payload is missing or unsafe: {path}")
@@ -87,10 +66,17 @@ def inspect_file(path):
 
 def repository_paths(root):
     raw = run_git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "data", "provenance")
-    return set(filter(None, raw.decode("utf-8").split("\0")))
+    paths = set(filter(None, raw.decode("utf-8").split("\0")))
+    allowed = re.compile(
+        r"data/(?:storage\.json|n=[1-9][0-9]*/(?:(?:facets|rays|graphs|inequalities|proofs)\.json"
+        r"|proof-shards/[0-9a-f]{64}\.proofpack))"
+    )
+    if any(allowed.fullmatch(path) is None for path in paths):
+        raise ValueError("unexpected production data path; research and migration records belong outside the data tree")
+    return paths
 
 
-def _storage_plan(root):
+def make_plan(root):
     """Plan complete payload ownership without requiring a materialized checkout.
 
     A sparse Git checkout may omit payload bytes while planning. This performs
@@ -101,7 +87,7 @@ def _storage_plan(root):
 
     root = Path(root).resolve()
     known = repository_paths(root)
-    payloads, count, bindings = [], 0, {}
+    payloads, count, identities = [], 0, set()
     catalogs = sorted(path for path in known if re.fullmatch(r"data/n=[1-9][0-9]*/proofs.json", path))
     if not catalogs:
         raise ValueError("no standard proof catalogs; empty storage is not acceptance")
@@ -112,9 +98,9 @@ def _storage_plan(root):
         catalog = ProofCatalog(path)
         count += len(catalog)
         for entry in catalog.entries:
-            if entry["proof_id"] in bindings:
+            if entry["proof_id"] in identities:
                 raise ValueError("proof identity is repeated across party-count catalogues")
-            bindings[entry["proof_id"]] = (n, entry["inequality_id"])
+            identities.add(entry["proof_id"])
         for key, shard in sorted(catalog.shards.items()):
             relative_payload = f"data/n={n}/proof-shards/{key}.proofpack"
             if not 0 < shard["bytes"] <= MAX_GIT_FILE_BYTES:
@@ -124,55 +110,6 @@ def _storage_plan(root):
     actual = {path for path in known if "/proof-shards/" in path}
     if expected != actual:
         raise ValueError("missing or unindexed ordinary-Git proof payload")
-    corpus_path = root / "data/contraction-corpus.json"
-    if corpus_path.exists():
-        corpus = parse_json(corpus_path.read_bytes())
-        relative, sha = corpus["conversion_provenance"], corpus["conversion_provenance_sha256"]
-        if (
-            not isinstance(sha, str)
-            or SHA256.fullmatch(sha) is None
-            or not isinstance(relative, str)
-            or re.fullmatch(
-                r"provenance/contractions/[A-Za-z0-9_-]+/[0-9a-f]{64}\.conversion-provenance\.jsonl\.zst", relative
-            )
-            is None
-            or Path(relative).name != f"{sha}.conversion-provenance.jsonl.zst"
-        ):
-            raise ValueError("invalid current provenance identity or location")
-        size = corpus["conversion_provenance_bytes"]
-        if type(size) is not int or not 0 < size <= MAX_GIT_FILE_BYTES or relative not in known:
-            raise ValueError("invalid required ordinary-Git provenance payload")
-        payloads.append({"path": relative, "sha256": sha, "bytes": size, "n": None})
-        authoring_keys = {
-            "authoring_provenance",
-            "authoring_provenance_sha256",
-            "authoring_provenance_bytes",
-            "authoring_provenance_proofs",
-        }
-        if authoring_keys & corpus.keys():
-            if not authoring_keys <= corpus.keys():
-                raise ValueError("incomplete current authoring provenance reference")
-            relative, sha = corpus["authoring_provenance"], corpus["authoring_provenance_sha256"]
-            size, authored = corpus["authoring_provenance_bytes"], corpus["authoring_provenance_proofs"]
-            converted = corpus.get("conversion_provenance_proofs")
-            if (
-                not isinstance(relative, str)
-                or re.fullmatch(r"provenance/contractions/[A-Za-z0-9_-]+/authoring-provenance\.jsonl", relative) is None
-                or not isinstance(sha, str)
-                or SHA256.fullmatch(sha) is None
-                or type(size) is not int
-                or not 0 < size <= MAX_GIT_FILE_BYTES
-                or type(authored) is not int
-                or authored < 1
-                or type(converted) is not int
-                or converted < 0
-                or type(corpus.get("proofs")) is not int
-                or authored + converted != corpus["proofs"]
-                or corpus["proofs"] != count
-                or relative not in known
-            ):
-                raise ValueError("invalid required authoring provenance identity, location or coverage")
-            payloads.append({"path": relative, "sha256": sha, "bytes": size, "n": None})
     return {
         "format": "hec-git-storage-plan/1",
         "proofs": count,
@@ -180,97 +117,15 @@ def _storage_plan(root):
         "payload_bytes": sum(row["bytes"] for row in payloads),
         "content_verified": False,
         "mathematical_acceptance": False,
-    }, bindings
-
-
-def make_plan(root):
-    """Metadata-only ownership planning; no payload read or mathematical acceptance."""
-    return _storage_plan(root)[0]
-
-
-def _audit_authoring_metadata(root, corpus, bindings):
-    """Cross-bind recorded claims, never treat their flags as mathematical verification."""
-    if "authoring_provenance" not in corpus:
-        return
-    seen = set()
-    path = safe_path(root, corpus["authoring_provenance"])
-    with path.open("rb") as stream:
-        while line := stream.readline(1024**2 + 1):
-            if len(line) > 1024**2 or not line.endswith(b"\n"):
-                raise ValueError("authoring provenance record exceeds the canonical line capability")
-            record = parse_json(line)
-            if (
-                not isinstance(record, dict)
-                or canonical_json(record) + b"\n" != line
-                or record.get("format") != "hec-standard-proof-authoring/1"
-            ):
-                raise ValueError("authoring provenance record is not canonical standard metadata")
-            pid, iid = record.get("proof_id"), record.get("inequality_id")
-            if not isinstance(pid, str) or pid not in bindings or pid in seen or bindings[pid][1] != iid:
-                raise ValueError("authoring provenance differs from exact proof/inequality bindings")
-            n = bindings[pid][0]
-            if not 1 <= n <= 6 or not isinstance(record.get("source_coefficients"), list):
-                raise ValueError("invalid authoring party frame or source normal")
-            problem = geometry(n, tuple(decimal(value) for value in record["source_coefficients"]))
-            if (
-                inequality_id(problem) != iid
-                or record.get("definition_profile") != "compatible-reconstruction-pipeline/1"
-            ):
-                raise ValueError("authoring source normal or primary proof profile differs")
-            if record.get("floating_point_acceptance") is not False:
-                raise ValueError("authoring metadata cannot claim floating-point mathematical acceptance")
-            audit = record.get("full_cube_audit")
-            expected = {
-                "ok": True,
-                "n": n,
-                "proof_id": pid,
-                "inequality_id": iid,
-                "scope": "original-cube-all-edges",
-                "source_tables_read": False,
-                "checked_vertices": problem.vertices,
-                "checked_edges": problem.L * (problem.vertices // 2),
-            }
-            if not isinstance(audit, dict) or any(
-                type(audit.get(key)) is not type(value) or audit[key] != value for key, value in expected.items()
-            ):
-                raise ValueError("recorded authoring audit coverage/context differs from the primary proof")
-            rank = record.get("support_rank_audit")
-            if rank is not None:
-                target = (1 << n) - 2
-                if (
-                    not isinstance(rank, dict)
-                    or rank.get("inequality_id") != iid
-                    or type(rank.get("n")) is not int
-                    or rank["n"] != n
-                    or type(rank.get("rank")) is not int
-                    or not 0 <= rank["rank"] <= target
-                    or type(rank.get("target_rank")) is not int
-                    or rank["target_rank"] != target
-                    or type(rank.get("ok")) is not bool
-                    or rank["ok"] != (rank["rank"] == target)
-                ):
-                    raise ValueError("recorded authoring support-rank context is inconsistent")
-            seen.add(pid)
-    if len(seen) != corpus["authoring_provenance_proofs"]:
-        raise ValueError("authoring provenance lacks its complete declared identity coverage")
+    }
 
 
 def inventory_document(root):
     root = Path(root).resolve()
-    plan, bindings = _storage_plan(root)
+    plan = make_plan(root)
     required = {row["path"]: row for row in plan["payloads"]}
     paths = repository_paths(root)
     paths.discard(INVENTORY)
-    corpus_path = root / "data/contraction-corpus.json"
-    if corpus_path.exists():
-        corpus = parse_json(corpus_path.read_bytes())
-        review = str(Path(corpus["audit_report"]).with_name("acceptance-review.json"))
-        for relative, expected in (
-            (corpus["audit_report"], corpus["audit_report_sha256"]),
-            (review, corpus["acceptance_review_sha256"]),
-        ):
-            if file_hash(safe_path(root, relative)) != expected:
-                raise ValueError("mathematical provenance reference differs from its content hash")
     entries = []
     for relative in sorted(paths):
         path = safe_path(root, relative)
@@ -282,12 +137,10 @@ def inventory_document(root):
         if relative in required:
             item = required[relative]
             if type(item["bytes"]) is not int or item["bytes"] != size or item["sha256"] != sha:
-                raise ValueError("required payload differs from the proof/provenance identity")
+                raise ValueError("required payload differs from its proof identity")
         entries.append({"path": relative, "sha256": sha, "bytes": size})
     if not entries or not required.keys() <= {entry["path"] for entry in entries}:
         raise ValueError("incomplete ordinary-Git inventory")
-    if corpus_path.exists():
-        _audit_authoring_metadata(root, corpus, bindings)
     return {"format": INVENTORY_FORMAT, "entries": entries}
 
 

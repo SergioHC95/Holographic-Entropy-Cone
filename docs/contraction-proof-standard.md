@@ -5,16 +5,10 @@ The sole authoritative artifact is `hec-count-proof/1` with function kind
 `cancel-fill-common-threshold/1` full-map extension. There is no format
 guessing, legacy-reader fallback, executable proof code or stored-valid flag.
 
-The corpus contains **85,047 unique inequality/proof identities**: 80,213
-baseline n=6, 4,387 newer primitive, 76 scaled exact, 357 freshly regenerated
-PR #238 additions, and 14 n<=5. These are not all asserted to be facets.
-The original complete 84,690-map staged audit and fresh 357-map extension
-audit cover 2,196,398,958 source vertices and 18,065,770,713 weighted edges
-with zero errors. This is a composition of executed scopes, not a new single
-85,047-map audit or a substitute for the complete required CI at each commit.
-Receipts are in `provenance/contractions/standard-20261015/` and
-`provenance/contractions/pr238-20261015/`. New authoring uses the same proof
-language; there is no PR-specific reader or acceptance rule.
+Proofs are self-contained mathematical definitions. Validity is determined
+from the declared inequality and reconstructed full map, independently of the
+constructor, authoring history or any stored audit receipt. Contraction validity
+does not by itself assert facethood.
 
 `hec.proof_store.ProofCatalog` and `write_proof_catalog` are aliases of the
 single implementation in `hec.reconstruction_store`.
@@ -38,11 +32,10 @@ that order. Negative entries give distinct RHS supports `J_g` and capacities
 `beta_g`. Source axis `i` is integer bit `i`. An inequality's identifier binds
 `n` and its coefficient vector, not a solver name or a facet-file position.
 
-Positive overall coefficient scaling is removed in the importer and must be
-recorded in its receipt. The orientation is never reversed. Historical party
-representatives are not silently permuted to a different symmetry frame.
-Permutation, purifier complement, and changes of frame require explicit
-transformations and receipts.
+Persisted normals must be primitive; the reader rejects implicit scaling or
+orientation changes. Positive-scale normalization during authoring must use
+exact arithmetic. Party permutations and purifier complements change the
+declared frame and inequality identity; they are never inferred from history.
 
 The zero normal is allowed as a trivial inequality, not as a facet.
 
@@ -327,8 +320,7 @@ immutable payloads, duplicate selections and failed/partial verification are
 not overwritten or accepted. A failed stream may leave reusable immutable
 frames but no authoritative catalogue. Stored hashes/flags never cache acceptance.
 
-Every current proof payload, index and immutable provenance record is committed
-directly in ordinary Git. The version-two storage inventory binds every required
+Every current proof payload and index is committed directly in ordinary Git. The version-two storage inventory binds every required
 path, byte length and SHA256. Pointer files and external-payload fallback paths
 are rejected. A plain clone is a complete input to independent verification.
 

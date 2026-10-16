@@ -18,7 +18,7 @@ from pysat.solvers import Solver
 
 from hec._reconstruction_extension import CompatibleRank
 from hec.contraction_solver import _KISSAT_LIB, KISSAT_OPTIONS, _kissat_inner_ptr
-from hec.count_proofs import compatible_vertices, geometry, inequality_id, parse_json, proof_id
+from hec.count_proofs import compatible_vertices, geometry, inequality_id, proof_id
 from hec.proof_builders import proof_from_seed_rows
 from hec.proof_store import write_proof_dataset
 from hec.reconstruction_verify import ReconstructionVerifier
@@ -208,31 +208,10 @@ def main(argv=None):
         "--rows", type=Path, required=True, help="Exact integer coefficient rows in repository row order"
     )
     parser.add_argument("--n", type=int, required=True)
-    parser.add_argument("--case-index", type=Path, help="Optional hec-proof-authoring-case-index/1 subset")
     parser.add_argument("--output", type=Path, required=True, help="New standard dataset directory; never overwritten")
     parser.add_argument("--scale", type=int, default=1)
     args = parser.parse_args(argv)
     rows = read_integer_rows(args.rows, n=args.n)
-    if args.case_index is not None:
-        index = parse_json(args.case_index.read_bytes())
-        if (
-            not isinstance(index, dict)
-            or index.get("format") != "hec-proof-authoring-case-index/1"
-            or type(index.get("n")) is not int
-            or index["n"] != args.n
-        ):
-            raise ValueError("authoring subset differs from the requested party frame")
-        wanted = index["inequality_ids"]
-        if (
-            not isinstance(wanted, list)
-            or any(not isinstance(key, str) for key in wanted)
-            or len(set(wanted)) != len(wanted)
-        ):
-            raise ValueError("authoring subset must contain unique inequality identities")
-        selected = {inequality_id(geometry(args.n, row)): row for row in rows}
-        if not set(wanted) <= selected.keys():
-            raise ValueError("requested authoring identity has no exact input coefficient row")
-        rows = [selected[key] for key in wanted]
 
     def definitions():
         for row in rows:
