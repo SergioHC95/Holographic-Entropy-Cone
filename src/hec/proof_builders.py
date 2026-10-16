@@ -102,7 +102,7 @@ def closure_seed(problem, rows, binary, *, anchors=32, enumeration=64, pairs=Tru
         raise ValueError("closure encoder requires bounded exact integers")
     binding = BoundBinary(binary)
     binding.check()
-    request = struct.pack("<8sIII", b"HECDRV01", problem.n, len(problem.coefficients), len(rows))
+    request = struct.pack("<8sIII", b"HECSEEDS", problem.n, len(problem.coefficients), len(rows))
     request += struct.pack(f"<{len(problem.coefficients)}i", *problem.coefficients)
     request += struct.pack(f"<{len(rows) * problem.G}H", *(value for row in rows for value in row))
     command = [str(binding.path), "--mode", "encode", "--anchors", str(anchors), "--enumeration", str(enumeration)]

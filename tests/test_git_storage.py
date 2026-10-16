@@ -69,7 +69,7 @@ class GitStorageTests(unittest.TestCase):
         catalog = (
             json.loads(path.read_text())
             if path.exists()
-            else {"format": "hec-proof-catalog/1", "entries": [], "shards": {}}
+            else {"format": "hec-proof-catalog", "entries": [], "shards": {}}
         )
         p = geometry(n, (len(catalog["entries"]) + 1, 1, *((0,) * ((1 << n) - 3))))
         identity, proof = inequality_id(p), hashlib.sha256(b"proof" + binary).hexdigest()
@@ -82,7 +82,7 @@ class GitStorageTests(unittest.TestCase):
         bound = (
             json.loads(inequalities.read_text())
             if inequalities.exists()
-            else {"format": "hec-inequality-catalog/1", "entries": []}
+            else {"format": "hec-inequality-catalog", "entries": []}
         )
         bound["entries"].append({"id": identity, **p.inequality(), "proof_ids": [proof]})
         bound["entries"].sort(key=lambda entry: entry["id"])
@@ -140,7 +140,7 @@ class GitStorageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "identity"):
             storage.audit_inventory(self.root)
 
-    def test_snapshot_replacement_requires_explicit_intent_and_v1_is_not_supported(self):
+    def test_snapshot_replacement_requires_explicit_intent_and_unknown_formats_fail(self):
         self.shard()
         self.commit()
         storage.snapshot(self.root)
@@ -148,7 +148,7 @@ class GitStorageTests(unittest.TestCase):
             storage.snapshot(self.root)
         path = self.root / storage.INVENTORY
         old = json.loads(path.read_text())
-        old["format"] = "hec-repository-storage/1"
+        old["format"] = "unrecognized-storage"
         old["entries"][0]["storage"] = "lfs"
         path.write_text(json.dumps(old))
         with self.assertRaises(ValueError):
@@ -278,8 +278,8 @@ class GitStorageTests(unittest.TestCase):
             storage.make_plan(self.root)
 
     def test_inventory_schema_admits_only_current_production_artifacts(self):
-        schema = json.loads((Path(__file__).parents[1] / "schemas/repository-storage-v2.schema.json").read_text())
-        pattern = schema["properties"]["entries"]["items"]["properties"]["path"]["pattern"]
+        schema = json.loads((Path(__file__).parents[1] / "schemas/repository.schema.json").read_text())
+        pattern = schema["$defs"]["storage"]["properties"]["entries"]["items"]["properties"]["path"]["pattern"]
         self.shard(n=2)
         storage.snapshot(self.root)
         inventory = json.loads((self.root / storage.INVENTORY).read_text())

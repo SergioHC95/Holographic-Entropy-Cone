@@ -34,12 +34,12 @@ def document(problem, rows):
     return make_pipeline(problem, table_seed(problem, rows))
 
 
-def departed_definition(problem):
+def unsupported_definition(problem):
     # Negative fixture, not an old-format reader or constructor.
     return {
-        "format": "hec-count-proof/1",
+        "format": "hec-count-proof",
         "inequality": problem.inequality(),
-        "function": {"kind": "compatible-cancel-fill-kernel/1", "rows": {}},
+        "function": {"kind": "unsupported-function", "rows": {}},
         "clearing_scale": {"value": "1", "minimal": False},
     }
 

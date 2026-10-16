@@ -26,12 +26,12 @@ from .count_proofs import (
     parse_json,
 )
 
-PIPELINE = "compatible-reconstruction-pipeline/1"
-EXTENSION = "cancel-fill-common-threshold/1"
-TABLE = "compatible-count-table/1"
-DAG = "compatible-scalar-dag/1"
-CUTS = "integer-cut-dnf/1"
-CLOSURE = "integer-interval-closure/1"
+PIPELINE = "compatible-reconstruction-pipeline"
+EXTENSION = "cancel-fill-common-threshold"
+TABLE = "compatible-count-table"
+DAG = "compatible-scalar-dag"
+CUTS = "integer-cut-dnf"
+CLOSURE = "integer-interval-closure"
 
 
 @dataclass(frozen=True)
@@ -63,7 +63,7 @@ def fields(value, names, label):
 def problem_of(document, limits):
     fields(document, ("format", "inequality", "function", "clearing_scale"), "pipeline proof")
     if document["format"] != FORMAT:
-        raise ValueError("only the exact count-proof envelope is accepted; use offline conversion")
+        raise ValueError("only the exact count-proof envelope is accepted")
     item = fields(document["inequality"], ("n", "coefficients"), "inequality")
     if type(item["n"]) is not int or not 1 <= item["n"] <= limits.max_n:
         raise ValueError("party count exceeds configured reconstruction capability")
@@ -107,7 +107,7 @@ class SeedProgram:
         elif kind == CLOSURE:
             self._closure(definition, closure_backend)
         else:
-            raise ValueError("unsupported seed primitive; there is no legacy fallback")
+            raise ValueError("unsupported seed primitive")
 
     def _dag(self, f, limits):
         fields(f, ("kind", "scale", "terminals", "nodes", "roots"), "scalar DAG seed")
@@ -327,7 +327,7 @@ class ReconstructionProgram:
         function = fields(document["function"], ("kind", "seed", "extension"), "reconstruction pipeline")
         extension = fields(function["extension"], ("kind",), "full-cube extension")
         if function["kind"] != PIPELINE or extension["kind"] != EXTENSION:
-            raise ValueError("unsupported pipeline or fixed extension version")
+            raise ValueError("unsupported pipeline or fixed extension")
         self._seed = SeedProgram(p, function["seed"], limits, closure_backend)
         clearing = fields(document["clearing_scale"], ("value", "minimal"), "clearing scale")
         self.clearing_scale = clearing_scale(p, self._seed.scale)
@@ -346,7 +346,7 @@ class ReconstructionProgram:
 
     @property
     def stages(self):
-        return ("derive-complete-support-domain/1", self._seed.definition["kind"], EXTENSION)
+        return ("derive-complete-support-domain", self._seed.definition["kind"], EXTENSION)
 
     def __getitem__(self, vertex):
         self._seed.domain.rank(vertex)  # Reject incompatible queries, not arbitrary missing rows.
@@ -367,7 +367,7 @@ class ReconstructionProgram:
         p, scale = self.problem, self._seed.scale
         vertices = tuple(compatible_vertices(p))
         rows, divisor = [], scale
-        semantic = hashlib.sha256(b"hec-compatible-seed-semantics/1\0")
+        semantic = hashlib.sha256(b"hec-compatible-seed-semantics\0")
         semantic.update(canonical_json(p.inequality()) + b"\n" + str(scale).encode() + b"\n")
         for vertex, row in zip(vertices, self._seed.numerator_rows(vertices), strict=True):
             if (
@@ -414,7 +414,7 @@ class ReconstructionProgram:
         """Encoding-independent identity for this fixed extension, NOT a validity flag."""
         seed = self._assemble_seed()
         return hashlib.sha256(
-            b"hec-pipeline-map-semantics/1\0" + EXTENSION.encode() + b"\0" + bytes.fromhex(seed.semantic_sha256)
+            b"hec-pipeline-map-semantics\0" + EXTENSION.encode() + b"\0" + bytes.fromhex(seed.semantic_sha256)
         ).hexdigest()
 
     def audit(self, backend):
@@ -483,7 +483,7 @@ class ReconstructionProgram:
             "compatible_vertices": len(seed.vertices),
             "compatible_edges": seed.checked_edges,
             "clearing_scale": str(self.clearing_scale),
-            "implementation": "exact-fraction-reference/1",
+            "implementation": "exact-fraction-reference",
             "source_tables_read": False,
         }
 

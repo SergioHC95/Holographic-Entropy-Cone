@@ -13,7 +13,7 @@ from pathlib import Path
 from .count_proofs import canonical_json, decimal, geometry, inequality_id, parse_json, proof_geometry, proof_id
 from .proof_store import ProofCatalog
 
-FORMAT = "hec-inequality-catalog/1"
+FORMAT = "hec-inequality-catalog"
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 
 

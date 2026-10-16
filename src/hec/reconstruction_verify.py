@@ -92,7 +92,7 @@ class IntervalClosureDecoder:
             or not isinstance(seed["exceptions"], list)
         ):
             raise ValueError("invalid exact interval-closure definition")
-        request = bytearray(struct.pack("<8sIII", b"HECDRV01", p.n, len(p.coefficients), count))
+        request = bytearray(struct.pack("<8sIII", b"HECSEEDS", p.n, len(p.coefficients), count))
         request.extend(struct.pack(f"<{len(p.coefficients)}i", *p.coefficients))
         request.extend(
             struct.pack("<III", seed["choice_count"], 1 if seed["policy"] == "lower" else 2, len(seed["exceptions"]))
@@ -196,7 +196,7 @@ class IndependentCubeAuditor:
         self.process.stdin.write(
             struct.pack(
                 "<8sIIIIQIQQI",
-                b"HECCRP01",
+                b"HECCUBES",
                 self.sequence,
                 p.n,
                 0,

@@ -17,7 +17,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from proof_fixtures import cut_seed, departed_definition, native_release
+from proof_fixtures import cut_seed, native_release, unsupported_definition
 from proof_fixtures import document as table_document
 
 from hec.count_proofs import canonical_json, compatible_vertices, geometry, parse_json
@@ -89,7 +89,7 @@ class ReconstructionVerifierTests(unittest.TestCase):
             self.assertIsNone(verifier.auditor.process)
         finally:
             verifier.close()
-        self.assertEqual(result["implementation"], "exact-fraction-reference/1")
+        self.assertEqual(result["implementation"], "exact-fraction-reference")
         self.assertEqual((result["checked_vertices"], result["checked_edges"]), (8, 12))
 
     def test_native_audit_checks_seed_and_cube_without_a_duplicate_python_edge_pass(self):
@@ -124,7 +124,7 @@ class ReconstructionVerifierTests(unittest.TestCase):
 
     def test_owned_document_identity_does_not_reparse_or_reserialize(self):
         program = ReconstructionProgram(self.table)
-        expected = hashlib.sha256(b"hec-count-proof/1\0" + canonical_json(self.table)).hexdigest()
+        expected = hashlib.sha256(b"hec-count-proof\0" + canonical_json(self.table)).hexdigest()
         with patch("hec.reconstruction.parse_json", side_effect=AssertionError("redundant parse")):
             self.assertEqual(program.identity, expected)
 
@@ -137,7 +137,7 @@ class ReconstructionVerifierTests(unittest.TestCase):
             request = (
                 struct.pack(
                     "<8sIIIIQIQQI",
-                    b"HECCRP01",
+                    b"HECCUBES",
                     1,
                     p.n,
                     0,
@@ -170,7 +170,7 @@ class ReconstructionVerifierTests(unittest.TestCase):
             self.assertTrue(all(value.denominator == 1 for value in cleared))
             expected = tuple(value.numerator for value in cleared)
             self.assertEqual(returned, expected)
-            if result["working_layout"] == "exact-tiles/1":
+            if result["working_layout"] == "exact-tiles":
                 low = 0
                 while low < p.L and 2 * (1 << (low + 1)) * p.G * 8 <= working_bytes:
                     low += 1
@@ -228,7 +228,7 @@ class ReconstructionVerifierTests(unittest.TestCase):
         for budget in (p.G * 16, 1024**2):
             with self.subTest(budget=budget):
                 result = self.assert_native_points(document, budget)
-                self.assertEqual(result["edge_metric"], "unary-prefix-hamming/1")
+                self.assertEqual(result["edge_metric"], "unary-prefix-hamming")
 
     def test_packed_metrics_and_wide_fallback_keep_exact_queries_and_full_coverage(self):
         for caps in ((1, 1, 1, 1), (16, 16, 16, 16), (17, 16, 16, 16), (32, 32, 32, 32), (33, 32, 32, 32)):
@@ -239,7 +239,7 @@ class ReconstructionVerifierTests(unittest.TestCase):
             for budget in (64, 1024**2):
                 with self.subTest(caps=caps, budget=budget):
                     result = self.assert_native_points(document, budget)
-                    expected = "unary-prefix-hamming/1" if sum(caps) <= 128 else "exact-count-l1/1"
+                    expected = "unary-prefix-hamming" if sum(caps) <= 128 else "exact-count-l1"
                     self.assertEqual(result["edge_metric"], expected)
         p = geometry(3, (-1, -1, -1, 2, 3, 2, -1))
         weighted = table_document(p, self.rows)
@@ -330,14 +330,14 @@ int main() {
     def test_stored_verified_flags_and_executable_paths_are_not_accepted(self):
         verifier = ReconstructionVerifier(cube_binary=self.cube, closure_binary=self.closure)
         try:
-            for mutation in ("verified", "executable", "legacy"):
+            for mutation in ("verified", "executable", "unsupported"):
                 bad = copy.deepcopy(self.table)
                 if mutation == "verified":
                     bad["verified"] = True
                 elif mutation == "executable":
                     bad["function"]["seed"]["binary"] = "/anything"
                 else:
-                    bad = departed_definition(self.p)
+                    bad = unsupported_definition(self.p)
                 with self.assertRaises(ValueError):
                     verifier.verify(bad)
         finally:
@@ -397,7 +397,7 @@ int main() {
         decoder = IntervalClosureDecoder(self.closure)
         for anchors, enumeration, pairs, choices, offsets in controls:
             seed = {
-                "kind": "integer-interval-closure/1",
+                "kind": "integer-interval-closure",
                 "anchors": anchors,
                 "enumeration": enumeration,
                 "pairs": pairs,
@@ -447,7 +447,7 @@ class StandardCubeConfigurationTests(unittest.TestCase):
             result = verifier.verify(document)
             self.assertEqual(verifier.auditor.process.args, [str(self.binary), "--working-bytes", "64"])
             self.assertEqual((result["checked_vertices"], result["checked_edges"]), (8, 12))
-            self.assertEqual(result["working_layout"], "exact-tiles/1")
+            self.assertEqual(result["working_layout"], "exact-tiles")
             self.assertEqual(result["output_row_storage_limit"], 64)
             self.assertLessEqual(result["output_row_storage_bytes"], 64)
         finally:
@@ -472,7 +472,7 @@ class StandardCubeConfigurationTests(unittest.TestCase):
         finally:
             verifier.close()
         self.assertEqual((result["checked_vertices"], result["checked_edges"]), (2, 1))
-        self.assertEqual(result["working_layout"], "full-table/1")
+        self.assertEqual(result["working_layout"], "full-table")
         self.assertEqual(result["output_row_storage_bytes"], 0)
 
 

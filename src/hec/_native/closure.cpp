@@ -401,7 +401,7 @@ int main(int argc,char** argv) {
     }
     need(mode=="encode" || mode=="decode" || mode=="lower" || mode=="upper","unknown derivation mode");
     need(limit<=128 && enumeration<=1024,"closure experiment safety cap");
-    std::string magic(8,'\0');need(bool(std::cin.read(magic.data(),8)) && magic=="HECDRV01","invalid request magic");
+    std::string magic(8,'\0');need(bool(std::cin.read(magic.data(),8)) && magic=="HECSEEDS","invalid request magic");
     unsigned n=get(4),dimension=get(4),declared=get(4);
     need(n>=1 && n<=6 && dimension==(1u<<n)-1,"invalid coefficient dimensions");
     std::vector<int32_t> normal(dimension);

@@ -17,9 +17,9 @@ from fractions import Fraction
 from itertools import combinations
 from typing import Any
 
-FORMAT = "hec-count-proof/1"
-INTEGER_ROWS = "bounded-integers/1"
-RATIONAL_ROWS = "reduced-rationals/1"
+FORMAT = "hec-count-proof"
+INTEGER_ROWS = "bounded-integers"
+RATIONAL_ROWS = "reduced-rationals"
 _DECIMAL = re.compile(r"(?:0|-?[1-9][0-9]*)\Z")
 
 
@@ -147,7 +147,7 @@ def geometry(n: int, coefficients: Sequence[int]) -> CountGeometry:
 
 
 def inequality_id(problem: CountGeometry) -> str:
-    return hashlib.sha256(b"hec-inequality/1\0" + canonical_json(problem.inequality())).hexdigest()
+    return hashlib.sha256(b"hec-inequality\0" + canonical_json(problem.inequality())).hexdigest()
 
 
 def compatible_vertices(problem: CountGeometry) -> Iterator[int]:
@@ -314,11 +314,8 @@ def decode_rows(problem: CountGeometry, payload: object) -> Iterator[tuple[int, 
 def proof_geometry(proof: object) -> CountGeometry:
     proof = _keys(proof, {"format", "inequality", "function", "clearing_scale"}, "standard proof")
     if proof["format"] != FORMAT:
-        raise ValueError("only hec-count-proof/1 is supported")
-    if (
-        not isinstance(proof["function"], dict)
-        or proof["function"].get("kind") != "compatible-reconstruction-pipeline/1"
-    ):
+        raise ValueError("only hec-count-proof is supported")
+    if not isinstance(proof["function"], dict) or proof["function"].get("kind") != "compatible-reconstruction-pipeline":
         raise ValueError("only the standardized reconstruction pipeline is supported")
     inequality = _keys(proof["inequality"], {"n", "coefficients"}, "inequality")
     if not isinstance(inequality["coefficients"], list):
@@ -329,5 +326,5 @@ def proof_geometry(proof: object) -> CountGeometry:
 def proof_id(proof: object) -> str:
     """Canonical definition identity; hashing is never mathematical acceptance."""
     if not isinstance(proof, dict) or proof.get("format") != FORMAT:
-        raise ValueError("only hec-count-proof/1 has a primary proof identity")
+        raise ValueError("only hec-count-proof has a primary proof identity")
     return hashlib.sha256(FORMAT.encode("ascii") + b"\0" + canonical_json(proof)).hexdigest()

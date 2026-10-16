@@ -14,7 +14,7 @@ from pathlib import Path
 
 from .count_proofs import canonical_json, parse_json
 
-FORMAT = "hec-exact-native/1"
+FORMAT = "hec-exact-native"
 SOURCES = {"closure": "closure.cpp", "cube": "verify.cpp"}
 MANIFEST = "native.json"
 

@@ -1,0 +1,212 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hec:repository",
+  "title": "HEC exact proofs and repository indexes",
+  "description": "Closed syntax only. Mathematical acceptance requires independent exact full-cube audits.",
+  "oneOf": [
+    {"$ref":"#/$defs/proof"},
+    {"$ref":"#/$defs/proofCatalog"},
+    {"$ref":"#/$defs/inequalityCatalog"},
+    {"$ref":"#/$defs/storage"}
+  ],
+  "$defs": {
+    "positive": {"type":"string","pattern":"^[1-9][0-9]*$"},
+    "natural": {"type":"string","pattern":"^(0|[1-9][0-9]*)$"},
+    "index": {"type":"integer","minimum":0,"maximum":9007199254740991},
+    "refs": {"type":"array","uniqueItems":true,"items":{"$ref":"#/$defs/index"}},
+    "table": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind","rows"],
+      "properties": {
+        "kind": {"const":"compatible-count-table"},
+        "rows": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["encoding","count","data"],
+          "properties": {
+            "encoding": {"enum":["bounded-integers","reduced-rationals"]},
+            "count": {"type":"integer","minimum":0,"maximum":9007199254740991},
+            "data": {"type":"string","contentEncoding":"base64"}
+          }
+        }
+      }
+    },
+    "dag": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind","scale","terminals","nodes","roots"],
+      "properties": {
+        "kind": {"const":"compatible-scalar-dag"},
+        "scale": {"$ref":"#/$defs/positive"},
+        "terminals": {"type":"array","uniqueItems":true,"items":{"$ref":"#/$defs/natural"}},
+        "nodes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type":"array","minItems":3,"maxItems":3,"items":{"$ref":"#/$defs/index"}}
+        },
+        "roots": {"type":"array","items":{"$ref":"#/$defs/index"}}
+      }
+    },
+    "cuts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind","terms","groups"],
+      "properties": {
+        "kind": {"const":"integer-cut-dnf"},
+        "terms": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type":"array","minItems":2,"maxItems":2,"items":{"$ref":"#/$defs/natural"}}
+        },
+        "groups": {"type":"array","items":{"type":"array","items":{"$ref":"#/$defs/refs"}}}
+      }
+    },
+    "closure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind","anchors","enumeration","pairs","policy","choice_count","exceptions"],
+      "properties": {
+        "kind": {"const":"integer-interval-closure"},
+        "anchors": {"type":"integer","minimum":0,"maximum":128},
+        "enumeration": {"type":"integer","minimum":0,"maximum":1024},
+        "pairs": {"type":"boolean"},
+        "policy": {"enum":["lower","upper"]},
+        "choice_count": {"$ref":"#/$defs/index"},
+        "exceptions": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "prefixItems": [{"$ref":"#/$defs/index"},{"$ref":"#/$defs/natural"}]
+          }
+        }
+      }
+    },
+    "inequality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["n","coefficients"],
+      "properties": {
+        "n": {"type":"integer","minimum":1,"maximum":9007199254740991},
+        "coefficients": {"type":"array","minItems":1,"items":{"type":"string","pattern":"^(0|-?[1-9][0-9]*)$"}}
+      }
+    },
+    "proof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format","inequality","function","clearing_scale"],
+      "properties": {
+        "format": {"const":"hec-count-proof"},
+        "inequality": {"$ref":"#/$defs/inequality"},
+        "clearing_scale": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value","minimal"],
+          "properties": {"value":{"$ref":"#/$defs/positive"},"minimal":{"const":false}}
+        },
+        "function": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind","seed","extension"],
+          "properties": {
+            "kind": {"const":"compatible-reconstruction-pipeline"},
+            "extension": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind"],
+              "properties": {"kind":{"const":"cancel-fill-common-threshold"}}
+            },
+            "seed": {
+              "oneOf": [
+                {"$ref":"#/$defs/table"},
+                {"$ref":"#/$defs/dag"},
+                {"$ref":"#/$defs/cuts"},
+                {"$ref":"#/$defs/closure"}
+              ]
+            }
+          }
+        }
+      }
+    },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format","entries"],
+      "properties": {
+        "format": {"const":"hec-repository-storage"},
+        "entries": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path","sha256","bytes"],
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^data/n=[1-9][0-9]*/((facets|rays|graphs|inequalities|proofs)\\.json|proof-shards/[0-9a-f]{64}\\.proofpack)$"
+              },
+              "sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+              "bytes": {"type":"integer","minimum":0,"maximum":104857600}
+            }
+          }
+        }
+      }
+    },
+    "hash": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+    "proofEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inequality_id","proof_id","shard","offset","bytes"],
+      "properties": {
+        "inequality_id": {"$ref":"#/$defs/hash"},
+        "proof_id": {"$ref":"#/$defs/hash"},
+        "shard": {"$ref":"#/$defs/hash"},
+        "offset": {"$ref":"#/$defs/index"},
+        "bytes": {"type":"integer","minimum":1,"maximum":9007199254740991}
+      }
+    },
+    "proofCatalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format","entries","shards"],
+      "properties": {
+        "format": {"const":"hec-proof-catalog"},
+        "entries": {"type":"array","minItems":1,"items":{"$ref":"#/$defs/proofEntry"}},
+        "shards": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {"$ref":"#/$defs/hash"},
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["bytes"],
+            "properties": {"bytes":{"type":"integer","minimum":1,"maximum":9007199254740991}}
+          }
+        }
+      }
+    },
+    "inequalityRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id","n","coefficients","proof_ids"],
+      "properties": {
+        "id": {"$ref":"#/$defs/hash"},
+        "n": {"type":"integer","minimum":1,"maximum":9007199254740991},
+        "coefficients": {"type":"array","minItems":1,"items":{"type":"string","pattern":"^(0|-?[1-9][0-9]*)$"}},
+        "proof_ids": {"type":"array","minItems":1,"uniqueItems":true,"items":{"$ref":"#/$defs/hash"}}
+      }
+    },
+    "inequalityCatalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format","entries"],
+      "properties": {
+        "format": {"const":"hec-inequality-catalog"},
+        "entries": {"type":"array","items":{"$ref":"#/$defs/inequalityRecord"}}
+      }
+    }
+  }
+}
