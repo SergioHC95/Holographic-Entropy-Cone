@@ -290,6 +290,17 @@ larger ranges retain exact count arithmetic with overflow-checked accumulator
 widths. These are transient evaluation layouts, not stored proof formats.
 Every original-cube vertex and edge is still visited, in either layout.
 
+For unequal source capacities let `M=lcm(alpha)` and let the seed numerators
+have denominator `d`. The required full-map scale is `d*M`, so the cleared
+threshold integral is exactly `sum(delta * seed_numerator)`: there is no
+remaining division. The native evaluator checks this scale law once and
+precomputes `M/alpha_i`. Only fractional transported coordinates create
+interior breakpoints. Their threshold sets form a decreasing chain; removing
+all coordinates with a tied breakpoint together gives precisely the same
+endpoints and weights as rescanning every axis at every level. Boolean
+transported points require only one compatible seed lookup, even with unequal
+capacities. All numerators, bounds and distances remain exact.
+
 The integer interval decoder also uses these prefixes: minimum L1 distance
 between count boxes is the popcount of the disjoint forced-difference masks
 `(low_A & ~high_B) | (low_B & ~high_A)`. It narrows only unsettled coordinates,
@@ -309,6 +320,16 @@ not total RSS: the seed, complete-domain index, protocol and parent are separate
 Actual helper arguments and returned limits must match. Scope, identities,
 all vertices/edges and source-free status are checked with exact types.
 Native query differentials are extra controls, not replacements for full coverage.
+
+With `l` low axes, `h=L-l` high axes and `V=2^h` tiles, a Hamiltonian Gray walk
+reuses the two existing buffers. Low-axis edges are checked once in their base
+tile. High-axis path edges are checked once on transition; non-path edges are
+checked at their bit-zero endpoint tile, excluding its two path neighbours.
+Thus every original edge has exactly one owner. Tile reconstructions fall from
+`V+h*V/2` to `1+h*V/2`, with the same buffer budget; occurrence/query evaluations
+are additional. Tests independently enumerate each edge, not merely the total,
+for every low/high split through dimension 12, and compare weighted/rational
+point values in full and tiled layouts against the exact Fraction reference.
 
 For a local check, build a bound release from the installed package's sources:
 

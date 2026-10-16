@@ -4,6 +4,7 @@ import copy
 import hashlib
 import io
 import json
+import math
 import os
 import shutil
 import struct
@@ -169,7 +170,54 @@ class ReconstructionVerifierTests(unittest.TestCase):
             self.assertTrue(all(value.denominator == 1 for value in cleared))
             expected = tuple(value.numerator for value in cleared)
             self.assertEqual(returned, expected)
+            if result["working_layout"] == "exact-tiles/1":
+                low = 0
+                while low < p.L and 2 * (1 << (low + 1)) * p.G * 8 <= working_bytes:
+                    low += 1
+                width, tiles = 1 << low, 1 << (p.L - low)
+                evaluations = width * ((p.L - low) * (tiles // 2) + 1) + p.n + 1 + len(queries)
+            else:
+                evaluations = p.vertices
+            self.assertEqual(result["reconstruction_evaluations"], evaluations)
         return result
+
+    def test_gray_tile_walk_covers_every_individual_original_edge_once_for_all_small_cube_splits(self):
+        with tempfile.TemporaryDirectory(prefix="hec-tile-controls-") as directory:
+            executable = Path(directory) / "tile-controls"
+            source = ROOT / "tests/native_tile_controls.cpp"
+            subprocess.run(["c++", "-std=c++17", "-O2", str(source), "-o", str(executable)], check=True)
+            subprocess.run([str(executable)], check=True)
+
+    def test_weighted_thresholds_match_every_fraction_reference_point_with_large_and_tied_capacities(self):
+        original = ReconstructionProgram(parse_json((ROOT / "tests/fixtures/count_proof_n5.json").read_bytes()))
+        rows = original.materialize_seed().numerators
+        capacity = sum(original.problem.beta) + 1
+        for pattern in ((2, 3, 5, 7), (1, 2), (31, 1, 1)):
+            axis = 0
+            coefficients = []
+            for value in original.problem.coefficients:
+                if value > 0:
+                    value = capacity * pattern[axis % len(pattern)]
+                    axis += 1
+                coefficients.append(value)
+            p = geometry(original.problem.n, tuple(coefficients))
+            self.assertTrue(p.nested and p.disjoint)
+            rational = [tuple(map(Fraction, row)) for row in rows]
+            vertices = list(compatible_vertices(p))
+            nonboundary = next(i for i, x in enumerate(vertices) if x not in dict(p.boundary))
+            rational[nonboundary] = (Fraction(1, 3), *rational[nonboundary][1:])
+            for values in (rows, rational):
+                document = table_document(p, values)
+                for low in range(p.L):
+                    with self.subTest(pattern=pattern, scale=document["clearing_scale"], low=low):
+                        self.assert_native_points(document, (1 << low) * p.G * 16)
+                self.assert_native_points(document, 1024**2)
+            denominator = ((1 << 64) - 1) // (math.lcm(*p.alpha) * max(p.beta))
+            rational[nonboundary] = (Fraction(1, denominator), *rational[nonboundary][1:])
+            near_uint64_limit = table_document(p, rational)
+            for budget in (p.G * 16, 1024**2):
+                with self.subTest(pattern=pattern, near_uint64_limit=True, budget=budget):
+                    self.assert_native_points(near_uint64_limit, budget)
 
     def test_uniform_bit_transport_matches_every_reference_point_with_nested_disjoint_rules(self):
         original = ReconstructionProgram(parse_json((ROOT / "tests/fixtures/count_proof_n5.json").read_bytes()))
