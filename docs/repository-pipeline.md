@@ -65,3 +65,11 @@ Sparse checkouts include only the files needed by that job; a separate job
 verifies all current data bytes. Every partition executes original-cube bounds,
 occurrence images and weighted edges at the same immutable commit.
 Metadata hashes and saved receipts never confer mathematical validity.
+
+Facet/ray rank checks use exact finite-field elimination on normalized pivot
+suffixes. Shared checks prepare first-occurrence representatives of identical
+integer symmetry images for a bounded candidate prefix; remaining candidates
+retain every permutation. No distinct image is discarded and rank thresholds
+are unchanged. One-off rank queries avoid this shared preprocessing cost.
+Independent rank jobs receive early queue slots alongside expensive map jobs;
+scheduling estimates never confer mathematical acceptance.

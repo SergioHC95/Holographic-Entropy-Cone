@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 import hec
+from hec.checks import check_stored_facets, check_stored_rays
 from hec.count_proofs import canonical_json, decimal, geometry
 from hec.inequality_records import InequalityCatalog
 from hec.native import build_backends, load_backends
@@ -45,6 +46,10 @@ def main():
             raise ValueError("installed-wheel full-map coverage differs from its exact indexes")
         proofs += result["proofs"]
         edges += result["checked_edges"]
+        # Exercise the installed exact rank implementation in both directions,
+        # not just the source checkout's rank jobs.
+        list(check_stored_facets(repository / "data", n=n))
+        list(check_stored_rays(repository / "data", n=n))
     search = hec.find_contraction((1, 1, -1), 2)
     if search["status"] != "proved" or search["audit"]["checked_edges"] != 4 or "images" in search:
         raise ValueError("installed-wheel search did not return an audited standard proof")

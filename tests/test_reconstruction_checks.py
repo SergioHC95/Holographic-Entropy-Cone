@@ -218,7 +218,8 @@ class ReconstructionChecksTests(unittest.TestCase):
         with patch.object(checks, "PROOF_TARGET", 1):
             plan = checks.ci_matrix(self.root)["include"]
         jobs = [row for row in plan if row["kind"] == "contractions"]
-        self.assertEqual(plan[: len(jobs)], jobs)
+        facet = next(row for row in plan if row["kind"] == "facets")
+        self.assertLess(plan.index(facet), plan.index(jobs[-1]))
         costs = [
             sum(
                 proof_work(inequalities.entries[catalog.entries[index]["inequality_id"]])
