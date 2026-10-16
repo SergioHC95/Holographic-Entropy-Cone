@@ -31,6 +31,7 @@ struct Problem {
   unsigned n, L, G, R;
   uint32_t N;
   uint64_t normalizer = 1;
+  bool uniform_alpha = true;
   std::vector<unsigned> lhs, alpha, rhs, beta;
   std::vector<Pair> disjoint, nested;
   std::vector<uint32_t> vertices, boundary;
@@ -55,6 +56,7 @@ struct Problem {
     }
     need(divisor <= 1, "nonprimitive coefficient vector");
     L = lhs.size(); G = rhs.size(); R = std::accumulate(beta.begin(), beta.end(), 0u);
+    uniform_alpha = alpha.empty() || std::all_of(alpha.begin(), alpha.end(), [&](unsigned a) { return a == alpha[0]; });
     need(L <= 25 && G <= 63, "geometry needs a larger independent auditor");
     N = 1u << L;
     // Supported cardinality allowance, not an instruction to allocate the full table.
@@ -83,11 +85,18 @@ struct Problem {
     index.assign(N, -1);
     for (unsigned i = 0; i < vertices.size(); ++i) index[vertices[i]] = int32_t(i);
     // Independent exhaustive clause check: recursive generation alone is not trusted.
+    // Evaluate all binary clauses with adjacency masks, independently of the
+    // recursive enumeration, rather than scanning every pair at every point.
+    std::vector<uint32_t> forbidden(L), required(L);
+    for (auto r : disjoint) forbidden[r.i] |= 1u << r.j;
+    for (auto r : nested) required[r.i] |= 1u << r.j;
     uint64_t complete = 0;
     for (uint32_t x = 0; x < N; ++x) {
       bool valid = true;
-      for (auto r : disjoint) if ((x & (1u << r.i)) && (x & (1u << r.j))) { valid = false; break; }
-      if (valid) for (auto r : nested) if ((x & (1u << r.i)) && !(x & (1u << r.j))) { valid = false; break; }
+      for (uint32_t enabled = x; enabled; enabled &= enabled - 1) {
+        unsigned i = unsigned(__builtin_ctz(enabled));
+        if ((x & forbidden[i]) || (required[i] & ~x)) { valid = false; break; }
+      }
       need(valid == (index[x] >= 0), "complete compatible domain mismatch"); complete += valid;
     }
     need(complete == vertices.size(), "incomplete compatible enumeration");
@@ -129,21 +138,82 @@ static uint64_t audit_seed(const Problem& p, const std::vector<uint64_t>& seed, 
   }
   return edges;
 }
-static uint64_t audit_full(const Problem& p, const std::vector<uint64_t>& table, uint64_t t) {
-  for (uint32_t x = 0; x < p.N; ++x) for (unsigned g = 0; g < p.G; ++g)
-    need(Wide(table[uint64_t(x) * p.G + g]) <= Wide(t) * p.beta[g], "full-map bound violation");
+// A count q becomes q leading one-bits in its group's disjoint bit interval.
+// The Hamming distance of two such rows is EXACTLY their count L1 distance.
+// Small cleared ranges therefore need one/two popcounts per original edge.
+// Packing happens in place only when it reduces row width, after exact bounds.
+struct RowMetric {
+  const Problem& p;
+  uint64_t scale;
+  unsigned words = 0;
+  bool narrow_sum;
+  RowMetric(const Problem& problem, uint64_t t) : p(problem), scale(t), narrow_sum(Wide(t) * p.R <= UINT64_MAX) {
+    Wide bits = Wide(t) * p.R;
+    if (bits && bits <= 128) {
+      unsigned count = (unsigned(bits) + 63) / 64;
+      if (count < p.G) words = count;
+    }
+  }
+  unsigned stride() const { return words ? words : p.G; }
+  void pack(std::vector<uint64_t>& values, uint32_t count) const {
+    for (uint32_t x = 0; x < count; ++x) {
+      uint64_t packed[2]{};
+      unsigned start = 0;
+      for (unsigned g = 0; g < p.G; ++g) {
+        uint64_t q = values[uint64_t(x) * p.G + g];
+        need(Wide(q) <= Wide(scale) * p.beta[g], "full-map bound violation");
+        if (words) {
+          if (q) {
+            unsigned word = start / 64, shift = start % 64;
+            unsigned first = std::min(unsigned(q), 64 - shift);
+            uint64_t mask = first == 64 ? UINT64_MAX : (uint64_t(1) << first) - 1;
+            packed[word] |= mask << shift;
+            if (q > first) {
+              unsigned left = unsigned(q) - first;
+              packed[word + 1] |= left == 64 ? UINT64_MAX : (uint64_t(1) << left) - 1;
+            }
+          }
+          start += unsigned(scale * p.beta[g]);
+        }
+      }
+      // All source cells for this row were read before any overlapping write.
+      // words < G ensures no write can reach a later unread source row.
+      for (unsigned w = 0; w < words; ++w) values[uint64_t(x) * words + w] = packed[w];
+    }
+  }
+  Wide distance(const uint64_t* a, const uint64_t* b) const {
+    if (words) {
+      unsigned total = unsigned(__builtin_popcountll(a[0] ^ b[0]));
+      if (words == 2) total += unsigned(__builtin_popcountll(a[1] ^ b[1]));
+      return total;
+    }
+    if (narrow_sum) {
+      // Bounds were checked first: sum |a-b| <= scale*sum(beta), so no wrap.
+      uint64_t total = 0;
+      for (unsigned g = 0; g < p.G; ++g) total += a[g] > b[g] ? a[g] - b[g] : b[g] - a[g];
+      return total;
+    }
+    Wide total = 0;
+    for (unsigned g = 0; g < p.G; ++g) total += a[g] > b[g] ? a[g] - b[g] : b[g] - a[g];
+    return total;
+  }
+  void edge(unsigned axis, const uint64_t* a, const uint64_t* b) const {
+    need(distance(a, b) <= Wide(scale) * p.alpha[axis], "full original cube edge violation");
+  }
+};
+static uint64_t audit_full(const Problem& p, std::vector<uint64_t>& table, uint64_t t) {
   for (unsigned atom = 0; atom <= p.n; ++atom) for (unsigned g = 0; g < p.G; ++g)
     need(Wide(table[uint64_t(p.boundary[atom]) * p.G + g]) == ((p.rhs[g] & (1u << atom)) ? Wide(t) * p.beta[g] : 0), "full-map occurrence mismatch");
+  RowMetric metric(p, t);
+  metric.pack(table, p.N);
+  unsigned stride = metric.stride();
   uint64_t edges = 0;
   for (unsigned i = 0; i < p.L; ++i) {
     uint32_t side = 1u << i;
     for (uint32_t block = 0; block < p.N; block += 2 * side) for (uint32_t x = block; x < block + side; ++x) {
-      Wide distance = 0;
-      for (unsigned g = 0; g < p.G; ++g) {
-        uint64_t a = table[uint64_t(x) * p.G + g], b = table[uint64_t(x + side) * p.G + g];
-        distance += a > b ? a - b : b - a;
-      }
-      need(distance <= Wide(t) * p.alpha[i], "full original cube edge violation"); ++edges;
+      metric.edge(i, stride ? table.data() + uint64_t(x) * stride : nullptr,
+                  stride ? table.data() + uint64_t(x + side) * stride : nullptr);
+      ++edges;
     }
   }
   need(edges == uint64_t(p.L) * (p.N / 2), "incomplete full edge coverage"); return edges;
@@ -167,6 +237,23 @@ struct PointEvaluator {
     int32_t saved = p.index[x];
     if (saved >= 0) {
       for (unsigned g = 0; g < p.G; ++g) out[g] = uint64_t(Wide(seed[uint64_t(saved) * p.G + g]) * (t / d));
+      return;
+    }
+    if (p.uniform_alpha) {
+      // Equal capacities keep every transported mass at zero or capacity.
+      // The common-threshold integral therefore has one Boolean endpoint.
+      uint32_t endpoint = x;
+      for (auto r : p.disjoint) {
+        uint32_t pair = (1u << r.i) | (1u << r.j);
+        if ((endpoint & pair) == pair) endpoint &= ~pair;
+      }
+      for (auto r : p.nested) {
+        uint32_t a = 1u << r.i, b = 1u << r.j;
+        if ((endpoint & a) && !(endpoint & b)) endpoint = (endpoint & ~a) | b;
+      }
+      int32_t at = p.index[endpoint];
+      need(at >= 0 && t == d, "uniform retraction outside exact compatible domain");
+      for (unsigned g = 0; g < p.G; ++g) out[g] = seed[uint64_t(at) * p.G + g];
       return;
     }
     unsigned mass[25]{}; uint64_t q[25]{}, levels[26]{}; Wide accumulator[63]{};
@@ -203,12 +290,6 @@ struct PointEvaluator {
   }
 };
 
-static void exact_edge(const Problem& p, unsigned axis, uint64_t scale, const uint64_t* a, const uint64_t* b) {
-  Wide distance = 0;
-  for (unsigned g = 0; g < p.G; ++g) distance += a[g] > b[g] ? a[g] - b[g] : b[g] - a[g];
-  need(distance <= Wide(scale) * p.alpha[axis], "full original cube edge violation");
-}
-
 struct TiledResult { uint64_t edges, vertices, working_bytes, evaluations; };
 static TiledResult tiled_audit(PointEvaluator& evaluator, uint64_t limit, std::vector<uint64_t>& query_values,
                                const std::vector<uint32_t>& queries) {
@@ -218,26 +299,28 @@ static TiledResult tiled_audit(PointEvaluator& evaluator, uint64_t limit, std::v
   while (low_axes < p.L && uint64_t(2) * (uint64_t(1) << (low_axes + 1)) * p.G * 8 <= limit) ++low_axes;
   uint32_t width = 1u << low_axes;
   std::vector<uint64_t> base(uint64_t(width) * p.G), adjacent(base.size());
+  RowMetric metric(p, evaluator.t);
+  unsigned stride = metric.stride();
   uint64_t edges = 0, checked_vertices = 0;
   for (uint32_t first = 0; first < p.N; first += width) {
     evaluator.range(first, width, base);
-    for (uint32_t x = 0; x < width; ++x) for (unsigned g = 0; g < p.G; ++g)
-      need(Wide(base[uint64_t(x) * p.G + g]) <= Wide(evaluator.t) * p.beta[g], "full-map bound violation");
+    metric.pack(base, width);
     checked_vertices += width;
     // Every low-axis edge belongs to exactly this base tile.
     for (unsigned axis = 0; axis < low_axes; ++axis) {
       uint32_t side = 1u << axis;
       for (uint32_t block = 0; block < width; block += 2 * side) for (uint32_t x = block; x < block + side; ++x) {
-        exact_edge(p, axis, evaluator.t, base.data() + uint64_t(x) * p.G,
-                   base.data() + uint64_t(x + side) * p.G);
+        metric.edge(axis, base.data() + uint64_t(x) * stride,
+                    base.data() + uint64_t(x + side) * stride);
         ++edges;
       }
     }
     // Every high-axis edge belongs to its bit-zero endpoint tile, once.
     for (unsigned axis = low_axes; axis < p.L; ++axis) if (!(first & (1u << axis))) {
       evaluator.range(first | (1u << axis), width, adjacent);
+      metric.pack(adjacent, width);
       for (uint32_t x = 0; x < width; ++x) {
-        exact_edge(p, axis, evaluator.t, base.data() + uint64_t(x) * p.G, adjacent.data() + uint64_t(x) * p.G);
+        metric.edge(axis, base.data() + uint64_t(x) * stride, adjacent.data() + uint64_t(x) * stride);
         ++edges;
       }
     }
@@ -295,9 +378,9 @@ int main(int argc, char** argv) {
         PointEvaluator evaluator(p, seed, d, t);
         std::vector<uint64_t> table(uint64_t(p.N) * p.G);
         evaluator.range(0, p.N, table);
-        result = {audit_full(p, table, t), p.N, full_bytes, evaluator.evaluations};
         for (uint32_t x : queries) for (unsigned g = 0; g < p.G; ++g)
           query_values.push_back(table[uint64_t(x) * p.G + g]);
+        result = {audit_full(p, table, t), p.N, full_bytes, evaluator.evaluations};
       }
       auto micros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count();
       std::ostringstream out;
@@ -307,6 +390,7 @@ int main(int argc, char** argv) {
           << ",\"seed_scale\":\"" << d << "\",\"clearing_scale\":\"" << t
           << "\",\"scope\":\"original-cube-all-edges\",\"native_microseconds\":" << micros
           << ",\"arithmetic\":\"uint64-values-uint128-sums\",\"working_layout\":\"" << (tiled ? "exact-tiles/1" : "full-table/1")
+          << "\",\"edge_metric\":\"" << (RowMetric(p, t).words ? "unary-prefix-hamming/1" : "exact-count-l1/1")
           << "\",\"output_row_storage_bytes\":" << result.working_bytes << ",\"output_row_storage_limit\":" << limit
           << ",\"reconstruction_evaluations\":" << result.evaluations << "}";
       reply(out.str(), {}, query_values);

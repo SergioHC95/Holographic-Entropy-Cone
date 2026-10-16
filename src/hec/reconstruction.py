@@ -24,7 +24,6 @@ from .count_proofs import (
     geometry,
     inequality_id,
     parse_json,
-    proof_id,
 )
 
 PIPELINE = "compatible-reconstruction-pipeline/1"
@@ -335,6 +334,7 @@ class ReconstructionProgram:
         if clearing["minimal"] is not False or decimal(clearing["value"]) != self.clearing_scale:
             raise ValueError("incorrect derived pipeline clearing guarantee")
         self._materialized = None
+        self._assembled = None
 
     @property
     def document(self):
@@ -342,7 +342,7 @@ class ReconstructionProgram:
 
     @property
     def identity(self):
-        return proof_id(self.document)
+        return hashlib.sha256(FORMAT.encode() + b"\0" + self.raw).hexdigest()
 
     @property
     def stages(self):
@@ -360,9 +360,10 @@ class ReconstructionProgram:
             raise ValueError("query outside original source cube")
         return evaluate_transport(self.problem, self, vertex)
 
-    def materialize_seed(self):
-        if self._materialized is not None:
-            return self._materialized
+    def _assemble_seed(self):
+        """Own exact seed data and its identity, without claiming an edge audit."""
+        if self._assembled is not None:
+            return self._assembled
         p, scale = self.problem, self._seed.scale
         vertices = tuple(compatible_vertices(p))
         rows, divisor = [], scale
@@ -380,14 +381,24 @@ class ReconstructionProgram:
                 raise ValueError("seed value outside exact count shape or bounds")
             for value in row:
                 divisor = math.gcd(divisor, value)
-            rows.append(row)
+            rows.append(tuple(row))
             semantic.update(str(vertex).encode() + b":" + b",".join(str(value).encode() for value in row) + b"\n")
         if len(vertices) != self._seed.domain.count or divisor != 1:
             raise ValueError("incomplete seed domain or nonminimal seed denominator")
-        index = {vertex: at for at, vertex in enumerate(vertices)}
         for vertex, image in p.boundary:
-            if rows[index[vertex]] != tuple(value * scale for value in image):
+            at = bisect.bisect_left(vertices, vertex)
+            if at == len(vertices) or vertices[at] != vertex or rows[at] != tuple(value * scale for value in image):
                 raise ValueError("seed occurrence boundary violation")
+        self._assembled = MaterializedSeed(vertices, scale, tuple(rows), 0, semantic.hexdigest())
+        return self._assembled
+
+    def materialize_seed(self):
+        """Explicit Python seed validation for reference and authoring callers."""
+        if self._materialized is not None:
+            return self._materialized
+        seed = self._assemble_seed()
+        p, vertices, rows, scale = self.problem, seed.vertices, seed.numerators, seed.scale
+        index = {vertex: at for at, vertex in enumerate(vertices)}
         edges = 0
         for u, vertex in enumerate(vertices):
             for axis, cap in enumerate(p.alpha):
@@ -396,12 +407,12 @@ class ReconstructionProgram:
                     if sum(abs(a - b) for a, b in zip(rows[u], rows[v], strict=True)) > cap * scale:
                         raise ValueError("seed coupled contraction edge violation")
                     edges += 1
-        self._materialized = MaterializedSeed(vertices, scale, tuple(rows), edges, semantic.hexdigest())
+        self._materialized = MaterializedSeed(vertices, scale, rows, edges, seed.semantic_sha256)
         return self._materialized
 
     def semantic_identity(self):
         """Encoding-independent identity for this fixed extension, NOT a validity flag."""
-        seed = self.materialize_seed()
+        seed = self._assemble_seed()
         return hashlib.sha256(
             b"hec-pipeline-map-semantics/1\0" + EXTENSION.encode() + b"\0" + bytes.fromhex(seed.semantic_sha256)
         ).hexdigest()
@@ -410,7 +421,10 @@ class ReconstructionProgram:
         """Execute a trusted independent full-cube backend, never accept a stored receipt."""
         if getattr(backend, "extension", None) != EXTENSION:
             raise ValueError("independent backend for this exact extension required")
-        p, seed = self.problem, self.materialize_seed()
+        # The independent backend checks every seed edge itself, then every
+        # original-cube edge. Repeating that seed-edge loop in Python is not
+        # required for independence or acceptance and dominates small maps.
+        p, seed = self.problem, self._assemble_seed()
         result = backend.verify(p, seed.vertices, seed.scale, seed.numerators)
         expected = {
             "n": p.n,
