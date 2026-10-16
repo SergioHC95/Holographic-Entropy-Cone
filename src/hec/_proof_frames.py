@@ -133,18 +133,6 @@ class FrameCatalog(Sequence[dict]):
         for index in range(shard, len(self), shards):
             yield index, self[index]
 
-    def shard_group_entries(self, group: int = 0, groups: int = 1) -> list[int]:
-        """Assign whole immutable shards; each payload belongs to one CI job."""
-        if (
-            type(group) is not int
-            or type(groups) is not int
-            or not 1 <= groups <= len(self.shards)
-            or not 0 <= group < groups
-        ):
-            raise ValueError("invalid physical proof shard group")
-        owned = set(sorted(self.shards)[group::groups])
-        return [index for index, entry in enumerate(self.entries) if entry["shard"] in owned]
-
 
 def _write_catalog(
     path, proofs, validate, *, shard_bytes=DEFAULT_SHARD_BYTES, compression_level=9, require_nonempty=False

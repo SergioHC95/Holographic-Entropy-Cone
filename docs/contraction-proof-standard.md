@@ -300,8 +300,8 @@ uv run hec check database --root data
 
 Missing payloads or backends fail the check; there is no network fallback or
 acceptance from migration receipts. Standalone `hec check database` checks
-metadata AND executes all mathematical audits. CI partitions whole payload
-shards so each proof is audited exactly once, and runs global
+metadata AND executes all mathematical audits. CI partitions complete maps
+independently of storage-file boundaries so each proof is audited exactly once, and runs global
 `database-bindings` separately. ALL proof partitions, bindings, graph and
 facet/ray-rank jobs must succeed at the same immutable checkout.
 

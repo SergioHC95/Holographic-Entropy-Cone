@@ -13,6 +13,7 @@ from unittest.mock import patch
 from proof_fixtures import departed_definition, document, write_frames
 
 from hec import reconstruction_checks as checks
+from hec._proof_partitions import partition_entries
 from hec.count_proofs import geometry, inequality_id, proof_id
 from hec.inequality_records import write_inequality_catalog
 from hec.reconstruction_store import ReconstructionCatalog
@@ -34,9 +35,9 @@ class ReconstructionChecksTests(unittest.TestCase):
         self.environment.start()
         self.addCleanup(self.environment.stop)
 
-    def stage(self, documents=None):
+    def stage(self, documents=None, *, individual=True):
         documents = self.documents if documents is None else documents
-        write_frames(self.directory, documents, individual=True)
+        write_frames(self.directory, documents, individual=individual)
         # Adversarial framing may contain an unsupported function. Build only
         # its exact identity binding here; this is not a production authoring path.
         entries = []
@@ -115,7 +116,8 @@ class ReconstructionChecksTests(unittest.TestCase):
         catalog = ReconstructionCatalog(self.directory / "proofs.json")
         seen, total = set(), 0
         for job in jobs:
-            indices = set(catalog.shard_group_entries(job["shard_index"], job["shard_count"]))
+            _, inequalities = checks.bound_catalog(2, self.root)
+            indices = set(partition_entries(catalog, inequalities, job["shard_index"], job["shard_count"]))
             self.assertFalse(indices & seen)
             seen |= indices
             result = checks.audit_partition(
@@ -134,6 +136,79 @@ class ReconstructionChecksTests(unittest.TestCase):
                 with self.subTest(options=options), self.assertRaisesRegex(ValueError, "planned exact"):
                     checks.audit_partition(2, self.root, **options)
 
+    def test_one_payload_can_have_multiple_disjoint_actual_full_map_jobs(self):
+        self.stage(individual=False)
+        with patch.object(checks, "PROOF_TARGET", 1):
+            jobs = [row for row in checks.ci_matrix(self.root)["include"] if row["kind"] == "contractions"]
+        self.assertEqual(len(jobs), 3)
+        self.assertEqual(len({row["checkout_paths"] for row in jobs}), 1)
+        seen, edges = set(), 0
+        catalog, inequalities = checks.bound_catalog(2, self.root)
+        self.assertEqual(len(catalog.shards), 1)
+        for job in jobs:
+            indices = set(partition_entries(catalog, inequalities, job["shard_index"], job["shard_count"]))
+            self.assertFalse(indices & seen)
+            seen |= indices
+            result = checks.audit_partition(
+                2,
+                self.root,
+                **{key: job[key] for key in ("shard_index", "shard_count", "expect_proofs", "expect_edges")},
+            )
+            edges += result["checked_edges"]
+        self.assertEqual(seen, set(range(3)))
+        self.assertEqual(edges, 12)
+
+    def test_splitting_a_payload_cannot_hide_a_mathematically_invalid_map(self):
+        bad = copy.deepcopy(self.documents[1])
+        bad["function"]["seed"] = {"kind": "integer-cut-dnf/1", "terms": [], "groups": [[[]]]}
+        self.stage([self.documents[0], bad, self.documents[2]], individual=False)
+        failed = 0
+        for group in range(3):
+            try:
+                checks.audit_partition(2, self.root, shard_index=group, shard_count=3)
+            except ValueError as error:
+                self.assertIn("boundary", str(error))
+                failed += 1
+        self.assertEqual(failed, 1)
+
+    def test_partition_ownership_is_deterministic_under_catalogue_reordering(self):
+        self.stage(individual=False)
+        catalog, inequalities = checks.bound_catalog(2, self.root)
+        before = [
+            {catalog.entries[index]["proof_id"] for index in partition_entries(catalog, inequalities, group, 3)}
+            for group in range(3)
+        ]
+        catalog.entries.reverse()
+        after = [
+            {catalog.entries[index]["proof_id"] for index in partition_entries(catalog, inequalities, group, 3)}
+            for group in range(3)
+        ]
+        self.assertEqual(before, after)
+
+    def test_audit_workers_use_at_most_four_configured_slots(self):
+        self.stage(individual=False)
+        with patch.dict(os.environ, {"HEC_CHECK_WORKERS": "8"}):
+            with patch.object(checks, "ProcessPoolExecutor", wraps=checks.ProcessPoolExecutor) as pool:
+                result = checks.audit_partition(2, self.root)
+        self.assertEqual(result["checked_edges"], 12)
+        self.assertEqual(pool.call_args.kwargs["max_workers"], 4)
+
+    def test_completed_result_must_match_its_planned_proof_identity(self):
+        self.stage()
+        wrong = iter(
+            [(0, {"checked_edges": 4, "checked_vertices": 4, "proof_id": "0" * 64, "inequality_id": "0" * 64})]
+        )
+        with patch.object(checks, "_bounded_parallel_map", return_value=wrong):
+            with self.assertRaisesRegex(ValueError, "planned proof/inequality identity"):
+                checks.audit_partition(2, self.root)
+
+    def test_cli_spawn_workers_execute_actual_complete_checks(self):
+        self.stage(individual=False)
+        with patch.dict(os.environ, {"HEC_CHECK_WORKERS": "4"}):
+            result = self.cli("contractions", "--n", "2", "--expect-proofs", "3", "--expect-edges", "12")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout.splitlines()[-1])["checked_edges"], 12)
+
     def test_missing_completed_results_never_pass_partition_coverage(self):
         self.stage()
         with patch.object(checks, "_bounded_parallel_map", return_value=iter(())):
@@ -142,7 +217,21 @@ class ReconstructionChecksTests(unittest.TestCase):
 
     def test_duplicate_completed_results_cannot_replace_another_proof(self):
         self.stage()
-        duplicates = iter([(0, {"checked_edges": 4, "checked_vertices": 4})] * 2)
+        p = geometry(2, (1, 1, -1))
+        duplicates = iter(
+            [
+                (
+                    0,
+                    {
+                        "checked_edges": 4,
+                        "checked_vertices": 4,
+                        "proof_id": proof_id(self.documents[0]),
+                        "inequality_id": inequality_id(p),
+                    },
+                )
+            ]
+            * 2
+        )
         with patch.object(checks, "_bounded_parallel_map", return_value=duplicates):
             with self.assertRaisesRegex(ValueError, "duplicate or out-of-partition"):
                 checks.audit_partition(2, self.root)
@@ -168,7 +257,7 @@ class ReconstructionChecksTests(unittest.TestCase):
         self.stage()
         self.assertNotEqual(self.cli("plan", "--lfs-ns-json", "[2]").returncode, 0)
         for group, groups in ((True, 1), (0, 0), (3, 3)):
-            with self.assertRaisesRegex(ValueError, "physical proof"):
+            with self.assertRaisesRegex(ValueError, "proof partition"):
                 checks.audit_partition(2, self.root, shard_index=group, shard_count=groups)
         with self.assertRaisesRegex(ValueError, "cannot be split"):
             list(checks.check_stored_database_bindings(self.root, n=2, shard_count=2))

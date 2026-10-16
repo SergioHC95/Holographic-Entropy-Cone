@@ -57,8 +57,11 @@ source distribution, complete byte/ancestry integrity, every mathematical
 proof partition, global inequality bindings, facet/ray ranks and graph checks.
 CI derives proof and edge counts from the current indexes, not dated reports.
 
-Each proof shard belongs to exactly one full-map partition. Sparse checkouts
-include only that partition's owned shards; a separate job verifies all
-current data bytes. Every partition executes actual original-cube bounds,
+Each complete map belongs to exactly one full-map partition. Scheduling uses
+64 cost-balanced n=6 partitions and up to four independent worker processes per job, rather
+than limiting parallel work to the number of storage files. A shard can feed
+multiple disjoint jobs; storage-local grouping limits repeated downloads.
+Sparse checkouts include only the files needed by that job; a separate job
+verifies all current data bytes. Every partition executes original-cube bounds,
 occurrence images and weighted edges at the same immutable commit.
 Metadata hashes and saved receipts never confer mathematical validity.
