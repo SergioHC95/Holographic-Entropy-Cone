@@ -15,7 +15,6 @@ graphs_*/
 contractions_*/
 graph_timings_*.json
 contraction_timings_*.json
-fixed_cut_benchmark_*.json
 experiments/
 *_run_*.out.log
 *_run_*.err.log
