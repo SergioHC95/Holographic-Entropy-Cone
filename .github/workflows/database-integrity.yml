@@ -14,7 +14,7 @@ env:
   HEC_CHECK_WORKERS: "2"
 
 concurrency:
-  group: database-integrity-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: database-integrity-proof-work-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -102,7 +102,7 @@ jobs:
     timeout-minutes: 360
     strategy:
       fail-fast: false
-      # Every proof payload belongs to one full-cube audit partition.
+      # Every complete proof belongs to one full-cube audit partition.
       # Metadata jobs confer no validity; the gate requires ALL audit partitions.
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
     steps:
@@ -128,6 +128,10 @@ jobs:
           echo "HEC_RECONSTRUCTION_WORKING_BYTES=268435456" >> "$GITHUB_ENV"
       - name: Validate ${{ matrix.kind }} for n=${{ matrix.n }}
         env:
+          HEC_CHECK_WORKERS: ${{ matrix.kind == 'contractions' && '4' || '2' }}
+          OPENBLAS_NUM_THREADS: "1"
+          OMP_NUM_THREADS: "1"
+          NUMBA_NUM_THREADS: "1"
           CHECK_KIND: ${{ matrix.kind }}
           CHECK_N: ${{ matrix.n }}
           CHECK_SHARD_INDEX: ${{ matrix.shard_index }}

@@ -45,7 +45,7 @@ inequality identities. Not every validity proof is asserted to define a facet.
 Proof frames occupy 178,456,073 bytes in 17 ordinary-Git shards.
 
 CI independently reconstructs every saved map and checks all bounds,
-party/purifier images and weighted cube edges. Whole-payload partitions avoid
+party/purifier images and weighted cube edges. Complete-proof partitions avoid
 duplicate audits; metadata bindings and existing rank/graph checks are
 separate required jobs. Required data arrives with Git: no Git LFS installation,
 payload hydration service, transfer cache or external artifact host is needed.

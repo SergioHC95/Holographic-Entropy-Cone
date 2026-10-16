@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import argparse
 import math
-import threading
-from concurrent.futures import ThreadPoolExecutor
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from multiprocessing.util import Finalize
 from pathlib import Path
 
-from ._proof_partitions import partition_entries, physical_groups
+from ._proof_partitions import partition_entries, proof_groups
 from .checks import _bounded_parallel_map, _check_facet_structure, check_worker_count, run_check
 from .count_proofs import canonical_json, decimal, geometry, inequality_id
 from .data import available_ns, data_path, load_hec_data
@@ -23,7 +24,24 @@ from .reconstruction_store import ReconstructionCatalog
 from .reconstruction_verify import ReconstructionVerifier
 from .serialization import load_json
 
-PROOF_TARGET, PROOF_JOB_LIMIT = 15_000, 4
+PROOF_TARGET, PROOF_JOB_LIMIT = 1024, 64
+_process_catalog = _process_verifier = None
+
+
+def _close_process_verifier():
+    if _process_verifier is not None:
+        _process_verifier.close()
+
+
+def _initialize_audit_process(path):
+    global _process_catalog, _process_verifier
+    _process_catalog = ReconstructionCatalog(path)
+    _process_verifier = ReconstructionVerifier()
+    Finalize(None, _close_process_verifier, exitpriority=10)
+
+
+def _audit_in_process(index):
+    return index, _process_catalog.audit_entry(index, _process_verifier)
 
 
 def selected_ns(root, n):
@@ -71,7 +89,7 @@ def _geometry(entry):
 
 
 def audit_partition(current_n, root=None, *, shard_index=0, shard_count=1, expect_proofs=None, expect_edges=None):
-    """Actually audit one disjoint physical-shard partition; never cached flags."""
+    """Actually audit one disjoint complete-map partition; never cached flags."""
     selected_ns(root, current_n)
     catalog, inequalities = bound_catalog(current_n, root)
     selected = partition_entries(catalog, inequalities, shard_index, shard_count)
@@ -83,15 +101,14 @@ def audit_partition(current_n, root=None, *, shard_index=0, shard_count=1, expec
     for claimed, actual in ((expect_proofs, len(selected)), (expect_edges, expected_edges)):
         if claimed is not None and (type(claimed) is not int or claimed != actual):
             raise ValueError("planned exact proof/edge coverage differs from the selected partition")
-    workers = min(2, check_worker_count())
-    local, lock, verifiers = threading.local(), threading.Lock(), []
+    workers = min(4, check_worker_count())
+    verifier = None
 
     def check(index):
-        if not hasattr(local, "verifier"):
-            local.verifier = ReconstructionVerifier()
-            with lock:
-                verifiers.append(local.verifier)
-        return index, catalog.audit_entry(index, local.verifier)
+        nonlocal verifier
+        if verifier is None:
+            verifier = ReconstructionVerifier()
+        return index, catalog.audit_entry(index, verifier)
 
     wanted, seen, edges, vertices = set(selected), set(), 0, 0
     print(
@@ -100,17 +117,34 @@ def audit_partition(current_n, root=None, *, shard_index=0, shard_count=1, expec
         flush=True,
     )
     try:
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            for index, result in _bounded_parallel_map(pool, check, selected, max_pending=2 * workers):
+        pool = (
+            ThreadPoolExecutor(max_workers=1)
+            if workers == 1
+            else ProcessPoolExecutor(
+                max_workers=workers,
+                mp_context=multiprocessing.get_context("spawn"),
+                initializer=_initialize_audit_process,
+                initargs=(catalog.path,),
+            )
+        )
+        with pool:
+            function = check if workers == 1 else _audit_in_process
+            for index, result in _bounded_parallel_map(pool, function, selected, max_pending=2 * workers):
                 if type(index) is not int or index not in wanted or index in seen:
                     raise ValueError("duplicate or out-of-partition actual audit result")
+                expected = catalog.entries[index]
+                if (
+                    result.get("proof_id") != expected["proof_id"]
+                    or result.get("inequality_id") != expected["inequality_id"]
+                ):
+                    raise ValueError("actual audit result differs from its planned proof/inequality identity")
                 seen.add(index)
                 edges += result["checked_edges"]
                 vertices += result["checked_vertices"]
                 if len(seen) % 1000 == 0:
                     print(f"n={current_n}: audited {len(seen):,}/{len(selected):,} selected proofs", flush=True)
     finally:
-        for verifier in verifiers:
+        if verifier is not None:
             verifier.close()
     if seen != wanted or edges != expected_edges:
         raise ValueError("incomplete actual full-cube audit coverage")
@@ -144,7 +178,7 @@ def check_stored_facet_database_format(root=None, *, n=None, shard_index=0, shar
 
 
 def ci_matrix(root=None):
-    """Cover every physical proof shard exactly once, plus all other data gates.
+    """Cover every complete proof exactly once, plus all other data gates.
 
     The entire matrix, including every contraction partition, must pass at
     one immutable checkout. Metadata-only database jobs confer no validity.
@@ -161,10 +195,10 @@ def ci_matrix(root=None):
                 raise ValueError("CI requires list-valued facet/ray/graph datasets")
             counts[kind] = len(rows)
         counts.update(contractions=len(catalog), **{"database-bindings": len(inequalities.entries)})
-        proof_groups = min(PROOF_JOB_LIMIT, max(1, math.ceil(len(catalog) / PROOF_TARGET)), len(catalog.shards))
-        owned_shards = physical_groups(catalog, inequalities, proof_groups)
+        audit_count = min(PROOF_JOB_LIMIT, max(1, math.ceil(len(catalog) / PROOF_TARGET)), len(catalog))
+        owned_entries = proof_groups(catalog, inequalities, audit_count)
         for kind in ("facets", "contractions", "database-bindings", "graphs", "rays"):
-            groups = proof_groups if kind == "contractions" else 1
+            groups = audit_count if kind == "contractions" else 1
             if kind == "facets":
                 groups = min(8, max(1, math.ceil(counts[kind] / 10_000)))
             for group in range(groups):
@@ -177,12 +211,11 @@ def ci_matrix(root=None):
                     "checkout_paths": "",
                 }
                 if kind == "contractions":
+                    indices = owned_entries[group]
+                    owned_shards = {catalog.entries[index]["shard"] for index in indices}
                     task["checkout_paths"] = "\n".join(
-                        f"/data/n={current_n}/proof-shards/{key}.proofpack" for key in sorted(owned_shards[group])
+                        f"/data/n={current_n}/proof-shards/{key}.proofpack" for key in sorted(owned_shards)
                     )
-                    indices = [
-                        index for index, entry in enumerate(catalog.entries) if entry["shard"] in owned_shards[group]
-                    ]
                     task["expect_proofs"] = len(indices)
                     task["expect_edges"] = sum(
                         p.L * (p.vertices // 2)
@@ -190,6 +223,8 @@ def ci_matrix(root=None):
                         for p in [_geometry(inequalities.entries[catalog.entries[index]["inequality_id"]])]
                     )
                 tasks.append(task)
+    if len(tasks) > 256:
+        raise ValueError("complete CI plan exceeds the matrix limit; repartition without dropping proofs")
     return {"include": tasks}
 
 
