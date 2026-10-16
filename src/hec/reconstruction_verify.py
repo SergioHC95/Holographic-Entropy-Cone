@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 from ._reconstruction_extension import clearing_scale
-from .count_proofs import canonical_json, compatible_vertices, decimal, parse_json
+from .count_proofs import compatible_vertices, decimal, parse_json
 from .reconstruction import CLOSURE, EXTENSION, ReconstructionProgram
 
 
@@ -268,7 +268,8 @@ class ReconstructionVerifier:
             self.auditor.close()
 
     def verify(self, document):
-        canonical_json(document)
+        if not isinstance(document, dict):
+            raise ValueError("exact proof definition must be an object")
         program = ReconstructionProgram(document, closure_backend=self.closure)
         if self.auditor is not None:
             try:

@@ -13,7 +13,7 @@ from unittest.mock import patch
 from proof_fixtures import departed_definition, document, write_frames
 
 from hec import reconstruction_checks as checks
-from hec._proof_partitions import partition_entries
+from hec._proof_partitions import partition_entries, proof_work
 from hec.count_proofs import geometry, inequality_id, proof_id
 from hec.inequality_records import write_inequality_catalog
 from hec.reconstruction_store import ReconstructionCatalog
@@ -192,6 +192,41 @@ class ReconstructionChecksTests(unittest.TestCase):
                 result = checks.audit_partition(2, self.root)
         self.assertEqual(result["checked_edges"], 12)
         self.assertEqual(pool.call_args.kwargs["max_workers"], 4)
+
+    def test_dispatch_and_ci_order_put_largest_work_first_without_changing_coverage(self):
+        self.stage(individual=False)
+        catalog, inequalities = checks.bound_catalog(2, self.root)
+        wanted = sorted(
+            range(len(catalog)),
+            key=lambda index: (
+                -proof_work(inequalities.entries[catalog.entries[index]["inequality_id"]]),
+                catalog.entries[index]["proof_id"],
+            ),
+        )
+        original = checks._bounded_parallel_map
+        dispatched = []
+
+        def record(pool, function, items, **kwargs):
+            dispatched.extend(items)
+            yield from original(pool, function, items, **kwargs)
+
+        with patch.object(checks, "_bounded_parallel_map", side_effect=record):
+            result = checks.audit_partition(2, self.root)
+        self.assertEqual(dispatched, wanted)
+        self.assertEqual(result["proofs"], len(catalog))
+        self.assertEqual(result["checked_edges"], 12)
+        with patch.object(checks, "PROOF_TARGET", 1):
+            plan = checks.ci_matrix(self.root)["include"]
+        jobs = [row for row in plan if row["kind"] == "contractions"]
+        self.assertEqual(plan[: len(jobs)], jobs)
+        costs = [
+            sum(
+                proof_work(inequalities.entries[catalog.entries[index]["inequality_id"]])
+                for index in partition_entries(catalog, inequalities, row["shard_index"], row["shard_count"])
+            )
+            for row in jobs
+        ]
+        self.assertEqual(costs, sorted(costs, reverse=True))
 
     def test_completed_result_must_match_its_planned_proof_identity(self):
         self.stage()

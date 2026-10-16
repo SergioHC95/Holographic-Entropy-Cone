@@ -282,6 +282,27 @@ uint128 sums; unsupported precision fails closed or uses a COMPLETE
 arbitrary-precision reference audit only within its explicit small-case bound.
 Resource limits never turn a full audit into sampling.
 
+Implementation shortcuts preserve the same exact construction and edge set.
+Equal source capacities make cancel/fill transport Boolean, so its threshold
+integral has one endpoint. For small cleared output ranges, disjoint unary
+prefixes realize count L1 distance exactly as XOR/popcount Hamming distance;
+larger ranges retain exact count arithmetic with overflow-checked accumulator
+widths. These are transient evaluation layouts, not stored proof formats.
+Every original-cube vertex and edge is still visited, in either layout.
+
+The integer interval decoder also uses these prefixes: minimum L1 distance
+between count boxes is the popcount of the disjoint forced-difference masks
+`(low_A & ~high_B) | (low_B & ~high_A)`. It narrows only unsettled coordinates,
+maintains row priorities incrementally and delays stale heap updates until
+propagation settles. A constraint retires within one decoding run only after
+a conservative upper bound proves the entire current row box satisfies it;
+later row boxes only shrink. Newly added anchors/boxes are checked. Scalar
+inferences and choice order are unchanged. This transient arithmetic state is
+not a stored acceptance cache. The independent cube auditor still freshly
+checks every seed edge
+and every full-cube edge; the native path does not repeat its seed-edge loop
+in Python. The explicit Python reference validator remains available.
+
 The native verifier uses the same exact point rule in full and tiled layouts.
 `HEC_RECONSTRUCTION_WORKING_BYTES=268435456` bounds primary output buffers,
 not total RSS: the seed, complete-domain index, protocol and parent are separate.

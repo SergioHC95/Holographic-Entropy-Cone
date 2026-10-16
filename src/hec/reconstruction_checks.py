@@ -15,7 +15,7 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from multiprocessing.util import Finalize
 from pathlib import Path
 
-from ._proof_partitions import partition_entries, proof_groups
+from ._proof_partitions import partition_entries, proof_groups, proof_work
 from .checks import _bounded_parallel_map, _check_facet_structure, check_worker_count, run_check
 from .count_proofs import canonical_json, decimal, geometry, inequality_id
 from .data import available_ns, data_path, load_hec_data
@@ -93,6 +93,14 @@ def audit_partition(current_n, root=None, *, shard_index=0, shard_count=1, expec
     selected_ns(root, current_n)
     catalog, inequalities = bound_catalog(current_n, root)
     selected = partition_entries(catalog, inequalities, shard_index, shard_count)
+    # Start expensive complete maps first, so one late map cannot strand the
+    # other bounded workers. This changes order only, never proof ownership.
+    selected.sort(
+        key=lambda index: (
+            -proof_work(inequalities.entries[catalog.entries[index]["inequality_id"]]),
+            catalog.entries[index]["proof_id"],
+        )
+    )
     expected_edges = sum(
         p.L * (p.vertices // 2)
         for index in selected
@@ -186,6 +194,7 @@ def ci_matrix(root=None):
     """
     ns = selected_ns(root, None)
     tasks = []
+    priorities = []
     for current_n in reversed(ns):
         catalog, inequalities = bound_catalog(current_n, root)
         counts = {}
@@ -222,10 +231,19 @@ def ci_matrix(root=None):
                         for index in indices
                         for p in [_geometry(inequalities.entries[catalog.entries[index]["inequality_id"]])]
                     )
+                    priority = sum(
+                        proof_work(inequalities.entries[catalog.entries[index]["inequality_id"]]) for index in indices
+                    )
+                else:
+                    priority = 0
                 tasks.append(task)
+                priorities.append(priority)
     if len(tasks) > 256:
         raise ValueError("complete CI plan exceeds the matrix limit; repartition without dropping proofs")
-    return {"include": tasks}
+    # Queue the longest estimated complete-map jobs before smaller work. The
+    # executor can interleave jobs; the final gate still requires every row.
+    ordered = sorted(zip(priorities, tasks, strict=True), key=lambda item: -item[0])
+    return {"include": [task for _, task in ordered]}
 
 
 def main(argv=None):

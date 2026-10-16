@@ -29,7 +29,7 @@ static void put(uint64_t value,unsigned bytes) {
   for (unsigned i=0;i<bytes;++i) std::cout.put(char(value>>(8*i)));
 }
 struct Problem {
-  unsigned n,L,G,N;
+  unsigned n,L,G,N,max_beta;
   std::vector<unsigned> lhs,alpha,rhs,beta,metric,vertices;
   std::vector<int> position;
   std::vector<std::vector<std::pair<unsigned,unsigned>>> edges;
@@ -58,6 +58,7 @@ struct Problem {
     }
     need(divisor==0 || divisor==1,"nonprimitive inequality");
     L=lhs.size();G=rhs.size();
+    max_beta=beta.empty()?0:*std::max_element(beta.begin(),beta.end());
     need(L<=17 && std::accumulate(beta.begin(),beta.end(),0u)<=63,"unsupported native experiment dimensions");
     N=1u<<L;
     metric.assign(N,0);
@@ -70,11 +71,15 @@ struct Problem {
       if (i!=j && (lhs[i]&lhs[j])==lhs[i]) nested.emplace_back(i,j);
     }
     position.assign(N,-1);
+    std::vector<unsigned> forbidden(L),required(L);
+    for (auto [i,j]:disjoint) forbidden[i]|=1u<<j;
+    for (auto [i,j]:nested) required[i]|=1u<<j;
     for (unsigned x=0;x<N;++x) {
       bool compatible=true;
-      for (auto [i,j]:disjoint) if ((x&(1u<<i)) && (x&(1u<<j))) { compatible=false;break; }
-      if (compatible) for (auto [i,j]:nested)
-        if ((x&(1u<<i)) && !(x&(1u<<j))) { compatible=false;break; }
+      for (unsigned enabled=x;enabled;enabled&=enabled-1) {
+        unsigned i=unsigned(__builtin_ctz(enabled));
+        if ((x&forbidden[i]) || (required[i]&~x)) { compatible=false;break; }
+      }
       if (compatible) { position[x]=vertices.size();vertices.push_back(x); }
     }
     edges.resize(vertices.size());
@@ -97,7 +102,7 @@ struct Problem {
     table_bits=uint64_t(vertices.size())*widths;
   }
 };
-struct PairBox { unsigned a,b;std::vector<unsigned> low,high; };
+struct PairBox { unsigned a,b;std::vector<unsigned> low,high;uint64_t below=0,above=0; };
 struct Pick {
   unsigned unknown,width,distance,vertex,row,generation;
   bool operator>(const Pick& other) const {
@@ -109,12 +114,15 @@ class Engine {
  public:
   const Problem& p;
   std::vector<uint16_t> low,high,oracle,tape,widths;
-  std::vector<unsigned> anchors,distance,generation;
-  std::vector<unsigned char> queued,registered,candidate_dirty;
+  std::vector<unsigned> anchors,distance,generation,row_unknown,row_width;
+  std::vector<uint64_t> open_groups,retired_anchors,retired_boxes,low_bits,high_bits,group_masks;
+  std::vector<unsigned> offsets;
+  std::vector<unsigned char> queued,registered,candidate_dirty,pick_dirty;
+  std::vector<unsigned> changed_picks;
   std::vector<PairBox> boxes;
   std::deque<unsigned> queue;
   std::priority_queue<Pick,std::vector<Pick>,std::greater<Pick>> picks;
-  unsigned anchor_limit,enumeration_limit,initial_fixed=0,boundary_fixed=0;
+  unsigned anchor_limit,enumeration_limit,initial_fixed=0,boundary_fixed=0,anchor_words,box_words;
   uint64_t narrowed=0,edge_visits=0,ball_visits=0,pair_visits=0,choice_bits=0;
   uint64_t enumerated_rows=0,candidate_assignments=0;
   bool pair_rules;
@@ -123,7 +131,7 @@ class Engine {
     unsigned count=p.vertices.size();
     low.assign(uint64_t(count)*p.G,0);high.resize(low.size());
     distance.assign(count,UINT32_MAX);generation.assign(count,0);
-    queued.assign(count,0);registered.assign(count,0);candidate_dirty.assign(count,1);
+    queued.assign(count,0);registered.assign(count,0);candidate_dirty.assign(count,1);pick_dirty.assign(count,0);
     for (unsigned u=0;u<count;++u) {
       for (unsigned g=0;g<p.G;++g) high[uint64_t(u)*p.G+g]=p.beta[g];
       for (const auto& [v,_values]:p.boundary) distance[u]=std::min(distance[u],p.metric[p.vertices[u]^p.vertices[v]]);
@@ -135,6 +143,22 @@ class Engine {
       unsigned k=u*p.G+g;low[k]=high[k]=values[g];
       if (!oracle.empty()) need(oracle[k]==values[g],"oracle boundary mismatch");
     }
+    row_unknown.assign(count,0);row_width.assign(count,0);open_groups.assign(count,0);
+    offsets.resize(p.G);group_masks.resize(p.G);
+    unsigned start=0;
+    for (unsigned g=0;g<p.G;++g) {
+      offsets[g]=start;group_masks[g]=((uint64_t(1)<<p.beta[g])-1)<<start;start+=p.beta[g];
+    }
+    low_bits.assign(count,0);high_bits.assign(count,0);
+    anchor_words=(anchor_limit+63)/64;
+    box_words=(pair_rules && anchor_limit ? (anchor_limit*(anchor_limit-1)/2+63)/64 : 0);
+    retired_anchors.assign(uint64_t(count)*anchor_words,0);retired_boxes.assign(uint64_t(count)*box_words,0);
+    for (unsigned u=0;u<count;++u) for (unsigned g=0;g<p.G;++g) {
+      unsigned i=u*p.G+g;row_unknown[u]+=low[i]!=high[i];row_width[u]+=high[i]-low[i];
+      if (low[i]!=high[i]) open_groups[u]|=uint64_t(1)<<g;
+      low_bits[u]|=((uint64_t(1)<<low[i])-1)<<offsets[g];
+      high_bits[u]|=((uint64_t(1)<<high[i])-1)<<offsets[g];
+    }
     boundary_fixed=fixed();
     for (unsigned u=0;u<count;++u) refresh(u);
     for (auto& [u,_values]:p.boundary) add_anchor(u);
@@ -143,9 +167,7 @@ class Engine {
     unsigned total=0;for (unsigned i=0;i<low.size();++i) total+=low[i]==high[i];return total;
   }
   Pick pick_for(unsigned u) const {
-    unsigned unknown=0,width=0;
-    for (unsigned g=0;g<p.G;++g) { unsigned i=u*p.G+g;unknown+=low[i]!=high[i];width+=high[i]-low[i]; }
-    return {unknown,width,distance[u],p.vertices[u],u,generation[u]};
+    return {row_unknown[u],row_width[u],distance[u],p.vertices[u],u,generation[u]};
   }
   void enqueue(unsigned u) { if (!queued[u]) { queued[u]=1;queue.push_back(u); } }
   void rebuild_heap() {
@@ -156,43 +178,64 @@ class Engine {
   void refresh(unsigned u) {
     candidate_dirty[u]=1;
     for (auto [v,_budget]:p.edges[u]) candidate_dirty[v]=1;
-    ++generation[u];enqueue(u);auto k=pick_for(u);if (k.unknown) picks.push(k);
-    if (picks.size()>8*p.vertices.size()) rebuild_heap();
+    ++generation[u];enqueue(u);
+    // Bounds and propagation order are unchanged. Only the latest priority
+    // for a row can survive generation checks, so defer redundant heap work
+    // until next() observes the completed propagation fixed point.
+    if (!pick_dirty[u]) { pick_dirty[u]=1;changed_picks.push_back(u); }
   }
   void narrow(unsigned u,unsigned g,int minimum,int maximum) {
     unsigned i=u*p.G+g;
     int lo=std::max(int(low[i]),minimum),hi=std::min(int(high[i]),maximum);
     need(lo<=hi,"inconsistent exact interval constraints");
     if (!oracle.empty()) need(lo<=oracle[i] && oracle[i]<=hi,"inference incorrectly excludes source seed");
-    if (lo!=low[i] || hi!=high[i]) { low[i]=lo;high[i]=hi;++narrowed;refresh(u); }
+    if (lo!=low[i] || hi!=high[i]) {
+      row_width[u]-=(high[i]-low[i])-unsigned(hi-lo);
+      if (lo==hi && low[i]!=high[i]) { --row_unknown[u];open_groups[u]&=~(uint64_t(1)<<g); }
+      low_bits[u]=(low_bits[u]&~group_masks[g])|(((uint64_t(1)<<lo)-1)<<offsets[g]);
+      high_bits[u]=(high_bits[u]&~group_masks[g])|(((uint64_t(1)<<hi)-1)<<offsets[g]);
+      low[i]=lo;high[i]=hi;++narrowed;refresh(u);
+    }
   }
   void edge(unsigned u,unsigned v,unsigned budget) {
     ++edge_visits;
-    unsigned total=0;unsigned minimum[63]{};
-    for (unsigned g=0;g<p.G;++g) {
-      unsigned a=u*p.G+g,b=v*p.G+g;
-      minimum[g]=unsigned(std::max({0,int(low[a])-int(high[b]),int(low[b])-int(high[a])}));
-      total+=minimum[g];
-    }
+    // Disjoint unary-prefix fields turn the sum of interval gaps into one
+    // popcount. All native closure capacities together fit exactly in63bits.
+    unsigned total=unsigned(__builtin_popcountll((low_bits[u]&~high_bits[v])|(low_bits[v]&~high_bits[u])));
     need(total<=budget,"partial coupled edge exceeds capacity");
-    for (unsigned g=0;g<p.G;++g) {
-      unsigned a=u*p.G+g,b=v*p.G+g;int slack=int(budget-total+minimum[g]);
+    if (!row_unknown[u] && !row_unknown[v]) return;
+    if (budget-total>=p.max_beta) return;
+    for (uint64_t pending=open_groups[u]|open_groups[v];pending;pending&=pending-1) {
+      unsigned g=unsigned(__builtin_ctzll(pending));
+      if (budget-total>=p.beta[g]) continue;
+      unsigned a=u*p.G+g,b=v*p.G+g;
+      unsigned minimum=unsigned(std::max({0,int(low[a])-int(high[b]),int(low[b])-int(high[a])}));
+      int slack=int(budget-total+minimum);
       int al=low[a],ah=high[a],bl=low[b],bh=high[b];
       narrow(u,g,bl-slack,bh+slack);narrow(v,g,al-slack,ah+slack);
     }
   }
-  template<class Lower,class Upper> void box(unsigned u,unsigned budget,Lower below,Upper above) {
-    unsigned total=0,minimum[63]{};
-    for (unsigned g=0;g<p.G;++g) {
-      unsigned k=u*p.G+g;
-      minimum[g]=unsigned(std::max({0,int(low[k])-int(above(g)),int(below(g))-int(high[k])}));
-      total+=minimum[g];
-    }
+  template<class Lower,class Upper> bool box(unsigned u,unsigned budget,uint64_t below_bits,uint64_t above_bits,
+                                            Lower below,Upper above) {
+    unsigned total=unsigned(__builtin_popcountll((low_bits[u]&~above_bits)|(below_bits&~high_bits[u])));
+    // This upper bound may overcount when a row interval spans BOTH sides of
+    // a box. It is only used to prove redundancy, never to reject or narrow.
+    unsigned maximum=unsigned(__builtin_popcountll((below_bits&~low_bits[u])|(high_bits[u]&~above_bits)));
     need(total<=budget,"partial anchor interval exceeds distance budget");
-    for (unsigned g=0;g<p.G;++g) {
-      int slack=int(budget-total+minimum[g]);
+    // If the entire current row box satisfies this immutable constraint,
+    // every later (nested) row box does too. This constraint can retire for
+    // this row only; no input, proof, or cross-request acceptance is cached.
+    if (maximum<=budget) return true;
+    if (budget-total>=p.max_beta) return false;
+    for (uint64_t pending=open_groups[u];pending;pending&=pending-1) {
+      unsigned g=unsigned(__builtin_ctzll(pending));
+      if (budget-total>=p.beta[g]) continue;
+      unsigned k=u*p.G+g;
+      int minimum=std::max({0,int(low[k])-int(above(g)),int(below(g))-int(high[k])});
+      int slack=int(budget-total)+minimum;
       narrow(u,g,int(below(g))-slack,int(above(g))+slack);
     }
+    return false;
   }
   void add_anchor(unsigned u) {
     if (registered[u] || anchors.size()>=anchor_limit || pick_for(u).unknown) return;
@@ -203,6 +246,8 @@ class Engine {
       for (unsigned g=0;g<p.G;++g) {
         unsigned x=low[u*p.G+g],y=low[v*p.G+g];output+=x>y?x-y:y-x;
         b.low.push_back(std::min(x,y));b.high.push_back(std::max(x,y));
+        b.below|=((uint64_t(1)<<std::min(x,y))-1)<<offsets[g];
+        b.above|=((uint64_t(1)<<std::max(x,y))-1)<<offsets[g];
       }
       need(output<=input,"fully fixed anchors violate contraction");
       // Integer seed values make a source-minus-image slack of 0 or 1
@@ -214,6 +259,7 @@ class Engine {
   }
   void enumerate_candidates(unsigned u) {
     candidate_dirty[u]=0;
+    if (!row_unknown[u]) return;
     std::vector<unsigned> unknown;
     unsigned product=1;
     for (unsigned g=0;g<p.G;++g) {
@@ -266,15 +312,23 @@ class Engine {
     while (true) {
     while (!queue.empty()) {
       unsigned u=queue.front();queue.pop_front();queued[u]=0;
-      for (unsigned v:anchors) {
+      for (unsigned at=0;at<anchors.size();++at) {
+        uint64_t& retired=retired_anchors[uint64_t(u)*anchor_words+at/64];
+        uint64_t bit=uint64_t(1)<<(at%64);
+        if (retired&bit) continue;
+        unsigned v=anchors[at];
         ++ball_visits;
-        box(u,p.metric[p.vertices[u]^p.vertices[v]],
-            [&](unsigned g){return low[v*p.G+g];},[&](unsigned g){return low[v*p.G+g];});
+        if (box(u,p.metric[p.vertices[u]^p.vertices[v]],low_bits[v],low_bits[v],
+                [&](unsigned g){return low[v*p.G+g];},[&](unsigned g){return low[v*p.G+g];})) retired|=bit;
       }
-      for (const auto& b:boxes) {
+      for (unsigned at=0;at<boxes.size();++at) {
+        uint64_t& retired=retired_boxes[uint64_t(u)*box_words+at/64];
+        uint64_t bit=uint64_t(1)<<(at%64);
+        if (retired&bit) continue;
+        const auto& b=boxes[at];
         ++pair_visits;
         unsigned outside=(p.vertices[u]^p.vertices[b.a])&~(p.vertices[b.a]^p.vertices[b.b]);
-        box(u,p.metric[outside],[&](unsigned g){return b.low[g];},[&](unsigned g){return b.high[g];});
+        if (box(u,p.metric[outside],b.below,b.above,[&](unsigned g){return b.low[g];},[&](unsigned g){return b.high[g];})) retired|=bit;
       }
       for (auto [v,budget]:p.edges[u]) edge(u,v,budget);
       add_anchor(u);
@@ -285,6 +339,11 @@ class Engine {
     }
   }
   std::pair<unsigned,unsigned> next() {
+    for (unsigned u:changed_picks) {
+      pick_dirty[u]=0;auto k=pick_for(u);if (k.unknown) picks.push(k);
+    }
+    changed_picks.clear();
+    if (picks.size()>8*p.vertices.size()) rebuild_heap();
     while (!picks.empty()) {
       Pick k=picks.top();picks.pop();
       if (k.generation!=generation[k.row] || !k.unknown) continue;
