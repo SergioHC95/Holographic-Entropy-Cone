@@ -109,8 +109,7 @@ struct Problem {
 };
 static uint64_t scale_for(const Problem& p, uint64_t seed_scale) {
   need(seed_scale > 0, "zero seed clearing scale");
-  bool uniform = p.alpha.empty() || std::all_of(p.alpha.begin(), p.alpha.end(), [&](unsigned a) { return a == p.alpha[0]; });
-  Wide scale = Wide(seed_scale) * (uniform ? 1 : p.normalizer);
+  Wide scale = Wide(seed_scale) * (p.uniform_alpha ? 1 : p.normalizer);
   need(scale <= UINT64_MAX, "full-map clearing scale needs arbitrary precision backend");
   for (unsigned b : p.beta) need(scale * b <= UINT64_MAX, "output numerator needs more than uint64");
   return uint64_t(scale);
@@ -228,15 +227,18 @@ static void reply(const std::string& json, const std::vector<uint64_t>& rows, co
 struct PointEvaluator {
   const Problem& p;
   const std::vector<uint64_t>& seed;
-  uint64_t d, t, factor;
+  uint64_t d, t, seed_multiplier, quantum[25]{};
   uint64_t evaluations = 0;
   PointEvaluator(const Problem& problem, const std::vector<uint64_t>& values, uint64_t scale, uint64_t full)
-      : p(problem), seed(values), d(scale), t(full), factor(p.normalizer / (t / d)) {}
+      : p(problem), seed(values), d(scale), t(full), seed_multiplier(p.uniform_alpha ? 1 : p.normalizer) {
+    need(t == scale_for(p, d), "point evaluator clearing scale mismatch");
+    for (unsigned i = 0; i < p.L; ++i) quantum[i] = p.normalizer / p.alpha[i];
+  }
   void at(uint32_t x, uint64_t* out) {
     ++evaluations;
     int32_t saved = p.index[x];
     if (saved >= 0) {
-      for (unsigned g = 0; g < p.G; ++g) out[g] = uint64_t(Wide(seed[uint64_t(saved) * p.G + g]) * (t / d));
+      for (unsigned g = 0; g < p.G; ++g) out[g] = uint64_t(Wide(seed[uint64_t(saved) * p.G + g]) * seed_multiplier);
       return;
     }
     if (p.uniform_alpha) {
@@ -256,30 +258,48 @@ struct PointEvaluator {
       for (unsigned g = 0; g < p.G; ++g) out[g] = seed[uint64_t(at) * p.G + g];
       return;
     }
-    unsigned mass[25]{}; uint64_t q[25]{}, levels[26]{}; Wide accumulator[63]{};
+    unsigned mass[25]{};
     for (unsigned i = 0; i < p.L; ++i) mass[i] = (x & (1u << i)) ? p.alpha[i] : 0;
     for (auto r : p.disjoint) { unsigned a = std::min(mass[r.i], mass[r.j]); mass[r.i] -= a; mass[r.j] -= a; }
     for (auto r : p.nested) { unsigned a = std::min(mass[r.i], p.alpha[r.j] - mass[r.j]); mass[r.i] -= a; mass[r.j] += a; }
-    for (unsigned i = 0; i < p.L; ++i) {
-      need(mass[i] <= p.alpha[i], "transport capacity violation");
-      q[i] = uint64_t(Wide(mass[i]) * (p.normalizer / p.alpha[i])); levels[i] = q[i];
-    }
+    for (unsigned i = 0; i < p.L; ++i) need(mass[i] <= p.alpha[i], "transport capacity violation");
     for (auto r : p.disjoint) need(!mass[r.i] || !mass[r.j], "transport disjoint conflict");
     for (auto r : p.nested) need(!mass[r.i] || mass[r.j] == p.alpha[r.j], "transport nesting conflict");
-    levels[p.L] = p.normalizer; std::sort(levels, levels + p.L + 1);
+    // The threshold sets form a decreasing chain. Record only strictly
+    // fractional axes; zero/full masses never create an interior breakpoint.
+    // Updating that chain removes the former all-axis scan at every level.
+    struct Threshold { uint64_t level; uint32_t remove; };
+    Threshold thresholds[26];
+    unsigned count = 0;
+    uint32_t endpoint = 0;
+    for (unsigned i = 0; i < p.L; ++i) if (mass[i]) {
+      endpoint |= 1u << i;
+      if (mass[i] < p.alpha[i]) thresholds[count++] = {mass[i] * quantum[i], 1u << i};
+    }
+    if (!count) {
+      int32_t at = p.index[endpoint]; need(at >= 0, "threshold endpoint outside complete C");
+      for (unsigned g = 0; g < p.G; ++g) out[g] = uint64_t(Wide(seed[uint64_t(at) * p.G + g]) * seed_multiplier);
+      return;
+    }
+    thresholds[count++] = {p.normalizer, 0};
+    std::sort(thresholds, thresholds + count, [](const Threshold& a, const Threshold& b) { return a.level < b.level; });
+    Wide accumulator[63]{};
     uint64_t previous = 0;
-    for (unsigned k = 0; k <= p.L; ++k) {
-      uint64_t level = levels[k]; if (level == previous) continue;
-      uint32_t endpoint = 0;
-      for (unsigned i = 0; i < p.L; ++i) if (q[i] >= level) endpoint |= 1u << i;
+    for (unsigned k = 0; k < count;) {
+      uint64_t level = thresholds[k].level;
       int32_t at = p.index[endpoint]; need(at >= 0, "threshold endpoint outside complete C");
       for (unsigned g = 0; g < p.G; ++g) accumulator[g] += Wide(level - previous) * seed[uint64_t(at) * p.G + g];
+      // Ties MUST be removed together, only after their common interval was
+      // integrated. Visiting intermediate tied endpoints would change the map.
+      do { endpoint &= ~thresholds[k++].remove; } while (k < count && thresholds[k].level == level);
       previous = level;
     }
     need(previous == p.normalizer, "threshold weights do not sum to one");
     for (unsigned g = 0; g < p.G; ++g) {
-      need(accumulator[g] % factor == 0, "nonintegral numerator at derived clearing scale");
-      Wide value = accumulator[g] / factor;
+      // For nonuniform capacities t = d*normalizer. Multiplying the exact
+      // threshold integral by t cancels BOTH denominators, leaving this sum.
+      // The constructor enforces that law once; no per-cell division is needed.
+      Wide value = accumulator[g];
       need(value <= Wide(t) * p.beta[g] && value <= UINT64_MAX, "full-map numerator out of bounds");
       out[g] = uint64_t(value);
     }
@@ -291,6 +311,23 @@ struct PointEvaluator {
 };
 
 struct TiledResult { uint64_t edges, vertices, working_bytes, evaluations; };
+// A Hamiltonian Gray path lets the next base tile reuse the adjacent buffer.
+// Path edges are checked on transition, in either direction. Every NON-path
+// high edge is still owned by its unique bit-zero endpoint tile. Excluding
+// both path neighbours prevents either orientation from checking it twice.
+struct TileVisit {
+  uint32_t current, previous, next, count;
+  static uint32_t gray(uint32_t step) { return step ^ (step >> 1); }
+  TileVisit(uint32_t step, unsigned high_axes) : count(1u << high_axes) {
+    current = gray(step);
+    previous = step ? gray(step - 1) : count;
+    next = step + 1 < count ? gray(step + 1) : count;
+  }
+  bool owns_nonpath(unsigned axis) const {
+    uint32_t neighbour = current ^ (1u << axis);
+    return !(current & (1u << axis)) && neighbour != previous && neighbour != next;
+  }
+};
 static TiledResult tiled_audit(PointEvaluator& evaluator, uint64_t limit, std::vector<uint64_t>& query_values,
                                const std::vector<uint32_t>& queries) {
   const Problem& p = evaluator.p;
@@ -302,9 +339,12 @@ static TiledResult tiled_audit(PointEvaluator& evaluator, uint64_t limit, std::v
   RowMetric metric(p, evaluator.t);
   unsigned stride = metric.stride();
   uint64_t edges = 0, checked_vertices = 0;
-  for (uint32_t first = 0; first < p.N; first += width) {
-    evaluator.range(first, width, base);
-    metric.pack(base, width);
+  unsigned high_axes = p.L - low_axes;
+  uint32_t tiles = p.N / width;
+  evaluator.range(0, width, base);
+  metric.pack(base, width);
+  for (uint32_t step = 0; step < tiles; ++step) {
+    TileVisit visit(step, high_axes);
     checked_vertices += width;
     // Every low-axis edge belongs to exactly this base tile.
     for (unsigned axis = 0; axis < low_axes; ++axis) {
@@ -315,14 +355,24 @@ static TiledResult tiled_audit(PointEvaluator& evaluator, uint64_t limit, std::v
         ++edges;
       }
     }
-    // Every high-axis edge belongs to its bit-zero endpoint tile, once.
-    for (unsigned axis = low_axes; axis < p.L; ++axis) if (!(first & (1u << axis))) {
-      evaluator.range(first | (1u << axis), width, adjacent);
+    for (unsigned high = 0; high < high_axes; ++high) if (visit.owns_nonpath(high)) {
+      unsigned axis = low_axes + high;
+      evaluator.range((visit.current ^ (1u << high)) * width, width, adjacent);
       metric.pack(adjacent, width);
       for (uint32_t x = 0; x < width; ++x) {
         metric.edge(axis, base.data() + uint64_t(x) * stride, adjacent.data() + uint64_t(x) * stride);
         ++edges;
       }
+    }
+    if (visit.next < tiles) {
+      evaluator.range(visit.next * width, width, adjacent);
+      metric.pack(adjacent, width);
+      unsigned axis = low_axes + unsigned(__builtin_ctz(visit.current ^ visit.next));
+      for (uint32_t x = 0; x < width; ++x) {
+        metric.edge(axis, base.data() + uint64_t(x) * stride, adjacent.data() + uint64_t(x) * stride);
+        ++edges;
+      }
+      base.swap(adjacent);
     }
   }
   std::vector<uint64_t> row(p.G);
