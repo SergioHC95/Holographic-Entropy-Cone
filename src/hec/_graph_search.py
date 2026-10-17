@@ -377,10 +377,10 @@ def solve_fixed_n(
     reduced = None
     # Property-derived reduction, with no dataset-specific cases. Explicitly
     # limited calls retain their shared-budget general-planner semantics.
-    if n == 6 and total_vertices == 10 and node_limit is None and time_limit_s is None:
+    if n == 6 and total_vertices in (10, 11) and node_limit is None and time_limit_s is None:
         from ._graph_epr import solve_epr_free
 
-        reduced = solve_epr_free(clean_target)
+        reduced = solve_epr_free(clean_target, total_vertices=total_vertices)
         if reduced is not None and reduced[1].get("status") in {"realized", "infeasible"}:
             return reduced
     plan = plan_orbit_search(clean_target, n, total_vertices)

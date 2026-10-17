@@ -2,14 +2,14 @@
 
 Contract disjoint inclusion-minimal singleton cuts to terminals without adding
 vertices or changing entropies. Zero pair mutual information forces every
-terminal-terminal edge to vanish. With three bulk vertices, terminal weights
-a[t], b[t], d[t]-a[t]-b[t] and three bulk edges leave 17 continuous parameters.
+terminal-terminal edge to vanish. With three or four bulk vertices, eliminating
+one terminal capacity per degree leaves 17 or 27 continuous parameters.
 Zero-weight padding covers every smaller realization.
 
 For additive T, every bulk side U obeys D(U)+C(U)>=2*a(T,U)>=2*a(S,U)
 for S contained in T. Keeping all maximal additive sets therefore implies
 every omitted lower bound. Every nonadditive split must attain its entropy on
-one of six proper bulk sides: a native linear disjunction needs no selectors.
+a proper bulk side: a native linear disjunction needs no selectors.
 
 Graph acceptance remains independent and exact. Exclusion requires completed
 native infeasibility, never a limit. Other sizes retain the general solver.
@@ -60,28 +60,34 @@ class EprModel:
     disjunctions: tuple[tuple[tuple[tuple[int, ...], int], ...], ...]
     profile: dict[str, Any]
     sha256: str
+    bulk_count: int = 3
 
 
-@lru_cache(maxsize=1)
-def _epr_geometry() -> tuple[tuple[int, ...], np.ndarray]:
+@lru_cache(maxsize=2)
+def _epr_geometry(bulk_count: int = 3) -> tuple[tuple[int, ...], np.ndarray]:
+    if bulk_count not in (3, 4):
+        raise ValueError("the exact small-bulk specialization supports three or four bulk vertices")
+    stride = bulk_count - 1
+    full = (1 << bulk_count) - 1
+    width = 7 * stride + math.comb(bulk_count, 2)
     boundary = tuple(sum(1 << vertex for vertex in sub) for sub in subsets(6))
-    rows = np.zeros((63, 6, 17), dtype=np.int16)
+    rows = np.zeros((63, full - 1, width), dtype=np.int16)
     for index, mask in enumerate(boundary):
-        for offset, bulk in enumerate(range(1, 7)):
-            bits = tuple((bulk >> bit) & 1 for bit in range(3))
+        for offset, bulk in enumerate(range(1, full)):
+            bits = tuple((bulk >> bit) & 1 for bit in range(bulk_count))
             for terminal in range(7):
                 sign = -1 if mask & (1 << terminal) else 1
-                rows[index, offset, 2 * terminal] = sign * (bits[0] - bits[2])
-                rows[index, offset, 2 * terminal + 1] = sign * (bits[1] - bits[2])
-            for column, (left, right) in enumerate(combinations(range(3), 2), 14):
+                for bit in range(stride):
+                    rows[index, offset, stride * terminal + bit] = sign * (bits[bit] - bits[-1])
+            for column, (left, right) in enumerate(combinations(range(bulk_count), 2), 7 * stride):
                 rows[index, offset, column] = bits[left] != bits[right]
     rows.flags.writeable = False
     return boundary, rows
 
 
-def _build_epr_model(target: tuple[int, ...]) -> EprModel | None:
+def _build_epr_model(target: tuple[int, ...], bulk_count: int = 3) -> EprModel | None:
     """None means not applicable, not an infeasibility verdict."""
-    if len(target) != 63 or any(value < 0 for value in target) or not any(target):
+    if bulk_count not in (3, 4) or len(target) != 63 or any(value < 0 for value in target) or not any(target):
         return None
     divisor = math.gcd(*target)
     target = tuple(value // divisor for value in target)
@@ -89,7 +95,10 @@ def _build_epr_model(target: tuple[int, ...]) -> EprModel | None:
     # representable. Larger targets use the general formulation.
     if max(target) >= 1 << 45:
         return None
-    boundary, coefficients = _epr_geometry()
+    stride = bulk_count - 1
+    full = (1 << bulk_count) - 1
+    width = 7 * stride + math.comb(bulk_count, 2)
+    boundary, coefficients = _epr_geometry(bulk_count)
     index = {mask: i for i, mask in enumerate(boundary)}
     values = dict(zip(boundary, target, strict=True))
     values[0] = 0
@@ -111,11 +120,14 @@ def _build_epr_model(target: tuple[int, ...]) -> EprModel | None:
     # Clipping any bulk edge above max entropy to that value preserves all
     # old minima: it crossed no old minimum, and every changed cut still
     # contains an edge at least as large as its target entropy.
-    upper = np.asarray([degrees[column // 2] for column in range(14)] + [max(target)] * 3, dtype=float)
+    upper = np.asarray(
+        [degrees[column // stride] for column in range(7 * stride)] + [max(target)] * math.comb(bulk_count, 2),
+        dtype=float,
+    )
     rows, rhs, disjunctions = [], [], []
     for terminal in range(7):
-        row = np.zeros(17)
-        row[2 * terminal : 2 * terminal + 2] = 1
+        row = np.zeros(width)
+        row[stride * terminal : stride * (terminal + 1)] = 1
         rows.append(row)
         rhs.append(degrees[terminal])
     lower_subsystems = 0
@@ -128,8 +140,8 @@ def _build_epr_model(target: tuple[int, ...]) -> EprModel | None:
         retain = not endpoint or sub in retained
         lower_subsystems += retain
         choices = []
-        for bulk in range(1, 7):
-            constant = degree_sum if not bulk & 4 else total - degree_sum
+        for bulk in range(1, full):
+            constant = degree_sum if not bulk & (1 << stride) else total - degree_sum
             row = tuple(map(int, coefficients[sub, bulk - 1]))
             if retain:
                 rows.append(-coefficients[sub, bulk - 1].astype(float))
@@ -139,28 +151,35 @@ def _build_epr_model(target: tuple[int, ...]) -> EprModel | None:
         if choices:
             disjunctions.append(tuple(choices))
     # Relabel bulk columns so their total terminal capacities descend.
-    for left, right in [(0, 1), (1, 2)]:
-        row = np.zeros(17)
+    for left, right in zip(range(stride), range(1, bulk_count), strict=True):
+        row = np.zeros(width)
         constant = 0
         for terminal in range(7):
             for bulk, sign in [(right, 1), (left, -1)]:
-                if bulk < 2:
-                    row[2 * terminal + bulk] += sign
+                if bulk < stride:
+                    row[stride * terminal + bulk] += sign
                 else:
                     constant += sign * degrees[terminal]
-                    row[2 * terminal] -= sign
-                    row[2 * terminal + 1] -= sign
+                    row[stride * terminal : stride * (terminal + 1)] -= sign
         rows.append(row)
         rhs.append(-constant)
     matrix = sparse.csr_matrix(np.asarray(rows))
     bound = np.asarray(rhs, dtype=float)
     linear_hash = _frozen_milp_sha256(
-        np.zeros(17), matrix, np.full(len(rhs), -np.inf), bound, np.zeros(17), upper, np.zeros(17, dtype=np.int32)
+        np.zeros(width),
+        matrix,
+        np.full(len(rhs), -np.inf),
+        bound,
+        np.zeros(width),
+        upper,
+        np.zeros(width, dtype=np.int32),
     )
     packed = json.dumps({"linear_model": linear_hash, "disjunctions": disjunctions}, separators=(",", ":")).encode()
     digest = hashlib.sha256(packed).hexdigest()
     profile = {
-        "continuous_parameters": 17,
+        "continuous_parameters": width,
+        "bulk_vertices": bulk_count,
+        "total_vertices": 7 + bulk_count,
         "binary_vars": 0,
         "cut_selectors": 0,
         "ineq_rows": len(rhs),
@@ -170,7 +189,7 @@ def _build_epr_model(target: tuple[int, ...]) -> EprModel | None:
         "constraint_model_sha256": digest,
         "cut_encoding": "linear_disjunction",
     }
-    return EprModel(target, degrees, matrix, bound, upper, tuple(disjunctions), profile, digest)
+    return EprModel(target, degrees, matrix, bound, upper, tuple(disjunctions), profile, digest, bulk_count)
 
 
 def _trusted_epr_infeasibility(info: dict[str, Any], *, incumbent_returned: bool) -> bool:
@@ -200,7 +219,8 @@ def _solve_epr_native(model: EprModel) -> tuple[np.ndarray | None, dict[str, Any
         if limits["limits/time"] < 1e20 or limits["limits/nodes"] != -1:
             raise RuntimeError("unlimited specialization acquired an unexpected resource limit")
         variables = [
-            scip.addVar(name=f"w{column}", lb=0, ub=float(model.upper[column]), vtype="C") for column in range(17)
+            scip.addVar(name=f"w{column}", lb=0, ub=float(model.upper[column]), vtype="C")
+            for column in range(len(model.upper))
         ]
         for row in range(model.matrix.shape[0]):
             first, last = model.matrix.indptr[row : row + 2]
@@ -244,17 +264,15 @@ def _solve_epr_native(model: EprModel) -> tuple[np.ndarray | None, dict[str, Any
 
 def _epr_graph(solution: np.ndarray, model: EprModel) -> dict[str, Any]:
     labels = tuple("ABCDEF") + ("O",)
+    stride = model.bulk_count - 1
     edges, weights = [], []
     for terminal in range(7):
-        values = [
-            solution[2 * terminal],
-            solution[2 * terminal + 1],
-            model.degrees[terminal] - solution[2 * terminal] - solution[2 * terminal + 1],
-        ]
+        direct = list(solution[stride * terminal : stride * (terminal + 1)])
+        values = direct + [model.degrees[terminal] - sum(direct)]
         for bulk, value in enumerate(values, 1):
             edges.append([labels[terminal], f"x{bulk}"])
             weights.append(float(value))
-    for column, (left, right) in enumerate(combinations(range(3), 2), 14):
+    for column, (left, right) in enumerate(combinations(range(model.bulk_count), 2), 7 * stride):
         edges.append([f"x{left + 1}", f"x{right + 1}"])
         weights.append(float(solution[column]))
     graph = prune_entropy_irrelevant_components(_integer_graph(edges, weights), 6)
@@ -264,9 +282,11 @@ def _epr_graph(solution: np.ndarray, model: EprModel) -> dict[str, Any]:
     return canonical_primitive_ray_graph(graph, 6)
 
 
-def solve_epr_free(target: tuple[int, ...]) -> tuple[dict[str, Any] | None, dict[str, Any]] | None:
+def solve_epr_free(
+    target: tuple[int, ...], *, total_vertices: int = 10
+) -> tuple[dict[str, Any] | None, dict[str, Any]] | None:
     started = time.perf_counter()
-    model = _build_epr_model(target)
+    model = _build_epr_model(target, total_vertices - 7)
     if model is None:
         return None
     from ._graph_pair import pair_cut_disjunctions
@@ -287,7 +307,7 @@ def solve_epr_free(target: tuple[int, ...]) -> tuple[dict[str, Any] | None, dict
         try:
             graph = _epr_graph(point, model)
             prelift = graph_total_vertices(graph, 6)
-            graph = lift_graph_total_vertices(graph, 6, 10)
+            graph = lift_graph_total_vertices(graph, 6, total_vertices)
             checked = exact_entropy_match(graph, exact_target, 6, "ray")
         except (ArithmeticError, IndexError, TypeError, ValueError) as exc:
             rejected[name] = str(exc)
@@ -303,21 +323,21 @@ def solve_epr_free(target: tuple[int, ...]) -> tuple[dict[str, Any] | None, dict
         cell_rows.append(row)
         cell_rhs.append(bound)
     cell_a = sparse.vstack(
-        [model.matrix, sparse.csr_matrix(np.asarray(cell_rows).reshape(len(cell_rows), 17))], format="csr"
+        [model.matrix, sparse.csr_matrix(np.asarray(cell_rows).reshape(len(cell_rows), len(model.upper)))], format="csr"
     )
     rhs = np.concatenate([model.rhs, np.asarray(cell_rhs)])
-    objective = np.zeros(17)
-    objective[14:17] = 1
+    objective = np.zeros(len(model.upper))
+    objective[7 * (model.bulk_count - 1) :] = 1
     try:
         refined, _ = _solve_highspy_milp(
             objective,
             cell_a,
             np.full(len(rhs), -np.inf),
             rhs,
-            sparse.csr_matrix((0, 17)),
+            sparse.csr_matrix((0, len(model.upper))),
             np.empty(0),
-            np.zeros(17, dtype=np.int32),
-            np.zeros(17),
+            np.zeros(len(model.upper), dtype=np.int32),
+            np.zeros(len(model.upper)),
             model.upper,
             node_limit=None,
             time_limit_s=None,
