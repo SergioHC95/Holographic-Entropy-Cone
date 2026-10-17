@@ -7,6 +7,12 @@ unique minimal cut and is contained in it by monotonicity, hence they coincide.
 Only these necessary properties are propagated; nonempty domains are never
 treated as graph realizations or proofs of feasibility.
 
+With no terminal-terminal edges, a fixed bulk side has cut capacity affine in
+the terminal indicator vector. Complementary bulk sides have opposite slopes.
+Balanced sums of entropy lower bounds therefore certify pairs of cuts that
+cannot use equal or complementary bulk sides. Each exclusion is backed by an
+explicit integer pair witness, checked before any domains are pruned.
+
 At every branch, quotient cut choices by permutations of bulk vertices with
 identical fixed-cut signatures. There is no competing capacity ordering.
 Native-created branches disable this quotient for their entire subtrees.
@@ -17,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass
 from functools import lru_cache
 from itertools import combinations
 
@@ -54,28 +61,105 @@ def tables():
 
 
 @lru_cache(maxsize=1)
-def binary_geometry():
-    relations = []
-    for a, b in combinations(range(1, 64), 2):
-        if a & b == a:
-            relations.append((a, b, 0))
-        elif a & b == b:
-            relations.append((b, a, 0))
-        elif not a & b:
-            relations.append((a, b, 1))
-    support = np.zeros((3, 16), dtype=np.int64)
-    for a in range(16):
-        for b in range(16):
-            if a & b == a:
-                support[0, a] |= 1 << b
-            if a & b == b:
-                support[1, a] |= 1 << b
-            if not a & b:
-                support[2, a] |= 1 << b
-    relations = np.asarray(relations, dtype=np.int64)
-    relations.setflags(write=False)
+def affine_geometry():
+    """Carry-free ternary codes for terminal sums/differences; exact supports.
+
+    Relation flags are nested (1), disjoint (2), unequal (4), and not opposite
+    (8). Combine flags before arc consistency: strict inclusion, for example,
+    is stronger than propagating inclusion and inequality separately.
+    """
+    powers = 3 ** np.arange(6, dtype=np.int64)
+    bits = np.asarray([[(s >> t) & 1 for t in range(6)] for s in range(64)])
+    codes = np.empty((2, 64, 64), dtype=np.int64)
+    for a in range(64):
+        for b in range(64):
+            codes[0, a, b] = (bits[a] + bits[b]) @ powers
+            codes[1, a, b] = (bits[a] - bits[b] + 1) @ powers
+    support = np.zeros((2, 16, 16), dtype=np.int64)
+    for flags in range(16):
+        for a in range(16):
+            for b in range(16):
+                good = (not flags & 1 or a & b == a) and (not flags & 2 or not a & b)
+                good = good and (not flags & 4 or a != b) and (not flags & 8 or a != (b ^ 15))
+                if good:
+                    support[0, flags, a] |= 1 << b
+                    support[1, flags, b] |= 1 << a
+    codes.setflags(write=False)
     support.setflags(write=False)
-    return relations, support
+    return codes, support
+
+
+@njit(cache=True)
+def affine_pair_bounds(h, codes):
+    """Max-plus bounds with explicit attaining terminal-pair witnesses.
+
+    If U minimizes A and B, then h(A)+h(B) = C_U(A)+C_U(B) must be at least
+    h(C)+h(D) for every 1_A+1_B = 1_C+1_D. If U minimizes A and its complement
+    minimizes B, use 1_A-1_B = 1_C-1_D instead: complementary cut capacities
+    have opposite terminal slopes and their constant sum is independent of S.
+    A strict violation therefore forbids the corresponding bulk-side pair.
+    No converse is assumed; remaining domains still require the full solver.
+    """
+    bounds = np.full((2, 729), -1, dtype=np.int64)
+    witnesses = np.zeros((2, 729, 2), dtype=np.uint8)
+    for a in range(64):
+        for b in range(64):
+            value = h[a] + h[b]
+            for kind in range(2):
+                code = codes[kind, a, b]
+                if value > bounds[kind, code]:
+                    bounds[kind, code] = value
+                    witnesses[kind, code, 0] = a
+                    witnesses[kind, code, 1] = b
+    return bounds, witnesses
+
+
+@njit(cache=True)
+def verify_affine_bounds(h, bounds, witnesses):
+    # Check every coordinate directly, independently of the code lookup table.
+    # An attaining witness is enough for soundness; maximality only adds pruning.
+    for kind in range(2):
+        for code in range(729):
+            a, b = witnesses[kind, code]
+            if a >= 64 or b >= 64 or h[a] + h[b] != bounds[kind, code]:
+                return False
+            for t in range(6):
+                digit = code // (3**t) % 3
+                value = ((a >> t) & 1) + ((b >> t) & 1) if kind == 0 else ((a >> t) & 1) - ((b >> t) & 1) + 1
+                if value != digit:
+                    return False
+    return True
+
+
+@njit(cache=True)
+def affine_relations(h, codes, bounds):
+    relations = np.empty((1953, 3), dtype=np.int64)
+    count = equal = opposite = 0
+    for a in range(1, 64):
+        for b in range(a + 1, 64):
+            flags = 1 if a & b == a else 2 if not a & b else 0
+            value = h[a] + h[b]
+            if value < bounds[0, codes[0, a, b]]:
+                flags |= 4
+                equal += 1
+            if value < bounds[1, codes[1, a, b]]:
+                flags |= 8
+                opposite += 1
+            if flags:
+                relations[count, 0], relations[count, 1], relations[count, 2] = a, b, flags
+                count += 1
+    return relations[:count], equal, opposite
+
+
+@dataclass(frozen=True)
+class CutRules:
+    """Immutable, target-local plan; never shared mutable solver state."""
+
+    joins: np.ndarray
+    binary: np.ndarray
+    equal_exclusions: int
+    opposite_exclusions: int
+    certificate_sha256: str
 
 
 def initial(source):
@@ -83,6 +167,8 @@ def initial(source):
 
     if source.bulk_count != 4:
         raise ValueError("minimum-cut domains are specialized for four bulk vertices")
+    if any(not 0 <= v <= np.iinfo(np.int64).max // 2 for v in source.target):
+        raise ValueError("balanced-cut arithmetic exceeds its exact integer range")
     boundary, _ = _epr_geometry(4)
     h = np.zeros(64, dtype=np.int64)
     domains = np.ones(64, dtype=np.int64)
@@ -103,7 +189,16 @@ def initial(source):
         union = a | b
         if h[a] + h[b] == h[a & b] + h[union]:
             rules.append((a, b, union))
-    return domains, np.asarray(rules, dtype=np.int64).reshape(-1, 3)
+    joins = np.asarray(rules, dtype=np.int64).reshape(-1, 3)
+    codes, _ = affine_geometry()
+    bounds, witnesses = affine_pair_bounds(h, codes)
+    if not verify_affine_bounds(h, bounds, witnesses):
+        raise RuntimeError("invalid exact balanced-cut certificate")
+    binary, equal, opposite = affine_relations(h, codes, bounds)
+    digest = hashlib.sha256(h.tobytes() + bounds.tobytes() + witnesses.tobytes() + binary.tobytes()).hexdigest()
+    joins.setflags(write=False)
+    binary.setflags(write=False)
+    return domains, CutRules(joins, binary, int(equal), int(opposite), digest)
 
 
 @njit(cache=True)
@@ -116,18 +211,39 @@ def revise_binary(left, right, support):
 
 
 @njit(cache=True)
+def revise_unequal(left, right, flags):
+    """Constant-time support for unequal/not-opposite-only relations."""
+    if not right:
+        return 0
+    first = right & -right
+    value = 0
+    while (1 << value) != first:
+        value += 1
+    if right == first:
+        forbidden = 0
+        if flags & 4:
+            forbidden |= first
+        if flags & 8:
+            forbidden |= 1 << (value ^ 15)
+        return left & ~forbidden
+    if flags == 12 and right == (first | (1 << (value ^ 15))):
+        return left & ~right
+    return left
+
+
+@njit(cache=True)
 def propagate(domains, binary, support, joins, image, preimage):
     while True:
         changed = False
         for k in range(len(binary)):
-            i, j, kind = binary[k]
+            i, j, flags = binary[k]
             a, b = domains[i], domains[j]
-            if kind == 0:
-                aa = revise_binary(a, b, support[0])
-                bb = revise_binary(b, aa, support[1])
+            if flags & 3:
+                aa = revise_binary(a, b, support[0, flags])
+                bb = revise_binary(b, aa, support[1, flags])
             else:
-                aa = revise_binary(a, b, support[2])
-                bb = revise_binary(b, aa, support[2])
+                aa = revise_unequal(a, b, flags)
+                bb = revise_unequal(b, aa, flags)
             if not aa or not bb:
                 return False
             if aa != a:
@@ -163,10 +279,10 @@ def propagate(domains, binary, support, joins, image, preimage):
             return True
 
 
-def close(domains, joins):
-    binary, support = binary_geometry()
+def close(domains, rules):
+    _, support = affine_geometry()
     image, preimage = tables()
-    return propagate(domains, binary, support, joins, image, preimage)
+    return propagate(domains, rules.binary, support, rules.joins, image, preimage)
 
 
 def local_zero_rows(penalty, degree, bulk_count):
@@ -254,8 +370,8 @@ def proper_values(mask):
 class DomainCover(OrbitCover):
     def __init__(self, source, variables, templates):
         super().__init__(source, variables, templates)
-        self.base, self.joins = initial(source)
-        self.base_ok = close(self.base, self.joins)
+        self.base, self.rules = initial(source)
+        self.base_ok = close(self.base, self.rules)
         self.states = {}
         self.symmetry_nodes = set()
         self.symmetry_raw_masks = 0
@@ -341,7 +457,7 @@ class DomainCover(OrbitCover):
                 trial = self.base.copy()
                 trial[left] = 1 << a
                 trial[right] = 1 << b
-                if not close(trial, self.joins):
+                if not close(trial, self.rules):
                     self.pruned += 1
                     self.root_pruned += 1
                     continue
@@ -395,7 +511,7 @@ class DomainCover(OrbitCover):
             self.branch_candidates += 1
             trial = current.copy()
             trial[side] = 1 << mask
-            if not close(trial, self.joins):
+            if not close(trial, self.rules):
                 self.pruned += 1
                 self.branch_pruned += 1
                 continue
@@ -412,6 +528,11 @@ class DomainCover(OrbitCover):
         return {
             "kind": "minimal_cut_domain_branching",
             "recipe_sha256": self.recipe_sha256,
+            "propagation_policy": "balanced_affine_cut_pairs",
+            "balanced_certificate_verified": True,
+            "balanced_certificate_sha256": self.rules.certificate_sha256,
+            "balanced_equal_exclusions": self.rules.equal_exclusions,
+            "balanced_opposite_exclusions": self.rules.opposite_exclusions,
             "total_vertices": 11,
             "root_orbit_candidates": self.root_candidates,
             "root_orbit_children": self.root_children,
@@ -485,7 +606,9 @@ def install_cut_domain_branching(model, source, variables):
         "kind": "minimal_cut_domain_branching",
         "base_model_sha256": source.sha256,
         "initial_closed_domains": handler.base.tolist(),
-        "tight_union_rules": handler.joins.tolist(),
+        "tight_union_rules": handler.rules.joins.tolist(),
+        "propagation_policy": "balanced_affine_cut_pairs",
+        "balanced_certificate_sha256": handler.rules.certificate_sha256,
         "anchor_subsystems": [left, right],
         "anchor_orbits": [[a, b] for a, b, *_ in templates],
         "symmetry_policy": "dynamic_minimal_cut_stabilizer",
