@@ -7,6 +7,9 @@ unique minimal cut and is contained in it by monotonicity, hence they coincide.
 Only these necessary properties are propagated; nonempty domains are never
 treated as graph realizations or proofs of feasibility.
 
+At every branch, quotient cut choices by permutations of bulk vertices with
+identical fixed-cut signatures. There is no competing capacity ordering.
+Native-created branches disable this quotient for their entire subtrees.
 Four-bulk search only; no clocks, weight integrality, or cross-case solver state.
 """
 
@@ -181,27 +184,30 @@ def local_zero_rows(penalty, degree, bulk_count):
     return zeros
 
 
-def sorting_rows(a, b, bulk_count):
-    stride = bulk_count - 1
-    width = 7 * stride + bulk_count * (bulk_count - 1) // 2
-    sig = [((a >> k) & 1) | (((b >> k) & 1) << 1) for k in range(bulk_count)]
-    rows = []
-    for left in range(bulk_count - 1):
-        right = left + 1
-        if sig[left] != sig[right]:
-            continue
-        row = np.zeros(width, dtype=np.int64)
-        constant = [0] * 7
-        for t in range(7):
-            weight = 1 << t
-            for k, sign in [(right, 1), (left, -1)]:
-                if k < stride:
-                    row[t * stride + k] += sign * weight
-                else:
-                    row[t * stride : t * stride + stride] -= sign * weight
-                    constant[t] += sign * weight
-        rows.append((tuple(map(int, row)), tuple(constant)))
-    return rows
+@njit(cache=True)
+def stabilizer_representatives(fixed, tracked=True):
+    """One proper mask per orbit of the fixed-cut signature stabilizer.
+
+    Within each equal-signature block, put the next cut's ones at the largest
+    vertex indices. This is the maximum integer in each orbit. Only a single
+    next cut is ordered: ordering every unfixed cut at once would be unsound.
+    Untracked native branches may have additional asymmetric constraints.
+    """
+    representatives = 32766
+    if not tracked:
+        return representatives
+    for left in range(4):
+        for right in range(left + 1, 4):
+            same = True
+            for side in range(1, 64):
+                if fixed[side] >= 0 and (fixed[side] >> left & 1) != (fixed[side] >> right & 1):
+                    same = False
+                    break
+            if same:
+                for value in range(1, 15):
+                    if (value >> left & 1) > (value >> right & 1):
+                        representatives &= ~(1 << value)
+    return representatives
 
 
 class OrbitCover(pyscipopt.Conshdlr):
@@ -212,7 +218,6 @@ class OrbitCover(pyscipopt.Conshdlr):
         self.calls = 0
         self.children = 0
         self.zero_bounds = 0
-        self.sort_rows = 0
         self.root_children = 0
 
     def add_root_constraints(self, node, choice, template):
@@ -230,11 +235,6 @@ class OrbitCover(pyscipopt.Conshdlr):
                 expr = pyscipopt.quicksum(self.variables[j * stride + k] for k in range(stride))
                 self.model.addConsNode(node, expr >= source.degrees[j], removable=False)
             self.zero_bounds += 1
-        for row, constant in sorting_rows(a, b, source.bulk_count):
-            rhs = -sum(x * d for x, d in zip(constant, source.degrees, strict=True))
-            expr = pyscipopt.quicksum(v * self.variables[j] for j, v in enumerate(row) if v)
-            self.model.addConsNode(node, expr <= rhs, removable=False)
-            self.sort_rows += 1
 
     def conscheck(self, *args, **kwargs):
         return {"result": SCIP_RESULT.FEASIBLE}
@@ -257,6 +257,12 @@ class DomainCover(OrbitCover):
         self.base, self.joins = initial(source)
         self.base_ok = close(self.base, self.joins)
         self.states = {}
+        self.symmetry_nodes = set()
+        self.symmetry_raw_masks = 0
+        self.symmetry_orbit_masks = 0
+        self.symmetry_skipped_masks = 0
+        self.symmetry_untracked_enforcements = 0
+        self.symmetry_consistent = True
         self.pruned = 0
         self.forced = 0
         self.root_candidates = 0
@@ -321,6 +327,7 @@ class DomainCover(OrbitCover):
         self.calls += 1
         if self.model.getDepth() == 0:
             self.states = {}
+            self.symmetry_nodes = set()
             if not self.base_ok:
                 self.root_candidates += len(self.templates)
                 self.root_pruned += len(self.templates)
@@ -345,28 +352,44 @@ class DomainCover(OrbitCover):
                 self.add_root_constraints(node, choice, template)
                 fixed = self.enforce_singles(node, trial, np.full(64, -1, dtype=np.int16))
                 self.states[node.getNumber()] = (trial, fixed)
+                self.symmetry_nodes.add(node.getNumber())
             return {"result": SCIP_RESULT.BRANCHED if created else SCIP_RESULT.CUTOFF}
         state = self.ancestor_state()
         if state is None:
             self.state_fallbacks += 1
             return {"result": SCIP_RESULT.FEASIBLE}
         current, fixed = state
+        symmetry_allowed = self.model.getCurrentNode().getNumber() in self.symmetry_nodes
+        representatives = stabilizer_representatives(fixed, symmetry_allowed)
+        if not symmetry_allowed:
+            self.symmetry_untracked_enforcements += 1
         point = np.asarray([self.model.getSolVal(None, v) for v in self.variables])
         violations = (self.gather @ point).reshape(len(self.free), 14) - self.bounds
         candidates = []
         for k, sub in enumerate(self.free):
             side = self.boundary[sub]
-            allowed = proper_values(int(current[side]))
-            if len(allowed) <= 1:
+            domain = int(current[side])
+            if domain.bit_count() <= 1:
                 continue
+            reduced = domain & representatives
+            if not reduced:
+                # Never turn a broken symmetry invariant into an exclusion.
+                self.symmetry_consistent = False
+                self.model.interruptSolve()
+                return {"result": SCIP_RESULT.FEASIBLE}
+            allowed = proper_values(reduced)
             minimum = min(float(violations[k, m - 1]) for m in allowed)
             if self.model.isFeasLE(minimum, 0.0):
                 continue
-            key = (len(allowed), -minimum, sub)
+            key = (-minimum, len(allowed), sub)
             candidates.append((key, sub, side, allowed))
         if not candidates:
             return {"result": SCIP_RESULT.FEASIBLE}
         _, sub, side, allowed = min(candidates, key=lambda item: item[0])
+        raw_count = int(current[side]).bit_count()
+        self.symmetry_raw_masks += raw_count
+        self.symmetry_orbit_masks += len(allowed)
+        self.symmetry_skipped_masks += raw_count - len(allowed)
         created = 0
         for mask in allowed:
             self.branch_candidates += 1
@@ -381,6 +404,8 @@ class DomainCover(OrbitCover):
             created += 1
             new_fixed = self.enforce_singles(node, trial, fixed)
             self.states[node.getNumber()] = (trial, new_fixed)
+            if symmetry_allowed:
+                self.symmetry_nodes.add(node.getNumber())
         return {"result": SCIP_RESULT.BRANCHED if created else SCIP_RESULT.CUTOFF}
 
     def record(self):
@@ -396,11 +421,22 @@ class DomainCover(OrbitCover):
             "domain_branch_pruned": self.branch_pruned,
             "forced_upper_cuts": self.forced,
             "zero_edge_constraints": self.zero_bounds,
-            "residual_order_rows": self.sort_rows,
+            "residual_order_rows": 0,
+            "symmetry_policy": "dynamic_minimal_cut_stabilizer",
+            "symmetry_raw_masks": self.symmetry_raw_masks,
+            "symmetry_orbit_masks": self.symmetry_orbit_masks,
+            "symmetry_skipped_masks": self.symmetry_skipped_masks,
+            "symmetry_untracked_enforcements": self.symmetry_untracked_enforcements,
+            "symmetry_consistent": self.symmetry_consistent,
+            "capacity_ordering_disabled": True,
+            "branch_selection": "largest_minimum_slack_then_fewest_orbits",
             "domain_state_fallbacks": self.state_fallbacks,
             "covers_complete": (
-                self.root_candidates == self.root_children + self.root_pruned
+                self.symmetry_consistent
+                and self.root_candidates == self.root_children + self.root_pruned
                 and self.branch_candidates == self.children - self.root_children + self.branch_pruned
+                and self.symmetry_raw_masks == self.symmetry_orbit_masks + self.symmetry_skipped_masks
+                and self.symmetry_orbit_masks == self.branch_candidates
             ),
             "automatic_symmetry_disabled": True,
             "dual_reductions_disabled": True,
@@ -410,13 +446,16 @@ class DomainCover(OrbitCover):
 def install_cut_domain_branching(model, source, variables):
     """Install a complete minimal-cut orbit cover, never a heuristic filter.
 
-    Any realizing graph has unique inclusion-minimal cuts. Relabel its bulk
-    vertices by the anchor-pair signatures, then order equal-signature blocks
-    by a fixed weighted terminal-capacity key. This preserves the anchors and
-    every entropy. That representative survives at least one root branch.
-    Every subsequent branch covers all remaining consistent minimum-cut
-    choices. Arc consistency removes only unsupported values. Original native
-    clauses remain present and graph acceptance is independently exact.
+    Any realizing graph has unique inclusion-minimal cuts. Anchor-pair
+    signature histograms cover the initial labellings. For each next chosen
+    cut, permute only vertices with identical previously fixed signatures.
+    Those permutations preserve every ancestor constraint, so one proper mask
+    per stabilizer orbit is a complete cover. Repeat on the refined partition;
+    never simultaneously order all unfixed cuts or impose capacity ordering.
+    If native SCIP creates a branch, disable quotienting throughout its subtree
+    because its additional constraints might not preserve that stabilizer.
+    Arc consistency removes only unsupported values. All original native
+    disjunctions and independent exact graph acceptance remain in place.
 
     Disable solver-picked symmetry and dual reductions: either could select
     a different representative before our conditional canonical ordering.
@@ -449,7 +488,10 @@ def install_cut_domain_branching(model, source, variables):
         "tight_union_rules": handler.joins.tolist(),
         "anchor_subsystems": [left, right],
         "anchor_orbits": [[a, b] for a, b, *_ in templates],
-        "residual_order_weights": [1 << t for t in range(7)],
+        "symmetry_policy": "dynamic_minimal_cut_stabilizer",
+        "native_branch_guard": True,
+        "capacity_ordering": False,
+        "branch_selection": "largest_minimum_slack_then_fewest_orbits",
     }
     handler.recipe_sha256 = hashlib.sha256(
         json.dumps(recipe, sort_keys=True, separators=(",", ":")).encode()

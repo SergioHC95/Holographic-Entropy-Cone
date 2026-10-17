@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 from fractions import Fraction
-from itertools import combinations
+from itertools import combinations, permutations, product
 from math import gcd
 from unittest.mock import patch
 
@@ -10,12 +10,13 @@ import numpy as np
 from test_graph_epr_four_bulk import full_table
 
 from hec._graph_cut_domains import (
+    DomainCover,
     binary_geometry,
     close,
     initial,
     install_cut_domain_branching,
     local_zero_rows,
-    sorting_rows,
+    stabilizer_representatives,
     tables,
 )
 from hec._graph_epr import _build_epr_model, _epr_geometry, _trusted_epr_infeasibility, solve_epr_free
@@ -85,8 +86,7 @@ class MinimumCutDomainTests(unittest.TestCase):
             left_sub, right_sub = source.profile["paired_cut_subsystems"]
             left, right = boundary[left_sub], boundary[right_sub]
             signatures = [((int(minimal[left]) >> k) & 1) | (((int(minimal[right]) >> k) & 1) << 1) for k in range(4)]
-            scores = weights.T @ (1 << np.arange(7))
-            order = sorted(range(4), key=lambda k: (signatures[k], -int(scores[k]), k))
+            order = sorted(range(4), key=lambda k: (signatures[k], k))
             transformed = np.asarray([sum(((int(mask) >> order[k]) & 1) << k for k in range(4)) for mask in minimal])
             a, b = int(transformed[left]), int(transformed[right])
             physical = dict(zip(boundary, raw.target, strict=True))
@@ -103,11 +103,6 @@ class MinimumCutDomainTests(unittest.TestCase):
                 core[pairs.index(tuple(sorted((order[i], order[j]))))] for i, j in pairs
             ]
             point = [Fraction(int(v), gcd(*target)) for v in point_values]
-            for row, constant in sorting_rows(a, b, 4):
-                self.assertLessEqual(
-                    sum(c * v for c, v in zip(row, point, strict=True)),
-                    -sum(c * d for c, d in zip(constant, raw.degrees, strict=True)),
-                )
             for kind, index in local_zero_rows(chosen[2], chosen[3], 4):
                 value = point[index] if kind == "bound" else raw.degrees[index] - sum(point[3 * index : 3 * index + 3])
                 self.assertEqual(value, 0)
@@ -116,6 +111,30 @@ class MinimumCutDomainTests(unittest.TestCase):
             self.assertTrue(close(trial, joins))
             self.assertTrue(all(trial[s] >> int(transformed[s]) & 1 for s in range(64)))
             for side in rng.permutation(np.arange(1, 64))[:12]:
+                fixed = np.asarray(
+                    [int(d).bit_length() - 1 if int(d) and not int(d) & (int(d) - 1) else -1 for d in trial],
+                    dtype=np.int16,
+                )
+                previous = transformed.copy()
+                allowed_permutations = [
+                    p
+                    for p in permutations(range(4))
+                    if all(
+                        fixed[s] < 0 or sum(((int(fixed[s]) >> p[k]) & 1) << k for k in range(4)) == fixed[s]
+                        for s in range(1, 64)
+                    )
+                ]
+                chosen = max(
+                    allowed_permutations,
+                    key=lambda p, side=side: sum(((int(previous[side]) >> p[k]) & 1) << k for k in range(4)),
+                )
+                transformed = np.asarray(
+                    [sum(((int(mask) >> chosen[k]) & 1) << k for k in range(4)) for mask in previous]
+                )
+                self.assertTrue(all(fixed[s] < 0 or transformed[s] == fixed[s] for s in range(1, 64)))
+                value = int(transformed[side])
+                if 0 < value < 15:
+                    self.assertTrue(stabilizer_representatives(fixed) >> value & 1)
                 trial[side] = 1 << int(transformed[side])
                 self.assertTrue(close(trial, joins))
                 self.assertTrue(all(trial[s] >> int(transformed[s]) & 1 for s in range(64)))
@@ -123,6 +142,36 @@ class MinimumCutDomainTests(unittest.TestCase):
             if checked == 150:
                 break
         self.assertEqual(checked, 150)
+
+    def test_every_stabilizer_partition_and_invariant_proper_mask_domain(self):
+        checked_partitions = checked_domains = 0
+        for partition in product(range(4), repeat=4):
+            if partition[0] != 0 or any(partition[k] > max(partition[:k]) + 1 for k in range(1, 4)):
+                continue
+            fixed = np.full(64, -1, dtype=np.int16)
+            for bit in range(2):
+                fixed[bit + 1] = sum(((partition[k] >> bit) & 1) << k for k in range(4))
+            group = [p for p in permutations(range(4)) if all(partition[p[k]] == partition[k] for k in range(4))]
+            unseen = set(range(1, 15))
+            orbits = []
+            while unseen:
+                value = min(unseen)
+                orbit = {sum(((value >> p[k]) & 1) << k for k in range(4)) for p in group}
+                unseen.difference_update(orbit)
+                orbits.append(orbit)
+            representatives = int(stabilizer_representatives(fixed))
+            self.assertEqual(stabilizer_representatives(fixed, False), 32766)
+            for selected in range(1 << len(orbits)):
+                domain = expected = 0
+                for k, orbit in enumerate(orbits):
+                    if selected >> k & 1:
+                        domain |= sum(1 << value for value in orbit)
+                        expected |= 1 << max(orbit)
+                self.assertEqual(domain & representatives, expected)
+                checked_domains += 1
+            checked_partitions += 1
+        self.assertEqual(checked_partitions, 15)
+        self.assertEqual(checked_domains, 23176)
 
     def test_inconsistent_fixed_cut_domains_are_rejected(self):
         source = _build_epr_model(tuple(min(len(s), 7 - len(s)) for s in subsets(6)), 4)
@@ -147,8 +196,8 @@ class MinimumCutDomainTests(unittest.TestCase):
             _trusted_epr_infeasibility({**good, "branching": {"covers_complete": True}}, incumbent_returned=False)
         )
 
-    def test_realized_or_unsat_controls_retain_native_acceptance(self):
-        controls = {
+    def control_targets(self):
+        return {
             "realized": (
                 "1 1 1 1 1 1 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 "
                 "2 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 2 "
@@ -160,7 +209,9 @@ class MinimumCutDomainTests(unittest.TestCase):
                 "8 12 11 11 11 11 11 11 10 10 10 10 9 9 8 8 8 7 7 6 4"
             ),
         }
-        for expected, encoded in controls.items():
+
+    def test_realized_or_unsat_controls_retain_native_acceptance(self):
+        for expected, encoded in self.control_targets().items():
             with self.subTest(expected=expected):
                 target = tuple(map(int, encoded.split()))
                 self.assertEqual(len(target), 63)
@@ -185,6 +236,14 @@ class MinimumCutDomainTests(unittest.TestCase):
                 self.assertGreater(branch["root_orbit_candidates"], 0)
                 self.assertTrue(branch["automatic_symmetry_disabled"])
                 self.assertTrue(branch["dual_reductions_disabled"])
+                self.assertEqual(branch["symmetry_policy"], "dynamic_minimal_cut_stabilizer")
+                self.assertTrue(branch["symmetry_consistent"])
+                self.assertTrue(branch["capacity_ordering_disabled"])
+                self.assertEqual(branch["residual_order_rows"], 0)
+                self.assertEqual(
+                    branch["symmetry_raw_masks"], branch["symmetry_orbit_masks"] + branch["symmetry_skipped_masks"]
+                )
+                self.assertEqual(branch["symmetry_orbit_masks"], branch["domain_branch_candidates"])
                 if expected == "realized":
                     self.assertIsNotNone(graph)
                     # The internal finder returns primitive integer graph weights;
@@ -194,6 +253,24 @@ class MinimumCutDomainTests(unittest.TestCase):
                     self.assertIsNone(graph)
                     self.assertTrue(attempt["trusted_infeasibility"])
                     self.assertEqual(attempt["solutions"], 0)
+
+    def test_untracked_native_subtrees_disable_quotienting_without_losing_unsat(self):
+        original = DomainCover.consenfolp
+
+        def enforce(handler, *args):
+            if handler.model.getDepth() > 0:
+                handler.symmetry_nodes.discard(handler.model.getCurrentNode().getNumber())
+            return original(handler, *args)
+
+        target = tuple(map(int, self.control_targets()["infeasible"].split()))
+        with patch.object(DomainCover, "consenfolp", enforce):
+            graph, info = solve_epr_free(target, total_vertices=11)
+        self.assertIsNone(graph)
+        self.assertEqual(info["status"], "infeasible")
+        branch = info["attempts"][0]["branching"]
+        self.assertGreater(branch["symmetry_untracked_enforcements"], 0)
+        self.assertEqual(branch["symmetry_skipped_masks"], 0)
+        self.assertTrue(branch["covers_complete"])
 
 
 if __name__ == "__main__":
