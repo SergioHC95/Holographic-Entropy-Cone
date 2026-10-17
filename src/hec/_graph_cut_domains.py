@@ -1,0 +1,465 @@
+"""Exact finite-domain propagation for inclusion-minimal graph cuts.
+
+Minimal cuts form a monotone map on terminal sets and cuts for disjoint
+terminal sets are disjoint. When entropy submodularity is tight, the union
+of two minimal cuts is a minimum cut for the union. It contains that union's
+unique minimal cut and is contained in it by monotonicity, hence they coincide.
+Only these necessary properties are propagated; nonempty domains are never
+treated as graph realizations or proofs of feasibility.
+
+Four-bulk search only; no clocks, weight integrality, or cross-case solver state.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from functools import lru_cache
+from itertools import combinations
+
+import numpy as np
+import pyscipopt
+from numba import njit
+from pyscipopt import SCIP_RESULT
+
+
+@njit(cache=True)
+def make_join_tables():
+    image = np.zeros((16, 65536), dtype=np.uint16)
+    preimage = np.zeros((16, 65536), dtype=np.uint16)
+    single = np.zeros((16, 16), dtype=np.uint16)
+    for a in range(16):
+        for b in range(16):
+            single[a, a | b] |= 1 << b
+        for mask in range(1, 65536):
+            rest = mask & (mask - 1)
+            one = mask ^ rest
+            b = 0
+            while (1 << b) != one:
+                b += 1
+            image[a, mask] = image[a, rest] | (1 << (a | b))
+            preimage[a, mask] = preimage[a, rest] | single[a, b]
+    return image, preimage
+
+
+@lru_cache(maxsize=1)
+def tables():
+    result = make_join_tables()
+    for array in result:
+        array.setflags(write=False)
+    return result
+
+
+@lru_cache(maxsize=1)
+def binary_geometry():
+    relations = []
+    for a, b in combinations(range(1, 64), 2):
+        if a & b == a:
+            relations.append((a, b, 0))
+        elif a & b == b:
+            relations.append((b, a, 0))
+        elif not a & b:
+            relations.append((a, b, 1))
+    support = np.zeros((3, 16), dtype=np.int64)
+    for a in range(16):
+        for b in range(16):
+            if a & b == a:
+                support[0, a] |= 1 << b
+            if a & b == b:
+                support[1, a] |= 1 << b
+            if not a & b:
+                support[2, a] |= 1 << b
+    relations = np.asarray(relations, dtype=np.int64)
+    relations.setflags(write=False)
+    support.setflags(write=False)
+    return relations, support
+
+
+def initial(source):
+    from ._graph_epr import _epr_geometry
+
+    if source.bulk_count != 4:
+        raise ValueError("minimum-cut domains are specialized for four bulk vertices")
+    boundary, _ = _epr_geometry(4)
+    h = np.zeros(64, dtype=np.int64)
+    domains = np.ones(64, dtype=np.int64)
+    total = sum(source.degrees)
+    for i, s in enumerate(boundary):
+        h[s] = source.target[i]
+        ds = sum(source.degrees[t] for t in range(6) if s >> t & 1)
+        if h[s] == ds:
+            domains[s] = 1
+        elif h[s] == total - ds:
+            domains[s] = 65534
+        else:
+            domains[s] = 32766
+    rules = []
+    for a, b in combinations(range(1, 64), 2):
+        if a & b in (a, b):
+            continue
+        union = a | b
+        if h[a] + h[b] == h[a & b] + h[union]:
+            rules.append((a, b, union))
+    return domains, np.asarray(rules, dtype=np.int64).reshape(-1, 3)
+
+
+@njit(cache=True)
+def revise_binary(left, right, support):
+    kept = 0
+    for value in range(16):
+        if left & (1 << value) and right & support[value]:
+            kept |= 1 << value
+    return kept
+
+
+@njit(cache=True)
+def propagate(domains, binary, support, joins, image, preimage):
+    while True:
+        changed = False
+        for k in range(len(binary)):
+            i, j, kind = binary[k]
+            a, b = domains[i], domains[j]
+            if kind == 0:
+                aa = revise_binary(a, b, support[0])
+                bb = revise_binary(b, aa, support[1])
+            else:
+                aa = revise_binary(a, b, support[2])
+                bb = revise_binary(b, aa, support[2])
+            if not aa or not bb:
+                return False
+            if aa != a:
+                domains[i] = aa
+                changed = True
+            if bb != b:
+                domains[j] = bb
+                changed = True
+        for k in range(len(joins)):
+            i, j, u = joins[k]
+            a, b, c = domains[i], domains[j], domains[u]
+            aa = bb = cc = 0
+            for x in range(16):
+                if not a & (1 << x):
+                    continue
+                allowed = b & int(preimage[x, c])
+                if allowed:
+                    aa |= 1 << x
+                    bb |= allowed
+                    cc |= int(image[x, allowed])
+            if not aa or not bb or not cc:
+                return False
+            if aa != a:
+                domains[i] = aa
+                changed = True
+            if bb != b:
+                domains[j] = bb
+                changed = True
+            if cc != c:
+                domains[u] = cc
+                changed = True
+        if not changed:
+            return True
+
+
+def close(domains, joins):
+    binary, support = binary_geometry()
+    image, preimage = tables()
+    return propagate(domains, binary, support, joins, image, preimage)
+
+
+def local_zero_rows(penalty, degree, bulk_count):
+    stride = bulk_count - 1
+    zeros = []
+    for t in range(7):
+        for k in range(stride):
+            if penalty[t * stride + k] + degree[t]:
+                zeros.append(("bound", t * stride + k))
+        if degree[t]:
+            zeros.append(("last", t))
+    for j in range(7 * stride, len(penalty)):
+        if penalty[j]:
+            zeros.append(("bound", j))
+    return zeros
+
+
+def sorting_rows(a, b, bulk_count):
+    stride = bulk_count - 1
+    width = 7 * stride + bulk_count * (bulk_count - 1) // 2
+    sig = [((a >> k) & 1) | (((b >> k) & 1) << 1) for k in range(bulk_count)]
+    rows = []
+    for left in range(bulk_count - 1):
+        right = left + 1
+        if sig[left] != sig[right]:
+            continue
+        row = np.zeros(width, dtype=np.int64)
+        constant = [0] * 7
+        for t in range(7):
+            weight = 1 << t
+            for k, sign in [(right, 1), (left, -1)]:
+                if k < stride:
+                    row[t * stride + k] += sign * weight
+                else:
+                    row[t * stride : t * stride + stride] -= sign * weight
+                    constant[t] += sign * weight
+        rows.append((tuple(map(int, row)), tuple(constant)))
+    return rows
+
+
+class OrbitCover(pyscipopt.Conshdlr):
+    def __init__(self, source, variables, templates):
+        self.source = source
+        self.variables = variables
+        self.templates = templates
+        self.calls = 0
+        self.children = 0
+        self.zero_bounds = 0
+        self.sort_rows = 0
+        self.root_children = 0
+
+    def add_root_constraints(self, node, choice, template):
+        source = self.source
+        stride = source.bulk_count - 1
+        a, b, penalty, degree, zeros = template
+        row, rhs = choice
+        self.model.addConsNode(
+            node, pyscipopt.quicksum(v * self.variables[j] for j, v in enumerate(row) if v) <= rhs, removable=False
+        )
+        for kind, j in local_zero_rows(penalty, degree, source.bulk_count):
+            if kind == "bound":
+                self.model.chgVarUbNode(node, self.variables[j], 0.0)
+            else:
+                expr = pyscipopt.quicksum(self.variables[j * stride + k] for k in range(stride))
+                self.model.addConsNode(node, expr >= source.degrees[j], removable=False)
+            self.zero_bounds += 1
+        for row, constant in sorting_rows(a, b, source.bulk_count):
+            rhs = -sum(x * d for x, d in zip(constant, source.degrees, strict=True))
+            expr = pyscipopt.quicksum(v * self.variables[j] for j, v in enumerate(row) if v)
+            self.model.addConsNode(node, expr <= rhs, removable=False)
+            self.sort_rows += 1
+
+    def conscheck(self, *args, **kwargs):
+        return {"result": SCIP_RESULT.FEASIBLE}
+
+    def consenfops(self, *args, **kwargs):
+        return {"result": SCIP_RESULT.SOLVELP}
+
+    def conslock(self, *args, **kwargs):
+        pass
+
+
+@lru_cache(maxsize=65536)
+def proper_values(mask):
+    return tuple(k for k in range(1, 15) if mask >> k & 1)
+
+
+class DomainCover(OrbitCover):
+    def __init__(self, source, variables, templates):
+        super().__init__(source, variables, templates)
+        self.base, self.joins = initial(source)
+        self.base_ok = close(self.base, self.joins)
+        self.states = {}
+        self.pruned = 0
+        self.forced = 0
+        self.root_candidates = 0
+        self.root_pruned = 0
+        self.branch_candidates = 0
+        self.branch_pruned = 0
+        self.state_fallbacks = 0
+        from ._graph_epr import _epr_geometry
+
+        self.boundary, self.coefficients = _epr_geometry(4)
+        self.index = {s: i for i, s in enumerate(self.boundary)}
+        D = sum(source.degrees)
+        self.degree_sums = [sum(source.degrees[t] for t in range(6) if side >> t & 1) for side in self.boundary]
+        self.free = [i for i, h in enumerate(source.target) if h not in (self.degree_sums[i], D - self.degree_sums[i])]
+        self.expressions = {}
+        self.gather = self.coefficients[self.free].reshape(-1, 27)
+        self.bounds = np.asarray(
+            [
+                [
+                    source.target[i] - (D - self.degree_sums[i] if mask & 8 else self.degree_sums[i])
+                    for mask in range(1, 15)
+                ]
+                for i in self.free
+            ]
+        )
+
+    def expression(self, sub, mask):
+        key = (sub, mask)
+        if key not in self.expressions:
+            row = self.coefficients[sub, mask - 1]
+            constant = sum(self.source.degrees) - self.degree_sums[sub] if mask & 8 else self.degree_sums[sub]
+            rhs = self.source.target[sub] - constant
+            expr = pyscipopt.quicksum(int(value) * self.variables[j] for j, value in enumerate(row) if value)
+            self.expressions[key] = expr <= rhs
+        return self.expressions[key]
+
+    def enforce_singles(self, node, trial, parent_fixed):
+        fixed = parent_fixed.copy()
+        for side in range(1, 64):
+            mask = int(trial[side])
+            if not mask or mask & (mask - 1):
+                continue
+            value = mask.bit_length() - 1
+            if fixed[side] == value:
+                continue
+            fixed[side] = value
+            if 0 < value < 15:
+                self.model.addConsNode(node, self.expression(self.index[side], value), removable=False)
+                self.forced += 1
+        return fixed
+
+    def ancestor_state(self):
+        node = self.model.getCurrentNode()
+        while node is not None:
+            number = node.getNumber()
+            if number in self.states:
+                return self.states[number]
+            node = node.getParent()
+        return None
+
+    def consenfolp(self, constraints, nuseful, solinfeasible):
+        self.calls += 1
+        if self.model.getDepth() == 0:
+            self.states = {}
+            if not self.base_ok:
+                self.root_candidates += len(self.templates)
+                self.root_pruned += len(self.templates)
+                return {"result": SCIP_RESULT.CUTOFF}
+            first, second = self.source.profile["paired_cut_subsystems"]
+            left, right = self.boundary[first], self.boundary[second]
+            created = 0
+            for choice, template in zip(self.source.disjunctions[0], self.templates, strict=True):
+                a, b, *_ = template
+                self.root_candidates += 1
+                trial = self.base.copy()
+                trial[left] = 1 << a
+                trial[right] = 1 << b
+                if not close(trial, self.joins):
+                    self.pruned += 1
+                    self.root_pruned += 1
+                    continue
+                node = self.model.createChild(0, self.model.getLocalEstimate())
+                self.children += 1
+                self.root_children += 1
+                created += 1
+                self.add_root_constraints(node, choice, template)
+                fixed = self.enforce_singles(node, trial, np.full(64, -1, dtype=np.int16))
+                self.states[node.getNumber()] = (trial, fixed)
+            return {"result": SCIP_RESULT.BRANCHED if created else SCIP_RESULT.CUTOFF}
+        state = self.ancestor_state()
+        if state is None:
+            self.state_fallbacks += 1
+            return {"result": SCIP_RESULT.FEASIBLE}
+        current, fixed = state
+        point = np.asarray([self.model.getSolVal(None, v) for v in self.variables])
+        violations = (self.gather @ point).reshape(len(self.free), 14) - self.bounds
+        candidates = []
+        for k, sub in enumerate(self.free):
+            side = self.boundary[sub]
+            allowed = proper_values(int(current[side]))
+            if len(allowed) <= 1:
+                continue
+            minimum = min(float(violations[k, m - 1]) for m in allowed)
+            if self.model.isFeasLE(minimum, 0.0):
+                continue
+            key = (len(allowed), -minimum, sub)
+            candidates.append((key, sub, side, allowed))
+        if not candidates:
+            return {"result": SCIP_RESULT.FEASIBLE}
+        _, sub, side, allowed = min(candidates, key=lambda item: item[0])
+        created = 0
+        for mask in allowed:
+            self.branch_candidates += 1
+            trial = current.copy()
+            trial[side] = 1 << mask
+            if not close(trial, self.joins):
+                self.pruned += 1
+                self.branch_pruned += 1
+                continue
+            node = self.model.createChild(0, self.model.getLocalEstimate())
+            self.children += 1
+            created += 1
+            new_fixed = self.enforce_singles(node, trial, fixed)
+            self.states[node.getNumber()] = (trial, new_fixed)
+        return {"result": SCIP_RESULT.BRANCHED if created else SCIP_RESULT.CUTOFF}
+
+    def record(self):
+        return {
+            "kind": "minimal_cut_domain_branching",
+            "recipe_sha256": self.recipe_sha256,
+            "total_vertices": 11,
+            "root_orbit_candidates": self.root_candidates,
+            "root_orbit_children": self.root_children,
+            "root_orbit_pruned": self.root_pruned,
+            "domain_branch_candidates": self.branch_candidates,
+            "domain_branch_children": self.children - self.root_children,
+            "domain_branch_pruned": self.branch_pruned,
+            "forced_upper_cuts": self.forced,
+            "zero_edge_constraints": self.zero_bounds,
+            "residual_order_rows": self.sort_rows,
+            "domain_state_fallbacks": self.state_fallbacks,
+            "covers_complete": (
+                self.root_candidates == self.root_children + self.root_pruned
+                and self.branch_candidates == self.children - self.root_children + self.branch_pruned
+            ),
+            "automatic_symmetry_disabled": True,
+            "dual_reductions_disabled": True,
+        }
+
+
+def install_cut_domain_branching(model, source, variables):
+    """Install a complete minimal-cut orbit cover, never a heuristic filter.
+
+    Any realizing graph has unique inclusion-minimal cuts. Relabel its bulk
+    vertices by the anchor-pair signatures, then order equal-signature blocks
+    by a fixed weighted terminal-capacity key. This preserves the anchors and
+    every entropy. That representative survives at least one root branch.
+    Every subsequent branch covers all remaining consistent minimum-cut
+    choices. Arc consistency removes only unsupported values. Original native
+    clauses remain present and graph acceptance is independently exact.
+
+    Disable solver-picked symmetry and dual reductions: either could select
+    a different representative before our conditional canonical ordering.
+    """
+    if source.bulk_count != 4 or "paired_cut_subsystems" not in source.profile:
+        return None
+    from ._graph_epr import _epr_geometry
+    from ._graph_pair import _pair_penalties
+
+    boundary, _ = _epr_geometry(4)
+    i, j = source.profile["paired_cut_subsystems"]
+    left, right = boundary[i], boundary[j]
+    values = dict(zip(boundary, source.target, strict=True))
+    values[0] = 0
+
+    def entropy(side):
+        return values[side ^ 127 if side & 64 else side]
+
+    saturated = 9 if entropy(left) + entropy(right) == entropy(left & right) + entropy(left | right) else 0
+    saturated |= 6 if entropy(left) + entropy(right) == entropy(left & ~right) + entropy(right & ~left) else 0
+    templates = _pair_penalties(left, right, saturated, 4)
+    model.setParam("misc/usesymmetry", 0)
+    model.setParam("misc/allowstrongdualreds", False)
+    model.setParam("misc/allowweakdualreds", False)
+    handler = DomainCover(source, variables, templates)
+    recipe = {
+        "kind": "minimal_cut_domain_branching",
+        "base_model_sha256": source.sha256,
+        "initial_closed_domains": handler.base.tolist(),
+        "tight_union_rules": handler.joins.tolist(),
+        "anchor_subsystems": [left, right],
+        "anchor_orbits": [[a, b] for a, b, *_ in templates],
+        "residual_order_weights": [1 << t for t in range(7)],
+    }
+    handler.recipe_sha256 = hashlib.sha256(
+        json.dumps(recipe, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    model.includeConshdlr(
+        handler,
+        "minimal_cut_domains",
+        "complete minimum-cut domain and bulk-orbit branching",
+        enfopriority=-900000,
+        chckpriority=-900000,
+        needscons=False,
+    )
+    return handler

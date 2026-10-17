@@ -202,6 +202,11 @@ def _trusted_epr_infeasibility(info: dict[str, Any], *, incumbent_returned: bool
         and info.get("solutions") == 0
         and not incumbent_returned
         and len(str(info.get("base_model_sha256", ""))) == 64
+        and (
+            info.get("branching") is None
+            or isinstance(info["branching"], dict)
+            and info["branching"].get("covers_complete") is True
+        )
     )
 
 
@@ -235,6 +240,11 @@ def _solve_epr_native(model: EprModel) -> tuple[np.ndarray | None, dict[str, Any
                 for row, bound in choices
             ]
             scip.addConsDisjunction(expressions, name=f"attaining_cut_{ordinal}")
+        brancher = None
+        if model.bulk_count == 4:
+            from ._graph_cut_domains import install_cut_domain_branching
+
+            brancher = install_cut_domain_branching(scip, model, variables)
         started = time.perf_counter()
         scip.optimize()
         best = scip.getBestSol()
@@ -254,6 +264,8 @@ def _solve_epr_native(model: EprModel) -> tuple[np.ndarray | None, dict[str, Any
             "scip_version": f"{scip.getMajorVersion()}.{scip.getMinorVersion()}.{scip.getTechVersion()}",
             "pyscipopt_version": pyscipopt.__version__,
         }
+        if brancher is not None:
+            info["branching"] = brancher.record()
         trusted = _trusted_epr_infeasibility(info, incumbent_returned=solution is not None)
         info.update(status="realized" if solution is not None else "infeasible" if trusted else "unknown")
         info["trusted_infeasibility"] = trusted
