@@ -26,6 +26,11 @@ identical fixed-cut signatures. There is no competing capacity ordering.
 Native-created branches disable this quotient for their entire subtrees.
 Four/five-bulk search only; no clocks, weight integrality, or cross-case solver state.
 Five-bulk domains use two exact sixteen-bit lookup halves, never a 2**32 table.
+
+For newly forced cuts, every cut slack is already nonnegative under the full
+base model. One upper bound on their sum is therefore exactly equivalent to
+all of their individual upper bounds. Aggregation reduces local native rows,
+not the feasible set or the retained original disjunction checks.
 """
 
 from __future__ import annotations
@@ -590,6 +595,31 @@ def proper_values(mask, bulk_count=4):
     return tuple(k for k in range(1, (1 << bulk_count) - 1) if mask >> k & 1)
 
 
+@njit(cache=True)
+def forced_cut_bundle(trial, parent_fixed, side_index, coefficients, bounds, full):
+    """Collect exact integer rows without mutating parent or child domains."""
+    fixed = parent_fixed.copy()
+    row = np.zeros(coefficients.shape[2], dtype=np.int64)
+    rhs = count = 0
+    for side in range(1, 64):
+        domain = trial[side]
+        if not domain or domain & (domain - 1):
+            continue
+        value = 0
+        while (1 << value) != domain:
+            value += 1
+        if fixed[side] == value:
+            continue
+        fixed[side] = value
+        if 0 < value < full:
+            sub = side_index[side]
+            for column in range(len(row)):
+                row[column] += coefficients[sub, value - 1, column]
+            rhs += bounds[sub, value - 1]
+            count += 1
+    return fixed, row, rhs, count
+
+
 class DomainCover(OrbitCover):
     def __init__(self, source, variables, templates):
         super().__init__(source, variables, templates)
@@ -609,6 +639,8 @@ class DomainCover(OrbitCover):
         self.branch_candidates = 0
         self.branch_pruned = 0
         self.state_fallbacks = 0
+        self.upper_cut_rows = 0
+        self.upper_cut_numeric_fallbacks = 0
         from ._graph_epr import _epr_geometry
 
         self.bulk_count = source.bulk_count
@@ -617,20 +649,25 @@ class DomainCover(OrbitCover):
         self.proper_count = self.full - 1
         self.boundary, self.coefficients = _epr_geometry(self.bulk_count)
         self.index = {s: i for i, s in enumerate(self.boundary)}
+        self.side_index = np.zeros(64, dtype=np.int64)
+        for side, sub in self.index.items():
+            self.side_index[side] = sub
         D = sum(source.degrees)
         self.degree_sums = [sum(source.degrees[t] for t in range(6) if side >> t & 1) for side in self.boundary]
         self.free = [i for i, h in enumerate(source.target) if h not in (self.degree_sums[i], D - self.degree_sums[i])]
         self.expressions = {}
         self.gather = self.coefficients[self.free].reshape(-1, len(source.upper))
-        self.bounds = np.asarray(
+        self.upper_cut_rhs = np.asarray(
             [
                 [
                     source.target[i] - (D - self.degree_sums[i] if mask & self.last_bit else self.degree_sums[i])
                     for mask in range(1, self.full)
                 ]
-                for i in self.free
-            ]
+                for i in range(63)
+            ],
+            dtype=np.int64,
         )
+        self.bounds = self.upper_cut_rhs[self.free]
 
     def expression(self, sub, mask):
         key = (sub, mask)
@@ -645,6 +682,26 @@ class DomainCover(OrbitCover):
         return self.expressions[key]
 
     def enforce_singles(self, node, trial, parent_fixed):
+        if self.bulk_count != 5:
+            return self.enforce_individual_cuts(node, trial, parent_fixed)
+        fixed, row, rhs, count = forced_cut_bundle(
+            trial, parent_fixed, self.side_index, self.coefficients, self.upper_cut_rhs, self.full
+        )
+        if not count:
+            return fixed
+        # Source targets are below 2**45; even 63 complete cut rows fit int64.
+        # Avoid converting a large aggregated integer RHS to an inexact double:
+        # retain the original individual rows when outside this safe margin.
+        if abs(rhs) >= 1 << 50:
+            self.upper_cut_numeric_fallbacks += 1
+            return self.enforce_individual_cuts(node, trial, parent_fixed)
+        expression = pyscipopt.quicksum(int(value) * self.variables[j] for j, value in enumerate(row) if value)
+        self.model.addConsNode(node, expression <= int(rhs), removable=False)
+        self.forced += count
+        self.upper_cut_rows += 1
+        return fixed
+
+    def enforce_individual_cuts(self, node, trial, parent_fixed):
         fixed = parent_fixed.copy()
         for side in range(1, 64):
             mask = int(trial[side])
@@ -657,6 +714,7 @@ class DomainCover(OrbitCover):
             if 0 < value < self.full:
                 self.model.addConsNode(node, self.expression(self.index[side], value), removable=False)
                 self.forced += 1
+                self.upper_cut_rows += 1
         return fixed
 
     def ancestor_state(self):
@@ -777,6 +835,11 @@ class DomainCover(OrbitCover):
             "domain_branch_children": self.children - self.root_children,
             "domain_branch_pruned": self.branch_pruned,
             "forced_upper_cuts": self.forced,
+            "upper_cut_rows": self.upper_cut_rows,
+            "upper_cut_numeric_fallbacks": self.upper_cut_numeric_fallbacks,
+            "upper_cut_policy": (
+                "exact_nonnegative_slack_aggregation" if self.bulk_count == 5 else "individual_minimum_cut_equalities"
+            ),
             "zero_edge_constraints": self.zero_bounds,
             "residual_order_rows": 0,
             "symmetry_policy": "dynamic_minimal_cut_stabilizer",
