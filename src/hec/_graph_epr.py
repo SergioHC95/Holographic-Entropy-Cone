@@ -271,7 +271,10 @@ def _solve_epr_native(model: EprModel) -> tuple[np.ndarray | None, dict[str, Any
         info["trusted_infeasibility"] = trusted
         return solution, info
     finally:
-        scip.freeProb()
+        # A custom handler and its Model hold strong references to each other.
+        # freeProb() leaves that plugin cycle alive until cyclic GC happens;
+        # free() tears SCIP down safely and then clears plugin references.
+        scip.free()
 
 
 def _epr_graph(solution: np.ndarray, model: EprModel) -> dict[str, Any]:

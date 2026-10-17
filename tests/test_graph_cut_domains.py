@@ -4,11 +4,20 @@ import unittest
 from fractions import Fraction
 from itertools import combinations
 from math import gcd
+from unittest.mock import patch
 
 import numpy as np
 from test_graph_epr_four_bulk import full_table
 
-from hec._graph_cut_domains import binary_geometry, close, initial, local_zero_rows, sorting_rows, tables
+from hec._graph_cut_domains import (
+    binary_geometry,
+    close,
+    initial,
+    install_cut_domain_branching,
+    local_zero_rows,
+    sorting_rows,
+    tables,
+)
 from hec._graph_epr import _build_epr_model, _epr_geometry, _trusted_epr_infeasibility, solve_epr_free
 from hec._graph_pair import _pair_penalties, pair_cut_disjunctions
 from hec.coordinates import subsets
@@ -155,7 +164,17 @@ class MinimumCutDomainTests(unittest.TestCase):
             with self.subTest(expected=expected):
                 target = tuple(map(int, encoded.split()))
                 self.assertEqual(len(target), 63)
-                graph, info = solve_epr_free(target, total_vertices=11)
+                handlers = []
+
+                def remember_handler(*args, handlers=handlers):
+                    handler = install_cut_domain_branching(*args)
+                    handlers.append(handler)
+                    return handler
+
+                with patch("hec._graph_cut_domains.install_cut_domain_branching", side_effect=remember_handler):
+                    graph, info = solve_epr_free(target, total_vertices=11)
+                self.assertEqual(len(handlers), 1)
+                self.assertIsNone(handlers[0].model)  # Deterministic release, not cyclic-GC timing.
                 self.assertEqual(info["status"], expected)
                 attempt = info["attempts"][0]
                 self.assertIsNone(attempt["effective_time_limit_s"])
