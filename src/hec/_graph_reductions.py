@@ -28,6 +28,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from fractions import Fraction
 from itertools import combinations
+from math import lcm
 from numbers import Integral, Real
 from typing import TypeAlias
 
@@ -103,47 +104,58 @@ def close_tight_submodularity(
 
     n, target_values, subset_index, bulk_count = _validate_problem(n, N, target)
     known = frozenset(_normalize_cut(cut, n, bulk_count) for cut in equality_cuts)
-    closure = set(known)
-    pending = deque(known)
-    processed_pairs: set[frozenset[EqualityCut]] = set()
+    # Use one common exact denominator and encode the entire cut side as a
+    # Python integer.  Intersection/union are then bit operations.  A pair is
+    # visited when its second cut leaves the queue, so no quadratic pair set
+    # or temporary EqualityCut objects are needed.
+    denominator = lcm(*(value.denominator for value in target_values))
+    values = [0] * (1 << n)
+    for boundary, index in subset_index.items():
+        value = target_values[index]
+        values[sum(1 << vertex for vertex in boundary)] = value.numerator * (denominator // value.denominator)
+    boundary_mask = (1 << n) - 1
+    known_masks = {sum(1 << vertex for vertex in cut.boundary) | (cut.bulk_mask << n) for cut in known}
+    closure = set(known_masks)
+    pending = deque(sorted(known_masks))
+    processed: list[int] = []
     forced_zero_edges: set[Edge] = set()
 
     while pending:
         left = pending.popleft()
-        for right in tuple(closure):
-            if left == right:
-                continue
-            pair_key = frozenset((left, right))
-            if pair_key in processed_pairs:
-                continue
-            processed_pairs.add(pair_key)
-
-            intersection_boundary = left.boundary & right.boundary
-            union_boundary = left.boundary | right.boundary
-            if not _is_tight(
-                target_values,
-                subset_index,
-                left.boundary,
-                right.boundary,
-                intersection_boundary,
-                union_boundary,
+        left_boundary = left & boundary_mask
+        for right in processed:
+            intersection = left & right
+            union = left | right
+            if values[left_boundary] + values[right & boundary_mask] != (
+                values[intersection & boundary_mask] + values[union & boundary_mask]
             ):
                 continue
-
-            intersection_cut = EqualityCut(intersection_boundary, left.bulk_mask & right.bulk_mask)
-            union_cut = EqualityCut(union_boundary, left.bulk_mask | right.bulk_mask)
-            for derived in (intersection_cut, union_cut):
+            for derived in (intersection, union):
                 if derived not in closure:
                     closure.add(derived)
                     pending.append(derived)
+            left_only = left & ~right
+            right_only = right & ~left
+            while left_only:
+                left_bit = left_only & -left_only
+                a = left_bit.bit_length() - 1
+                remaining = right_only
+                while remaining:
+                    right_bit = remaining & -remaining
+                    b = right_bit.bit_length() - 1
+                    forced_zero_edges.add((min(a, b), max(a, b)))
+                    remaining ^= right_bit
+                left_only ^= left_bit
+        processed.append(left)
 
-            left_vertices = _cut_vertices(left, n, bulk_count)
-            right_vertices = _cut_vertices(right, n, bulk_count)
-            forced_zero_edges.update(_cross_pairs(left_vertices - right_vertices, right_vertices - left_vertices))
+    derived_cuts = frozenset(
+        EqualityCut(frozenset(vertex for vertex in range(n) if mask & (1 << vertex)), mask >> n)
+        for mask in closure - known_masks
+    )
 
     return TightSubmodularityResult(
         known_cuts=known,
-        derived_cuts=frozenset(closure - set(known)),
+        derived_cuts=derived_cuts,
         forced_zero_edges=frozenset(forced_zero_edges),
     )
 
