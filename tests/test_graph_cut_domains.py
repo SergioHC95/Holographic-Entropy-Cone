@@ -11,13 +11,16 @@ from test_graph_epr_four_bulk import full_table
 
 from hec._graph_cut_domains import (
     DomainCover,
-    binary_geometry,
+    affine_geometry,
+    affine_pair_bounds,
     close,
     initial,
     install_cut_domain_branching,
     local_zero_rows,
+    revise_unequal,
     stabilizer_representatives,
     tables,
+    verify_affine_bounds,
 )
 from hec._graph_epr import _build_epr_model, _epr_geometry, _trusted_epr_infeasibility, solve_epr_free
 from hec._graph_pair import _pair_penalties, pair_cut_disjunctions
@@ -41,13 +44,72 @@ class MinimumCutDomainTests(unittest.TestCase):
         self.assertFalse(preimage.flags.writeable)
 
     def test_binary_supports_are_exact_and_immutable(self):
-        relations, support = binary_geometry()
-        self.assertFalse(relations.flags.writeable)
+        codes, support = affine_geometry()
+        self.assertFalse(codes.flags.writeable)
         self.assertFalse(support.flags.writeable)
-        for a in range(16):
-            self.assertEqual(support[0, a], sum(1 << b for b in range(16) if a & b == a))
-            self.assertEqual(support[1, a], sum(1 << b for b in range(16) if a & b == b))
-            self.assertEqual(support[2, a], sum(1 << b for b in range(16) if not a & b))
+        for flags in range(16):
+            for a in range(16):
+                for b in range(16):
+                    good = (not flags & 1 or a & b == a) and (not flags & 2 or not a & b)
+                    good = good and (not flags & 4 or a != b) and (not flags & 8 or a != (b ^ 15))
+                    self.assertEqual(bool(support[0, flags, a] >> b & 1), good)
+                    self.assertEqual(bool(support[1, flags, b] >> a & 1), good)
+
+    def test_all_unequal_fast_paths_match_direct_support_for_every_right_domain(self):
+        _, support = affine_geometry()
+        domains = np.arange(65536, dtype=np.int64)
+        for flags in (4, 8, 12):
+            expected = np.zeros(65536, dtype=np.int64)
+            for a in range(16):
+                expected |= ((domains & support[0, flags, a]) != 0).astype(np.int64) << a
+            actual = np.fromiter((revise_unequal(65535, int(d), flags) for d in domains), dtype=np.int64)
+            self.assertTrue(np.array_equal(actual, expected))
+
+    def test_balanced_pair_bounds_have_independently_checked_integer_witnesses(self):
+        codes, _ = affine_geometry()
+        rng = np.random.default_rng(202610170805)
+        for _ in range(8):
+            h = rng.integers(0, 1000, 64)
+            h[0] = 0
+            bound, witnesses = affine_pair_bounds(h, codes)
+            self.assertTrue(verify_affine_bounds(h, bound, witnesses))
+            expected = np.full((2, 729), -1, dtype=np.int64)
+            for a in range(64):
+                for b in range(64):
+                    for kind in range(2):
+                        digits = [
+                            ((a >> t) & 1) + ((b >> t) & 1) if kind == 0 else ((a >> t) & 1) - ((b >> t) & 1) + 1
+                            for t in range(6)
+                        ]
+                        code = sum(d * 3**t for t, d in enumerate(digits))
+                        self.assertEqual(code, codes[kind, a, b])
+                        expected[kind, code] = max(expected[kind, code], h[a] + h[b])
+            self.assertTrue(np.array_equal(bound, expected))
+            bad = bound.copy()
+            bad[0, 0] += 1
+            self.assertFalse(verify_affine_bounds(h, bad, witnesses))
+            bad_witnesses = witnesses.copy()
+            bad_witnesses[0, 0, 0] = 64
+            self.assertFalse(verify_affine_bounds(h, bound, bad_witnesses))
+
+    def test_corrupt_certificates_fail_closed_and_plans_are_target_local(self):
+        target = tuple(map(int, self.control_targets()["infeasible"].split()))
+        source = pair_cut_disjunctions(_build_epr_model(target, 4))
+        _, first = initial(source)
+        saved = first.binary.copy()
+        other = _build_epr_model(tuple(min(len(s), 7 - len(s)) for s in subsets(6)), 4)
+        _, second = initial(other)
+        self.assertNotEqual(first.certificate_sha256, second.certificate_sha256)
+        self.assertTrue(np.array_equal(first.binary, saved))
+        self.assertFalse(first.binary.flags.writeable)
+        self.assertFalse(first.joins.flags.writeable)
+        with patch("hec._graph_cut_domains.verify_affine_bounds", return_value=False):
+            with self.assertRaisesRegex(RuntimeError, "balanced-cut certificate"):
+                initial(source)
+            graph, info = solve_epr_free(target, total_vertices=11)
+        self.assertIsNone(graph)
+        self.assertEqual(info["status"], "unknown")
+        self.assertIn("balanced-cut certificate", info["error"])
 
     def test_random_graph_minimal_cut_families_survive_domains_and_every_root_constraint(self):
         rng = np.random.default_rng(20261017553)
@@ -79,8 +141,13 @@ class MinimumCutDomainTests(unittest.TestCase):
                 for mask in np.flatnonzero(table[i] == target[i]):
                     minimal[side] &= int(mask)
             base, joins = initial(source)
-            for a, b, u in joins:
+            for a, b, u in joins.joins:
                 self.assertEqual(minimal[u], minimal[a] | minimal[b])
+            for a, b, flags in joins.binary:
+                if flags & 4:
+                    self.assertNotEqual(minimal[a], minimal[b])
+                if flags & 8:
+                    self.assertNotEqual(minimal[a], minimal[b] ^ 15)
             self.assertTrue(close(base, joins))
             self.assertTrue(all(base[s] >> int(minimal[s]) & 1 for s in range(64)))
             left_sub, right_sub = source.profile["paired_cut_subsystems"]
@@ -232,6 +299,11 @@ class MinimumCutDomainTests(unittest.TestCase):
                 self.assertEqual(attempt["resource_limits"]["limits/nodes"], -1)
                 branch = attempt["branching"]
                 self.assertEqual(branch["kind"], "minimal_cut_domain_branching")
+                self.assertEqual(branch["propagation_policy"], "balanced_affine_cut_pairs")
+                self.assertTrue(branch["balanced_certificate_verified"])
+                self.assertEqual(len(branch["balanced_certificate_sha256"]), 64)
+                self.assertGreaterEqual(branch["balanced_equal_exclusions"], 0)
+                self.assertGreaterEqual(branch["balanced_opposite_exclusions"], 0)
                 self.assertTrue(branch["covers_complete"])
                 self.assertGreater(branch["root_orbit_candidates"], 0)
                 self.assertTrue(branch["automatic_symmetry_disabled"])
