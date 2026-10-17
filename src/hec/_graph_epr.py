@@ -227,19 +227,27 @@ def _solve_epr_native(model: EprModel) -> tuple[np.ndarray | None, dict[str, Any
             scip.addVar(name=f"w{column}", lb=0, ub=float(model.upper[column]), vtype="C")
             for column in range(len(model.upper))
         ]
-        for row in range(model.matrix.shape[0]):
-            first, last = model.matrix.indptr[row : row + 2]
-            expression = pyscipopt.quicksum(
-                float(value) * variables[int(column)]
-                for column, value in zip(model.matrix.indices[first:last], model.matrix.data[first:last], strict=True)
-            )
-            scip.addCons(expression <= float(model.rhs[row]))
-        for ordinal, choices in enumerate(model.disjunctions):
-            expressions = [
-                pyscipopt.quicksum(value * variables[column] for column, value in enumerate(row) if value) <= bound
-                for row, bound in choices
-            ]
-            scip.addConsDisjunction(expressions, name=f"attaining_cut_{ordinal}")
+        construction = None
+        if model.bulk_count == 4:
+            from ._graph_native import build_constraints
+
+            construction = build_constraints(scip, model, variables)
+        else:
+            for row in range(model.matrix.shape[0]):
+                first, last = model.matrix.indptr[row : row + 2]
+                expression = pyscipopt.quicksum(
+                    float(value) * variables[int(column)]
+                    for column, value in zip(
+                        model.matrix.indices[first:last], model.matrix.data[first:last], strict=True
+                    )
+                )
+                scip.addCons(expression <= float(model.rhs[row]))
+            for ordinal, choices in enumerate(model.disjunctions):
+                expressions = [
+                    pyscipopt.quicksum(value * variables[column] for column, value in enumerate(row) if value) <= bound
+                    for row, bound in choices
+                ]
+                scip.addConsDisjunction(expressions, name=f"attaining_cut_{ordinal}")
         brancher = None
         if model.bulk_count == 4:
             from ._graph_cut_domains import install_cut_domain_branching
@@ -275,6 +283,7 @@ def _solve_epr_native(model: EprModel) -> tuple[np.ndarray | None, dict[str, Any
             "backend": EPR_BACKEND,
             "base_model_sha256": model.sha256,
             "emphasis": "EASYCIP",
+            "model_construction": construction,
             "search_policy": search_policy,
             "search_configuration": search_configuration,
             "search_configuration_sha256": hashlib.sha256(

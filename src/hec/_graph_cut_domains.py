@@ -40,6 +40,9 @@ import pyscipopt
 from numba import njit
 from pyscipopt import SCIP_RESULT
 
+from ._graph_capacity import CapacityPlan, capacity_plan, prune_capacity
+from ._graph_capacity import geometry as capacity_geometry
+
 
 @njit(cache=True)
 def make_join_tables():
@@ -231,6 +234,7 @@ class CutRules:
     opposite_exclusions: int
     certificate_sha256: str
     quadrant_requirements: int
+    capacity: CapacityPlan
 
 
 def initial(source):
@@ -269,6 +273,7 @@ def initial(source):
     if not verify_exchange_bounds(h, exchanges, transfers):
         raise RuntimeError("invalid exact terminal-exchange certificate")
     binary, equal, opposite, quadrants = affine_relations(h, codes, bounds, exchanges)
+    capacity = capacity_plan(h, source.degrees)
     digest = hashlib.sha256(
         h.tobytes()
         + bounds.tobytes()
@@ -276,10 +281,11 @@ def initial(source):
         + exchanges.tobytes()
         + transfers.tobytes()
         + binary.tobytes()
+        + capacity.certificate_sha256.encode()
     ).hexdigest()
     joins.setflags(write=False)
     binary.setflags(write=False)
-    return domains, CutRules(joins, binary, int(equal), int(opposite), digest, int(quadrants))
+    return domains, CutRules(joins, binary, int(equal), int(opposite), digest, int(quadrants), capacity)
 
 
 @njit(cache=True)
@@ -367,7 +373,14 @@ def propagate(domains, binary, mapping, images, joins, image, preimage):
 def close(domains, rules):
     mapping, images = support_tables()
     image, preimage = tables()
-    return propagate(domains, rules.binary, mapping, images, rules.joins, image, preimage)
+    inside, outside, cuts = capacity_geometry()
+    plan = rules.capacity
+    while True:
+        if not propagate(domains, rules.binary, mapping, images, rules.joins, image, preimage):
+            return False
+        changed = prune_capacity(domains, plan.entropy, plan.degree_twice, plan.crossing_caps, inside, outside, cuts)
+        if changed <= 0:
+            return changed == 0
 
 
 def local_zero_rows(penalty, degree, bulk_count):
@@ -613,13 +626,16 @@ class DomainCover(OrbitCover):
         return {
             "kind": "minimal_cut_domain_branching",
             "recipe_sha256": self.recipe_sha256,
-            "propagation_policy": "terminal_exchange_cut_regions",
+            "propagation_policy": "cut_regions_and_exact_capacity_budgets",
             "cut_certificate_verified": True,
             "cut_certificate_sha256": self.rules.certificate_sha256,
             "cut_equal_exclusions": self.rules.equal_exclusions,
             "cut_opposite_exclusions": self.rules.opposite_exclusions,
             "cut_quadrant_requirements": self.rules.quadrant_requirements,
             "binary_support_policy": "immutable_complete_support_images",
+            "capacity_budget_policy": "exact_terminal_and_core_interval_feedback",
+            "capacity_certificate_sha256": self.rules.capacity.certificate_sha256,
+            "edge_weight_integrality_required": False,
             "total_vertices": 11,
             "root_orbit_candidates": self.root_candidates,
             "root_orbit_children": self.root_children,
@@ -694,9 +710,11 @@ def install_cut_domain_branching(model, source, variables):
         "base_model_sha256": source.sha256,
         "initial_closed_domains": handler.base.tolist(),
         "tight_union_rules": handler.rules.joins.tolist(),
-        "propagation_policy": "terminal_exchange_cut_regions",
+        "propagation_policy": "cut_regions_and_exact_capacity_budgets",
         "cut_certificate_sha256": handler.rules.certificate_sha256,
         "binary_support_policy": "immutable_complete_support_images",
+        "capacity_budget_policy": "exact_terminal_and_core_interval_feedback",
+        "capacity_certificate_sha256": handler.rules.capacity.certificate_sha256,
         "anchor_subsystems": [left, right],
         "anchor_orbits": [[a, b] for a, b, *_ in templates],
         "symmetry_policy": "dynamic_minimal_cut_stabilizer",
