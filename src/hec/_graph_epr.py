@@ -245,6 +245,28 @@ def _solve_epr_native(model: EprModel) -> tuple[np.ndarray | None, dict[str, Any
             from ._graph_cut_domains import install_cut_domain_branching
 
             brancher = install_cut_domain_branching(scip, model, variables)
+            # Only the search order changes: this bounded, permutation-invariant
+            # objective removes no feasible graph. Stop at the first fully
+            # checked solution as before. Depth-first traversal reuses nearby
+            # LP bases; all native constraints, stability checks and unlimited
+            # time/node settings remain enabled.
+            scip.setObjective(pyscipopt.quicksum(variables[21:]), "maximize")
+            scip.setParam("nodeselection/dfs/stdpriority", 1000000)
+        search_policy = "symmetric_max_core_depth_first" if model.bulk_count == 4 else "feasibility"
+        selector = "dfs" if model.bulk_count == 4 else "estimate"
+        search_configuration = {
+            "objective_sense": scip.getObjectiveSense(),
+            "objective_coefficients": [variable.getObj() for variable in variables],
+            "node_selection": selector,
+            "node_selection_priority": scip.getParam(f"nodeselection/{selector}/stdpriority"),
+        }
+        if model.bulk_count == 4 and search_configuration != {
+            "objective_sense": "maximize",
+            "objective_coefficients": [0.0] * 21 + [1.0] * 6,
+            "node_selection": "dfs",
+            "node_selection_priority": 1000000,
+        }:
+            raise RuntimeError("unexpected four-bulk native search configuration")
         started = time.perf_counter()
         scip.optimize()
         best = scip.getBestSol()
@@ -253,6 +275,11 @@ def _solve_epr_native(model: EprModel) -> tuple[np.ndarray | None, dict[str, Any
             "backend": EPR_BACKEND,
             "base_model_sha256": model.sha256,
             "emphasis": "EASYCIP",
+            "search_policy": search_policy,
+            "search_configuration": search_configuration,
+            "search_configuration_sha256": hashlib.sha256(
+                json.dumps(search_configuration, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest(),
             "status_raw": str(scip.getStatus()),
             "stage": int(scip.getStage()),
             "stage_solved_code": int(pyscipopt.SCIP_STAGE.SOLVED),
