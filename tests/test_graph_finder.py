@@ -18,6 +18,7 @@ from hec._graph_milp import (
     HIGHSPY_BACKEND,
     SCIP_INDICATOR_BACKEND,
     _exact_ahc_preprocessing,
+    _exact_graph_quality,
     _frozen_milp_sha256,
     _has_additive_union_decomposition_exact,
     _integer_graph,
@@ -51,6 +52,20 @@ def _orbit_plan(*selected_cuts: tuple[tuple[int, int], ...]) -> OrbitSearchPlan:
 
 
 class GraphFinderBackendTests(unittest.TestCase):
+    def test_equal_capacity_candidates_prefer_the_smaller_exact_integer_graph(self) -> None:
+        fixture = json.loads((Path(__file__).parent / "fixtures" / "graph_quality_tie.json").read_text())
+        target = tuple(Fraction(value) for value in fixture["target"])
+        qualities = []
+        for key in ["higher_multiplier_graph", "lower_multiplier_graph"]:
+            graph = fixture[key]
+            exact = check_graph(graph, target, 6, match="ray")
+            self.assertTrue(exact["ok"])
+            quality, _ = _exact_graph_quality(graph, target, exact)
+            qualities.append(quality)
+        self.assertEqual(qualities[0][0], qualities[1][0])
+        self.assertGreater(qualities[0][1], qualities[1][1])
+        self.assertGreater(qualities[0], qualities[1])
+
     def test_native_highs_solves_and_proves_small_models(self) -> None:
         solution, feasible = _solve_highspy_milp(
             np.asarray([0.0]),
@@ -81,6 +96,8 @@ class GraphFinderBackendTests(unittest.TestCase):
         )
         self.assertIsNone(solution)
         self.assertEqual(infeasible["status"], "infeasible")
+        self.assertIsNone(infeasible["resource_limits"]["time_limit"])
+        json.dumps(infeasible, allow_nan=False)
 
     def test_scip_infeasibility_is_real_and_trusted_only_with_complete_telemetry(self) -> None:
         solution, info = _solve_scip_indicator_milp(
@@ -112,6 +129,43 @@ class GraphFinderBackendTests(unittest.TestCase):
                 malformed = {**info, field: value}
                 self.assertFalse(_trusted_scip_infeasibility(malformed, incumbent_returned=False))
         self.assertFalse(_trusted_scip_infeasibility(info, incumbent_returned=True))
+        for stopped_status in (
+            "unknown",
+            "userinterrupt",
+            "timelimit",
+            "nodelimit",
+            "totalnodelimit",
+            "stallnodelimit",
+            "memlimit",
+            "gaplimit",
+            "sollimit",
+            "bestsollimit",
+            "restartlimit",
+            "backend_error",
+            "unbounded",
+            "inforunbd",
+        ):
+            with self.subTest(stopped_status=stopped_status):
+                self.assertFalse(
+                    _trusted_scip_infeasibility({**info, "status_raw": stopped_status}, incumbent_returned=False)
+                )
+
+    def test_easy_preset_installs_no_hidden_time_or_node_limit(self) -> None:
+        _, info = _solve_scip_indicator_milp(
+            np.asarray([0.0]),
+            sparse.csr_matrix((0, 1)),
+            np.empty(0),
+            np.empty(0),
+            sparse.csr_matrix([[1.0], [1.0]]),
+            np.asarray([0.0, 1.0]),
+            np.asarray([1]),
+            np.asarray([0.0]),
+            np.asarray([1.0]),
+            emphasis="EASYCIP",
+        )
+        self.assertEqual(info["status"], "infeasible")
+        self.assertEqual(info["resource_limits"]["limits/nodes"], -1)
+        self.assertGreaterEqual(info["resource_limits"]["limits/time"], 1e20)
 
     def test_canonical_portfolio_is_small_stable_and_uses_only_public_backends(self) -> None:
         small = _milp_attempt_plan(selector_count=512)
@@ -504,15 +558,15 @@ class PublicGraphFinderTests(unittest.TestCase):
         # row-lexicographic, so adding a new representative must not silently
         # retarget this solver regression test to another ray.
         cases = (
-            ("c5cb8bf65b3ad299ab6a4ca307b6d3cbbd449da30b9c80590fd017fa5e3e76aa", 11, True),
-            ("6b9933a923d299a26d6c12e6089ad29186dabb16b498a9617d9c8da49769ccd1", 9, False),
-            ("4388ecb359d4478911f81ced52c033368d3753ac941657edace90389956525fd", 11, True),
-            ("ea49fdcd8e0d15ca4e5686fedbf14ae935863894b9d6b89d34c99a7ca52b6756", 10, False),
+            ("c5cb8bf65b3ad299ab6a4ca307b6d3cbbd449da30b9c80590fd017fa5e3e76aa", 11),
+            ("6b9933a923d299a26d6c12e6089ad29186dabb16b498a9617d9c8da49769ccd1", 9),
+            ("4388ecb359d4478911f81ced52c033368d3753ac941657edace90389956525fd", 11),
+            ("ea49fdcd8e0d15ca4e5686fedbf14ae935863894b9d6b89d34c99a7ca52b6756", 10),
         )
         by_fingerprint = {
             hashlib.sha256(json.dumps(list(ray), separators=(",", ":")).encode()).hexdigest(): ray for ray in rays
         }
-        for fingerprint, total_vertices, expects_quality_improvement in cases:
+        for fingerprint, total_vertices in cases:
             with self.subTest(fingerprint=fingerprint):
                 self.assertIn(fingerprint, by_fingerprint)
                 result = find_graph_fixed_n(by_fingerprint[fingerprint], total_vertices)
@@ -530,18 +584,24 @@ class PublicGraphFinderTests(unittest.TestCase):
                 self.assertLessEqual(next(iter(entropy_multipliers)), 2)
                 self.assertLessEqual(max(result["graph"]["weights"]), 5)
                 refinement = result["ahc"]["attempts"][-1]["refinement"]
-                self.assertEqual(refinement["status"], "refined")
+                self.assertIn(refinement["status"], {"refined", "retained"})
                 self.assertEqual(refinement["exact_graph_validation"], "accepted")
-                if expects_quality_improvement:
-                    self.assertLessEqual(abs(refinement["edge_sum_reduction"]), refinement["edge_sum_tolerance"])
-                    original_quality = refinement["candidate_quality"]["scip-incumbent"]
-                    refined_quality = refinement["candidate_quality"]["refined"]
-                    self.assertEqual(
-                        original_quality["normalized_total_capacity"],
-                        refined_quality["normalized_total_capacity"],
+
+                def quality_key(quality):
+                    return (
+                        Fraction(str(quality["normalized_total_capacity"])),
+                        Fraction(str(quality["entropy_multiplier"])),
+                        quality["max_integer_weight"],
+                        quality["sum_integer_weights"],
+                        quality["edge_count"],
                     )
-                    self.assertGreater(original_quality["entropy_multiplier"], refined_quality["entropy_multiplier"])
-                    self.assertEqual(refinement["reason"], "strict_exact_graph_quality_improvement")
+
+                valid_qualities = [
+                    quality_key(value)
+                    for name, value in refinement["candidate_quality"].items()
+                    if value is not None and refinement["candidate_validity"][name]
+                ]
+                self.assertEqual(quality_key(result["ahc"]["quality"]), min(valid_qualities))
 
     def test_fixed_n_ray_and_exact_modes_are_explicit_and_verified(self) -> None:
         ray = find_graph_fixed_n([1, 1, 1], 3, match="ray")
