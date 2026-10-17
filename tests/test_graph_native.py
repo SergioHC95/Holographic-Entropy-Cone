@@ -32,7 +32,7 @@ def reference_constraints(scip, model, variables):
 
 
 class NativeConstructionTests(unittest.TestCase):
-    def model(self):
+    def model(self, bulk_count=4):
         columns = (
             (1, 1, 1, 1, 1, 0, 0),
             (0, 0, 1, 1, 1, 1, 1),
@@ -43,7 +43,7 @@ class NativeConstructionTests(unittest.TestCase):
             sum(min(sum(column[t] for t in side), sum(column) - sum(column[t] for t in side)) for column in columns)
             for side in subsets(6)
         )
-        result = pair_cut_disjunctions(_build_epr_model(target, 4))
+        result = pair_cut_disjunctions(_build_epr_model(target, bulk_count))
         self.assertTrue(result.disjunctions)
         return result
 
@@ -51,10 +51,14 @@ class NativeConstructionTests(unittest.TestCase):
         return [scip.addVar(name=f"w{i}", lb=0, ub=float(value), vtype="C") for i, value in enumerate(model.upper)]
 
     def test_full_native_model_and_check_flags_match_standard_construction(self):
+        for bulk_count in (4, 5):
+            with self.subTest(bulk_count=bulk_count):
+                self.assert_standard_construction_identical(self.model(bulk_count))
+
+    def assert_standard_construction_identical(self, model):
         class Captured(Exception):
             pass
 
-        model = self.model()
         with tempfile.TemporaryDirectory(prefix="hec-native-test-") as temp:
             outputs = []
             for standard in (False, True):

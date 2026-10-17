@@ -24,7 +24,8 @@ not cached target-specific domains or reusable native solver state.
 At every branch, quotient cut choices by permutations of bulk vertices with
 identical fixed-cut signatures. There is no competing capacity ordering.
 Native-created branches disable this quotient for their entire subtrees.
-Four-bulk search only; no clocks, weight integrality, or cross-case solver state.
+Four/five-bulk search only; no clocks, weight integrality, or cross-case solver state.
+Five-bulk domains use two exact sixteen-bit lookup halves, never a 2**32 table.
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ import pyscipopt
 from numba import njit
 from pyscipopt import SCIP_RESULT
 
-from ._graph_capacity import CapacityPlan, capacity_plan, prune_capacity
+from ._graph_capacity import CapacityPlan, capacity_plan, prune_capacity, prune_capacity_memberships
 from ._graph_capacity import geometry as capacity_geometry
 
 
@@ -71,8 +72,8 @@ def tables():
     return result
 
 
-@lru_cache(maxsize=1)
-def affine_geometry():
+@lru_cache(maxsize=2)
+def affine_geometry(bulk_count=4):
     """Carry-free ternary codes for terminal sums/differences; exact supports.
 
     Relation flags are nested (1), disjoint (2), unequal (4), not opposite (8),
@@ -86,14 +87,18 @@ def affine_geometry():
         for b in range(64):
             codes[0, a, b] = (bits[a] + bits[b]) @ powers
             codes[1, a, b] = (bits[a] - bits[b] + 1) @ powers
-    support = np.zeros((2, 256, 16), dtype=np.int64)
+    if bulk_count not in (4, 5):
+        raise ValueError("unsupported cut-domain size")
+    size = 1 << bulk_count
+    full = size - 1
+    support = np.zeros((2, 256, size), dtype=np.int64)
     for flags in range(256):
-        for a in range(16):
-            for b in range(16):
+        for a in range(size):
+            for b in range(size):
                 good = (not flags & 1 or a & b == a) and (not flags & 2 or not a & b)
-                good = good and (not flags & 4 or a != b) and (not flags & 8 or a != (b ^ 15))
+                good = good and (not flags & 4 or a != b) and (not flags & 8 or a != (b ^ full))
                 good = good and (not flags & 16 or bool(a & ~b)) and (not flags & 32 or bool(b & ~a))
-                good = good and (not flags & 64 or bool(a & b)) and (not flags & 128 or bool(15 & ~(a | b)))
+                good = good and (not flags & 64 or bool(a & b)) and (not flags & 128 or bool(full & ~(a | b)))
                 if good:
                     support[0, flags, a] |= 1 << b
                     support[1, flags, b] |= 1 << a
@@ -235,16 +240,18 @@ class CutRules:
     certificate_sha256: str
     quadrant_requirements: int
     capacity: CapacityPlan
+    bulk_count: int = 4
 
 
 def initial(source):
     from ._graph_epr import _epr_geometry
 
-    if source.bulk_count != 4:
-        raise ValueError("minimum-cut domains are specialized for four bulk vertices")
+    if source.bulk_count not in (4, 5):
+        raise ValueError("minimum-cut domains require four or five bulk vertices")
     if any(not 0 <= v <= np.iinfo(np.int64).max // 2 for v in source.target):
         raise ValueError("balanced-cut arithmetic exceeds its exact integer range")
-    boundary, _ = _epr_geometry(4)
+    boundary, _ = _epr_geometry(source.bulk_count)
+    full = (1 << source.bulk_count) - 1
     h = np.zeros(64, dtype=np.int64)
     domains = np.ones(64, dtype=np.int64)
     total = sum(source.degrees)
@@ -254,9 +261,9 @@ def initial(source):
         if h[s] == ds:
             domains[s] = 1
         elif h[s] == total - ds:
-            domains[s] = 65534
+            domains[s] = (1 << (full + 1)) - 2
         else:
-            domains[s] = 32766
+            domains[s] = (1 << full) - 2
     rules = []
     for a, b in combinations(range(1, 64), 2):
         if a & b in (a, b):
@@ -265,7 +272,7 @@ def initial(source):
         if h[a] + h[b] == h[a & b] + h[union]:
             rules.append((a, b, union))
     joins = np.asarray(rules, dtype=np.int64).reshape(-1, 3)
-    codes, _ = affine_geometry()
+    codes, _ = affine_geometry(source.bulk_count)
     bounds, witnesses = affine_pair_bounds(h, codes)
     if not verify_affine_bounds(h, bounds, witnesses):
         raise RuntimeError("invalid exact balanced-cut certificate")
@@ -285,7 +292,9 @@ def initial(source):
     ).hexdigest()
     joins.setflags(write=False)
     binary.setflags(write=False)
-    return domains, CutRules(joins, binary, int(equal), int(opposite), digest, int(quadrants), capacity)
+    return domains, CutRules(
+        joins, binary, int(equal), int(opposite), digest, int(quadrants), capacity, source.bulk_count
+    )
 
 
 @njit(cache=True)
@@ -302,16 +311,16 @@ def make_support_images(rows):
     return images
 
 
-@lru_cache(maxsize=1)
-def support_tables():
+@lru_cache(maxsize=2)
+def support_tables(bulk_count=4):
     """Deduplicate the 512 directed relations into 64 exact support images.
 
     Eight MiB per worker replace per-value loops with two table lookups.
     Every entry is the union of the same explicit finite relation's supports.
     """
-    _, support = affine_geometry()
+    _, support = affine_geometry(bulk_count)
     ids, rows = {}, []
-    mapping = np.empty((2, 256), dtype=np.uint8)
+    mapping = np.empty((2, 256), dtype=np.uint8 if bulk_count == 4 else np.uint16)
     for orientation in range(2):
         for flags in range(256):
             row = support[orientation, flags]
@@ -320,10 +329,111 @@ def support_tables():
                 ids[key] = len(rows)
                 rows.append(row)
             mapping[orientation, flags] = ids[key]
-    images = make_support_images(np.asarray(rows, dtype=np.int64))
+    rows = np.asarray(rows, dtype=np.int64)
+    images = make_support_images(rows) if bulk_count == 4 else make_half_images(rows)
     mapping.setflags(write=False)
     images.setflags(write=False)
     return mapping, images
+
+
+@njit(cache=True)
+def make_half_images(rows):
+    """Exact union homomorphism: image(D)=image(lo16(D)) | image(hi16(D))."""
+    images = np.zeros((len(rows), 2, 65536), dtype=np.uint32)
+    for k in range(len(rows)):
+        for half in range(2):
+            for domain in range(1, 65536):
+                rest = domain & (domain - 1)
+                one = domain ^ rest
+                value = 0
+                while (1 << value) != one:
+                    value += 1
+                images[k, half, domain] = images[k, half, rest] | rows[k, value + 16 * half]
+    return images
+
+
+@lru_cache(maxsize=1)
+def five_join_tables():
+    rows = np.zeros((64, 32), dtype=np.int64)
+    for a in range(32):
+        for b in range(32):
+            rows[a, b] = 1 << (a | b)
+            rows[32 + a, a | b] |= 1 << b
+    result = make_half_images(rows)
+    result.setflags(write=False)
+    return result[:32], result[32:]
+
+
+@njit(cache=True)
+def half_image(images, row, domain):
+    return int(images[row, 0, domain & 65535]) | int(images[row, 1, domain >> 16])
+
+
+@njit(cache=True)
+def propagate_five(domains, binary, mapping, images, joins, image, preimage):
+    while True:
+        changed = False
+        for k in range(len(binary)):
+            i, j, flags = binary[k]
+            a, b = domains[i], domains[j]
+            aa = a & half_image(images, mapping[1, flags], b)
+            bb = b & half_image(images, mapping[0, flags], aa)
+            if not aa or not bb:
+                return False
+            if aa != a:
+                domains[i] = aa
+                changed = True
+            if bb != b:
+                domains[j] = bb
+                changed = True
+        for k in range(len(joins)):
+            i, j, u = joins[k]
+            a, b, c = domains[i], domains[j], domains[u]
+            aa = bb = cc = 0
+            for x in range(32):
+                if not a & (1 << x):
+                    continue
+                allowed = b & half_image(preimage, x, c)
+                if allowed:
+                    aa |= 1 << x
+                    bb |= allowed
+                    cc |= half_image(image, x, allowed)
+            if not aa or not bb or not cc:
+                return False
+            if aa != a:
+                domains[i] = aa
+                changed = True
+            if bb != b:
+                domains[j] = bb
+                changed = True
+            if cc != c:
+                domains[u] = cc
+                changed = True
+        if not changed:
+            return True
+
+
+@njit(cache=True)
+def five_memberships(domains):
+    inside = np.full(len(domains), 31, dtype=np.int64)
+    outside = np.zeros(len(domains), dtype=np.int64)
+    for side in range(len(domains)):
+        for value in range(32):
+            if domains[side] >> value & 1:
+                inside[side] &= value
+                outside[side] |= value
+    return inside, outside ^ 31
+
+
+@lru_cache(maxsize=1)
+def five_core_cuts():
+    edges = tuple(combinations(range(5), 2))
+    cuts = np.asarray(
+        [sum(1 << e for e, (a, b) in enumerate(edges) if ((u >> a) & 1) != ((u >> b) & 1)) for u in range(16)],
+        dtype=np.int64,
+    )
+    cuts.setflags(write=False)
+    return cuts
 
 
 @njit(cache=True)
@@ -371,6 +481,20 @@ def propagate(domains, binary, mapping, images, joins, image, preimage):
 
 
 def close(domains, rules):
+    if rules.bulk_count == 5:
+        mapping, images = support_tables(5)
+        image, preimage = five_join_tables()
+        cuts = five_core_cuts()
+        plan = rules.capacity
+        while True:
+            if not propagate_five(domains, rules.binary, mapping, images, rules.joins, image, preimage):
+                return False
+            inside, outside = five_memberships(domains)
+            changed = prune_capacity_memberships(
+                domains, plan.entropy, plan.degree_twice, plan.crossing_caps, inside, outside, cuts, 5
+            )
+            if changed <= 0:
+                return changed == 0
     mapping, images = support_tables()
     image, preimage = tables()
     inside, outside, cuts = capacity_geometry()
@@ -399,7 +523,7 @@ def local_zero_rows(penalty, degree, bulk_count):
 
 
 @njit(cache=True)
-def stabilizer_representatives(fixed, tracked=True):
+def stabilizer_representatives(fixed, tracked=True, bulk_count=4):
     """One proper mask per orbit of the fixed-cut signature stabilizer.
 
     Within each equal-signature block, put the next cut's ones at the largest
@@ -407,18 +531,19 @@ def stabilizer_representatives(fixed, tracked=True):
     next cut is ordered: ordering every unfixed cut at once would be unsound.
     Untracked native branches may have additional asymmetric constraints.
     """
-    representatives = 32766
+    full = (1 << bulk_count) - 1
+    representatives = (1 << full) - 2
     if not tracked:
         return representatives
-    for left in range(4):
-        for right in range(left + 1, 4):
+    for left in range(bulk_count):
+        for right in range(left + 1, bulk_count):
             same = True
             for side in range(1, 64):
                 if fixed[side] >= 0 and (fixed[side] >> left & 1) != (fixed[side] >> right & 1):
                     same = False
                     break
             if same:
-                for value in range(1, 15):
+                for value in range(1, full):
                     if (value >> left & 1) > (value >> right & 1):
                         representatives &= ~(1 << value)
     return representatives
@@ -461,8 +586,8 @@ class OrbitCover(pyscipopt.Conshdlr):
 
 
 @lru_cache(maxsize=65536)
-def proper_values(mask):
-    return tuple(k for k in range(1, 15) if mask >> k & 1)
+def proper_values(mask, bulk_count=4):
+    return tuple(k for k in range(1, (1 << bulk_count) - 1) if mask >> k & 1)
 
 
 class DomainCover(OrbitCover):
@@ -486,18 +611,22 @@ class DomainCover(OrbitCover):
         self.state_fallbacks = 0
         from ._graph_epr import _epr_geometry
 
-        self.boundary, self.coefficients = _epr_geometry(4)
+        self.bulk_count = source.bulk_count
+        self.full = (1 << self.bulk_count) - 1
+        self.last_bit = 1 << (self.bulk_count - 1)
+        self.proper_count = self.full - 1
+        self.boundary, self.coefficients = _epr_geometry(self.bulk_count)
         self.index = {s: i for i, s in enumerate(self.boundary)}
         D = sum(source.degrees)
         self.degree_sums = [sum(source.degrees[t] for t in range(6) if side >> t & 1) for side in self.boundary]
         self.free = [i for i, h in enumerate(source.target) if h not in (self.degree_sums[i], D - self.degree_sums[i])]
         self.expressions = {}
-        self.gather = self.coefficients[self.free].reshape(-1, 27)
+        self.gather = self.coefficients[self.free].reshape(-1, len(source.upper))
         self.bounds = np.asarray(
             [
                 [
-                    source.target[i] - (D - self.degree_sums[i] if mask & 8 else self.degree_sums[i])
-                    for mask in range(1, 15)
+                    source.target[i] - (D - self.degree_sums[i] if mask & self.last_bit else self.degree_sums[i])
+                    for mask in range(1, self.full)
                 ]
                 for i in self.free
             ]
@@ -507,7 +636,9 @@ class DomainCover(OrbitCover):
         key = (sub, mask)
         if key not in self.expressions:
             row = self.coefficients[sub, mask - 1]
-            constant = sum(self.source.degrees) - self.degree_sums[sub] if mask & 8 else self.degree_sums[sub]
+            constant = (
+                sum(self.source.degrees) - self.degree_sums[sub] if mask & self.last_bit else self.degree_sums[sub]
+            )
             rhs = self.source.target[sub] - constant
             expr = pyscipopt.quicksum(int(value) * self.variables[j] for j, value in enumerate(row) if value)
             self.expressions[key] = expr <= rhs
@@ -523,7 +654,7 @@ class DomainCover(OrbitCover):
             if fixed[side] == value:
                 continue
             fixed[side] = value
-            if 0 < value < 15:
+            if 0 < value < self.full:
                 self.model.addConsNode(node, self.expression(self.index[side], value), removable=False)
                 self.forced += 1
         return fixed
@@ -574,11 +705,11 @@ class DomainCover(OrbitCover):
             return {"result": SCIP_RESULT.FEASIBLE}
         current, fixed = state
         symmetry_allowed = self.model.getCurrentNode().getNumber() in self.symmetry_nodes
-        representatives = stabilizer_representatives(fixed, symmetry_allowed)
+        representatives = stabilizer_representatives(fixed, symmetry_allowed, self.bulk_count)
         if not symmetry_allowed:
             self.symmetry_untracked_enforcements += 1
         point = np.asarray([self.model.getSolVal(None, v) for v in self.variables])
-        violations = (self.gather @ point).reshape(len(self.free), 14) - self.bounds
+        violations = (self.gather @ point).reshape(len(self.free), self.proper_count) - self.bounds
         candidates = []
         for k, sub in enumerate(self.free):
             side = self.boundary[sub]
@@ -591,7 +722,7 @@ class DomainCover(OrbitCover):
                 self.symmetry_consistent = False
                 self.model.interruptSolve()
                 return {"result": SCIP_RESULT.FEASIBLE}
-            allowed = proper_values(reduced)
+            allowed = proper_values(reduced, self.bulk_count)
             minimum = min(float(violations[k, m - 1]) for m in allowed)
             if self.model.isFeasLE(minimum, 0.0):
                 continue
@@ -632,11 +763,13 @@ class DomainCover(OrbitCover):
             "cut_equal_exclusions": self.rules.equal_exclusions,
             "cut_opposite_exclusions": self.rules.opposite_exclusions,
             "cut_quadrant_requirements": self.rules.quadrant_requirements,
-            "binary_support_policy": "immutable_complete_support_images",
+            "binary_support_policy": "immutable_complete_support_images"
+            if self.bulk_count == 4
+            else "immutable_split_support_images",
             "capacity_budget_policy": "exact_terminal_and_core_interval_feedback",
             "capacity_certificate_sha256": self.rules.capacity.certificate_sha256,
             "edge_weight_integrality_required": False,
-            "total_vertices": 11,
+            "total_vertices": 7 + self.bulk_count,
             "root_orbit_candidates": self.root_candidates,
             "root_orbit_children": self.root_children,
             "root_orbit_pruned": self.root_pruned,
@@ -684,12 +817,12 @@ def install_cut_domain_branching(model, source, variables):
     Disable solver-picked symmetry and dual reductions: either could select
     a different representative before our conditional canonical ordering.
     """
-    if source.bulk_count != 4 or "paired_cut_subsystems" not in source.profile:
+    if source.bulk_count not in (4, 5) or "paired_cut_subsystems" not in source.profile:
         return None
     from ._graph_epr import _epr_geometry
     from ._graph_pair import _pair_penalties
 
-    boundary, _ = _epr_geometry(4)
+    boundary, _ = _epr_geometry(source.bulk_count)
     i, j = source.profile["paired_cut_subsystems"]
     left, right = boundary[i], boundary[j]
     values = dict(zip(boundary, source.target, strict=True))
@@ -700,7 +833,7 @@ def install_cut_domain_branching(model, source, variables):
 
     saturated = 9 if entropy(left) + entropy(right) == entropy(left & right) + entropy(left | right) else 0
     saturated |= 6 if entropy(left) + entropy(right) == entropy(left & ~right) + entropy(right & ~left) else 0
-    templates = _pair_penalties(left, right, saturated, 4)
+    templates = _pair_penalties(left, right, saturated, source.bulk_count)
     model.setParam("misc/usesymmetry", 0)
     model.setParam("misc/allowstrongdualreds", False)
     model.setParam("misc/allowweakdualreds", False)
@@ -712,7 +845,9 @@ def install_cut_domain_branching(model, source, variables):
         "tight_union_rules": handler.rules.joins.tolist(),
         "propagation_policy": "cut_regions_and_exact_capacity_budgets",
         "cut_certificate_sha256": handler.rules.certificate_sha256,
-        "binary_support_policy": "immutable_complete_support_images",
+        "binary_support_policy": "immutable_complete_support_images"
+        if source.bulk_count == 4
+        else "immutable_split_support_images",
         "capacity_budget_policy": "exact_terminal_and_core_interval_feedback",
         "capacity_certificate_sha256": handler.rules.capacity.certificate_sha256,
         "anchor_subsystems": [left, right],

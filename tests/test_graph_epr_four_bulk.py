@@ -118,7 +118,7 @@ class FourBulkTests(unittest.TestCase):
     def test_other_sizes_do_not_silently_enter_the_specialization(self):
         target = tuple(min(len(sub), 7 - len(sub)) for sub in subsets(6))
         self.assertIsNone(solve_epr_free(target, total_vertices=9))
-        self.assertIsNone(solve_epr_free(target, total_vertices=12))
+        self.assertIsNone(solve_epr_free(target, total_vertices=13))
 
 
 if __name__ == "__main__":

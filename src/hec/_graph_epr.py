@@ -2,8 +2,8 @@
 
 Contract disjoint inclusion-minimal singleton cuts to terminals without adding
 vertices or changing entropies. Zero pair mutual information forces every
-terminal-terminal edge to vanish. With three or four bulk vertices, eliminating
-one terminal capacity per degree leaves 17 or 27 continuous parameters.
+terminal-terminal edge to vanish. With three to five bulk vertices, eliminating
+one terminal capacity per degree leaves 17, 27, or 38 continuous parameters.
 Zero-weight padding covers every smaller realization.
 
 For additive T, every bulk side U obeys D(U)+C(U)>=2*a(T,U)>=2*a(S,U)
@@ -63,10 +63,10 @@ class EprModel:
     bulk_count: int = 3
 
 
-@lru_cache(maxsize=2)
+@lru_cache(maxsize=3)
 def _epr_geometry(bulk_count: int = 3) -> tuple[tuple[int, ...], np.ndarray]:
-    if bulk_count not in (3, 4):
-        raise ValueError("the exact small-bulk specialization supports three or four bulk vertices")
+    if bulk_count not in (3, 4, 5):
+        raise ValueError("the exact small-bulk specialization supports three to five bulk vertices")
     stride = bulk_count - 1
     full = (1 << bulk_count) - 1
     width = 7 * stride + math.comb(bulk_count, 2)
@@ -87,7 +87,7 @@ def _epr_geometry(bulk_count: int = 3) -> tuple[tuple[int, ...], np.ndarray]:
 
 def _build_epr_model(target: tuple[int, ...], bulk_count: int = 3) -> EprModel | None:
     """None means not applicable, not an infeasibility verdict."""
-    if bulk_count not in (3, 4) or len(target) != 63 or any(value < 0 for value in target) or not any(target):
+    if bulk_count not in (3, 4, 5) or len(target) != 63 or any(value < 0 for value in target) or not any(target):
         return None
     divisor = math.gcd(*target)
     target = tuple(value // divisor for value in target)
@@ -228,7 +228,7 @@ def _solve_epr_native(model: EprModel) -> tuple[np.ndarray | None, dict[str, Any
             for column in range(len(model.upper))
         ]
         construction = None
-        if model.bulk_count == 4:
+        if model.bulk_count in (4, 5):
             from ._graph_native import build_constraints
 
             construction = build_constraints(scip, model, variables)
@@ -249,7 +249,7 @@ def _solve_epr_native(model: EprModel) -> tuple[np.ndarray | None, dict[str, Any
                 ]
                 scip.addConsDisjunction(expressions, name=f"attaining_cut_{ordinal}")
         brancher = None
-        if model.bulk_count == 4:
+        if model.bulk_count in (4, 5):
             from ._graph_cut_domains import install_cut_domain_branching
 
             brancher = install_cut_domain_branching(scip, model, variables)
@@ -258,23 +258,23 @@ def _solve_epr_native(model: EprModel) -> tuple[np.ndarray | None, dict[str, Any
             # checked solution as before. Depth-first traversal reuses nearby
             # LP bases; all native constraints, stability checks and unlimited
             # time/node settings remain enabled.
-            scip.setObjective(pyscipopt.quicksum(variables[21:]), "maximize")
+            scip.setObjective(pyscipopt.quicksum(variables[7 * (model.bulk_count - 1) :]), "maximize")
             scip.setParam("nodeselection/dfs/stdpriority", 1000000)
-        search_policy = "symmetric_max_core_depth_first" if model.bulk_count == 4 else "feasibility"
-        selector = "dfs" if model.bulk_count == 4 else "estimate"
+        search_policy = "symmetric_max_core_depth_first" if model.bulk_count in (4, 5) else "feasibility"
+        selector = "dfs" if model.bulk_count in (4, 5) else "estimate"
         search_configuration = {
             "objective_sense": scip.getObjectiveSense(),
             "objective_coefficients": [variable.getObj() for variable in variables],
             "node_selection": selector,
             "node_selection_priority": scip.getParam(f"nodeselection/{selector}/stdpriority"),
         }
-        if model.bulk_count == 4 and search_configuration != {
+        if model.bulk_count in (4, 5) and search_configuration != {
             "objective_sense": "maximize",
-            "objective_coefficients": [0.0] * 21 + [1.0] * 6,
+            "objective_coefficients": [0.0] * (7 * (model.bulk_count - 1)) + [1.0] * math.comb(model.bulk_count, 2),
             "node_selection": "dfs",
             "node_selection_priority": 1000000,
         }:
-            raise RuntimeError("unexpected four-bulk native search configuration")
+            raise RuntimeError("unexpected small-bulk native search configuration")
         started = time.perf_counter()
         scip.optimize()
         best = scip.getBestSol()
