@@ -1,4 +1,4 @@
-"""Exact finite-domain propagation for inclusion-minimal graph cuts.
+r"""Exact finite-domain propagation for inclusion-minimal graph cuts.
 
 Minimal cuts form a monotone map on terminal sets and cuts for disjoint
 terminal sets are disjoint. When entropy submodularity is tight, the union
@@ -12,6 +12,14 @@ the terminal indicator vector. Complementary bulk sides have opposite slopes.
 Balanced sums of entropy lower bounds therefore certify pairs of cuts that
 cannot use equal or complementary bulk sides. Each exclusion is backed by an
 explicit integer pair witness, checked before any domains are pruned.
+
+Terminal exchanges also force bulk-cut regions to be nonempty. If U_A is
+contained in U_B, moving T contained in A\B from A to B cannot increase the
+sum of capacities: the difference is twice the nonnegative capacity from T
+to U_B\U_A. A strict entropy increase therefore forces U_A\U_B nonempty.
+Complement either cut to obtain the other three quadrant rules. These too
+carry exact integer witnesses. Support images are immutable finite tables,
+not cached target-specific domains or reusable native solver state.
 
 At every branch, quotient cut choices by permutations of bulk vertices with
 identical fixed-cut signatures. There is no competing capacity ordering.
@@ -64,9 +72,9 @@ def tables():
 def affine_geometry():
     """Carry-free ternary codes for terminal sums/differences; exact supports.
 
-    Relation flags are nested (1), disjoint (2), unequal (4), and not opposite
-    (8). Combine flags before arc consistency: strict inclusion, for example,
-    is stronger than propagating inclusion and inequality separately.
+    Relation flags are nested (1), disjoint (2), unequal (4), not opposite (8),
+    and nonempty A-only/B-only/common/outside quadrants (16/32/64/128).
+    Combine flags before arc consistency, not as separate weaker relations.
     """
     powers = 3 ** np.arange(6, dtype=np.int64)
     bits = np.asarray([[(s >> t) & 1 for t in range(6)] for s in range(64)])
@@ -75,12 +83,14 @@ def affine_geometry():
         for b in range(64):
             codes[0, a, b] = (bits[a] + bits[b]) @ powers
             codes[1, a, b] = (bits[a] - bits[b] + 1) @ powers
-    support = np.zeros((2, 16, 16), dtype=np.int64)
-    for flags in range(16):
+    support = np.zeros((2, 256, 16), dtype=np.int64)
+    for flags in range(256):
         for a in range(16):
             for b in range(16):
                 good = (not flags & 1 or a & b == a) and (not flags & 2 or not a & b)
                 good = good and (not flags & 4 or a != b) and (not flags & 8 or a != (b ^ 15))
+                good = good and (not flags & 16 or bool(a & ~b)) and (not flags & 32 or bool(b & ~a))
+                good = good and (not flags & 64 or bool(a & b)) and (not flags & 128 or bool(15 & ~(a | b)))
                 if good:
                     support[0, flags, a] |= 1 << b
                     support[1, flags, b] |= 1 << a
@@ -132,9 +142,64 @@ def verify_affine_bounds(h, bounds, witnesses):
 
 
 @njit(cache=True)
-def affine_relations(h, codes, bounds):
+def exchanged_sides(a, b, transfer, kind):
+    if kind == 0:
+        c, d = a & ~transfer, b | transfer
+    elif kind == 1:
+        c, d = a | transfer, b & ~transfer
+    elif kind == 2:
+        c, d = a & ~transfer, b & ~transfer
+    else:
+        c, d = a | transfer, b | transfer
+    return c ^ 127 if c & 64 else c, d ^ 127 if d & 64 else d
+
+
+@njit(cache=True)
+def exchange_bounds(h):
+    bounds = np.empty((1953, 4), dtype=np.int64)
+    witnesses = np.zeros((1953, 4), dtype=np.uint8)
+    k = 0
+    for a in range(1, 64):
+        for b in range(a + 1, 64):
+            regions = (a & ~b, b & ~a, a & b, 127 & ~(a | b))
+            for kind in range(4):
+                best = -1
+                argument = 0
+                transfer = regions[kind]
+                while True:
+                    c, d = exchanged_sides(a, b, transfer, kind)
+                    value = h[c] + h[d]
+                    if value > best:
+                        best, argument = value, transfer
+                    if not transfer:
+                        break
+                    transfer = (transfer - 1) & regions[kind]
+                bounds[k, kind], witnesses[k, kind] = best, argument
+            k += 1
+    return bounds, witnesses
+
+
+@njit(cache=True)
+def verify_exchange_bounds(h, bounds, witnesses):
+    k = 0
+    for a in range(1, 64):
+        for b in range(a + 1, 64):
+            for kind in range(4):
+                region = a & ~b if kind == 0 else b & ~a if kind == 1 else a & b if kind == 2 else 127 & ~(a | b)
+                transfer = witnesses[k, kind]
+                if transfer & ~region:
+                    return False
+                c, d = exchanged_sides(a, b, transfer, kind)
+                if h[c] + h[d] != bounds[k, kind]:
+                    return False
+            k += 1
+    return True
+
+
+@njit(cache=True)
+def affine_relations(h, codes, bounds, exchanges):
     relations = np.empty((1953, 3), dtype=np.int64)
-    count = equal = opposite = 0
+    count = equal = opposite = quadrants = k = 0
     for a in range(1, 64):
         for b in range(a + 1, 64):
             flags = 1 if a & b == a else 2 if not a & b else 0
@@ -145,10 +210,15 @@ def affine_relations(h, codes, bounds):
             if value < bounds[1, codes[1, a, b]]:
                 flags |= 8
                 opposite += 1
+            for kind in range(4):
+                if value < exchanges[k, kind]:
+                    flags |= 16 << kind
+                    quadrants += 1
             if flags:
                 relations[count, 0], relations[count, 1], relations[count, 2] = a, b, flags
                 count += 1
-    return relations[:count], equal, opposite
+            k += 1
+    return relations[:count], equal, opposite, quadrants
 
 
 @dataclass(frozen=True)
@@ -160,6 +230,7 @@ class CutRules:
     equal_exclusions: int
     opposite_exclusions: int
     certificate_sha256: str
+    quadrant_requirements: int
 
 
 def initial(source):
@@ -194,56 +265,70 @@ def initial(source):
     bounds, witnesses = affine_pair_bounds(h, codes)
     if not verify_affine_bounds(h, bounds, witnesses):
         raise RuntimeError("invalid exact balanced-cut certificate")
-    binary, equal, opposite = affine_relations(h, codes, bounds)
-    digest = hashlib.sha256(h.tobytes() + bounds.tobytes() + witnesses.tobytes() + binary.tobytes()).hexdigest()
+    exchanges, transfers = exchange_bounds(h)
+    if not verify_exchange_bounds(h, exchanges, transfers):
+        raise RuntimeError("invalid exact terminal-exchange certificate")
+    binary, equal, opposite, quadrants = affine_relations(h, codes, bounds, exchanges)
+    digest = hashlib.sha256(
+        h.tobytes()
+        + bounds.tobytes()
+        + witnesses.tobytes()
+        + exchanges.tobytes()
+        + transfers.tobytes()
+        + binary.tobytes()
+    ).hexdigest()
     joins.setflags(write=False)
     binary.setflags(write=False)
-    return domains, CutRules(joins, binary, int(equal), int(opposite), digest)
+    return domains, CutRules(joins, binary, int(equal), int(opposite), digest, int(quadrants))
 
 
 @njit(cache=True)
-def revise_binary(left, right, support):
-    kept = 0
-    for value in range(16):
-        if left & (1 << value) and right & support[value]:
-            kept |= 1 << value
-    return kept
+def make_support_images(rows):
+    images = np.zeros((len(rows), 65536), dtype=np.uint16)
+    for k in range(len(rows)):
+        for domain in range(1, 65536):
+            rest = domain & (domain - 1)
+            one = domain ^ rest
+            value = 0
+            while (1 << value) != one:
+                value += 1
+            images[k, domain] = images[k, rest] | rows[k, value]
+    return images
+
+
+@lru_cache(maxsize=1)
+def support_tables():
+    """Deduplicate the 512 directed relations into 64 exact support images.
+
+    Eight MiB per worker replace per-value loops with two table lookups.
+    Every entry is the union of the same explicit finite relation's supports.
+    """
+    _, support = affine_geometry()
+    ids, rows = {}, []
+    mapping = np.empty((2, 256), dtype=np.uint8)
+    for orientation in range(2):
+        for flags in range(256):
+            row = support[orientation, flags]
+            key = row.tobytes()
+            if key not in ids:
+                ids[key] = len(rows)
+                rows.append(row)
+            mapping[orientation, flags] = ids[key]
+    images = make_support_images(np.asarray(rows, dtype=np.int64))
+    mapping.setflags(write=False)
+    images.setflags(write=False)
+    return mapping, images
 
 
 @njit(cache=True)
-def revise_unequal(left, right, flags):
-    """Constant-time support for unequal/not-opposite-only relations."""
-    if not right:
-        return 0
-    first = right & -right
-    value = 0
-    while (1 << value) != first:
-        value += 1
-    if right == first:
-        forbidden = 0
-        if flags & 4:
-            forbidden |= first
-        if flags & 8:
-            forbidden |= 1 << (value ^ 15)
-        return left & ~forbidden
-    if flags == 12 and right == (first | (1 << (value ^ 15))):
-        return left & ~right
-    return left
-
-
-@njit(cache=True)
-def propagate(domains, binary, support, joins, image, preimage):
+def propagate(domains, binary, mapping, images, joins, image, preimage):
     while True:
         changed = False
         for k in range(len(binary)):
             i, j, flags = binary[k]
             a, b = domains[i], domains[j]
-            if flags & 3:
-                aa = revise_binary(a, b, support[0, flags])
-                bb = revise_binary(b, aa, support[1, flags])
-            else:
-                aa = revise_unequal(a, b, flags)
-                bb = revise_unequal(b, aa, flags)
+            aa = a & images[mapping[1, flags], b]
+            bb = b & images[mapping[0, flags], aa]
             if not aa or not bb:
                 return False
             if aa != a:
@@ -280,9 +365,9 @@ def propagate(domains, binary, support, joins, image, preimage):
 
 
 def close(domains, rules):
-    _, support = affine_geometry()
+    mapping, images = support_tables()
     image, preimage = tables()
-    return propagate(domains, rules.binary, support, rules.joins, image, preimage)
+    return propagate(domains, rules.binary, mapping, images, rules.joins, image, preimage)
 
 
 def local_zero_rows(penalty, degree, bulk_count):
@@ -528,11 +613,13 @@ class DomainCover(OrbitCover):
         return {
             "kind": "minimal_cut_domain_branching",
             "recipe_sha256": self.recipe_sha256,
-            "propagation_policy": "balanced_affine_cut_pairs",
-            "balanced_certificate_verified": True,
-            "balanced_certificate_sha256": self.rules.certificate_sha256,
-            "balanced_equal_exclusions": self.rules.equal_exclusions,
-            "balanced_opposite_exclusions": self.rules.opposite_exclusions,
+            "propagation_policy": "terminal_exchange_cut_regions",
+            "cut_certificate_verified": True,
+            "cut_certificate_sha256": self.rules.certificate_sha256,
+            "cut_equal_exclusions": self.rules.equal_exclusions,
+            "cut_opposite_exclusions": self.rules.opposite_exclusions,
+            "cut_quadrant_requirements": self.rules.quadrant_requirements,
+            "binary_support_policy": "immutable_complete_support_images",
             "total_vertices": 11,
             "root_orbit_candidates": self.root_candidates,
             "root_orbit_children": self.root_children,
@@ -607,8 +694,9 @@ def install_cut_domain_branching(model, source, variables):
         "base_model_sha256": source.sha256,
         "initial_closed_domains": handler.base.tolist(),
         "tight_union_rules": handler.rules.joins.tolist(),
-        "propagation_policy": "balanced_affine_cut_pairs",
-        "balanced_certificate_sha256": handler.rules.certificate_sha256,
+        "propagation_policy": "terminal_exchange_cut_regions",
+        "cut_certificate_sha256": handler.rules.certificate_sha256,
+        "binary_support_policy": "immutable_complete_support_images",
         "anchor_subsystems": [left, right],
         "anchor_orbits": [[a, b] for a, b, *_ in templates],
         "symmetry_policy": "dynamic_minimal_cut_stabilizer",

@@ -14,13 +14,15 @@ from hec._graph_cut_domains import (
     affine_geometry,
     affine_pair_bounds,
     close,
+    exchange_bounds,
     initial,
     install_cut_domain_branching,
     local_zero_rows,
-    revise_unequal,
     stabilizer_representatives,
+    support_tables,
     tables,
     verify_affine_bounds,
+    verify_exchange_bounds,
 )
 from hec._graph_epr import _build_epr_model, _epr_geometry, _trusted_epr_infeasibility, solve_epr_free
 from hec._graph_pair import _pair_penalties, pair_cut_disjunctions
@@ -47,23 +49,38 @@ class MinimumCutDomainTests(unittest.TestCase):
         codes, support = affine_geometry()
         self.assertFalse(codes.flags.writeable)
         self.assertFalse(support.flags.writeable)
-        for flags in range(16):
+        for flags in range(256):
             for a in range(16):
                 for b in range(16):
                     good = (not flags & 1 or a & b == a) and (not flags & 2 or not a & b)
                     good = good and (not flags & 4 or a != b) and (not flags & 8 or a != (b ^ 15))
+                    for k, occupied in enumerate((a & ~b, b & ~a, a & b, 15 & ~(a | b))):
+                        if flags & (16 << k) and not occupied:
+                            good = False
                     self.assertEqual(bool(support[0, flags, a] >> b & 1), good)
                     self.assertEqual(bool(support[1, flags, b] >> a & 1), good)
 
-    def test_all_unequal_fast_paths_match_direct_support_for_every_right_domain(self):
+    def test_all_support_images_match_direct_relations_for_every_domain(self):
         _, support = affine_geometry()
+        mapping, images = support_tables()
+        self.assertFalse(mapping.flags.writeable)
+        self.assertFalse(images.flags.writeable)
+        self.assertEqual(images.shape, (64, 65536))
+        self.assertEqual(images.nbytes, 8 * 1024**2)
         domains = np.arange(65536, dtype=np.int64)
-        for flags in (4, 8, 12):
+        seen = set()
+        for orientation, flags in product(range(2), range(256)):
+            row = int(mapping[orientation, flags])
+            for value in range(16):
+                self.assertEqual(images[row, 1 << value], support[orientation, flags, value])
+            if row in seen:
+                continue
+            seen.add(row)
             expected = np.zeros(65536, dtype=np.int64)
-            for a in range(16):
-                expected |= ((domains & support[0, flags, a]) != 0).astype(np.int64) << a
-            actual = np.fromiter((revise_unequal(65535, int(d), flags) for d in domains), dtype=np.int64)
-            self.assertTrue(np.array_equal(actual, expected))
+            for value in range(16):
+                expected |= ((domains >> value) & 1) * support[orientation, flags, value]
+            self.assertTrue(np.array_equal(images[row], expected))
+        self.assertEqual(len(seen), 64)
 
     def test_balanced_pair_bounds_have_independently_checked_integer_witnesses(self):
         codes, _ = affine_geometry()
@@ -110,6 +127,52 @@ class MinimumCutDomainTests(unittest.TestCase):
         self.assertIsNone(graph)
         self.assertEqual(info["status"], "unknown")
         self.assertIn("balanced-cut certificate", info["error"])
+        with patch("hec._graph_cut_domains.verify_exchange_bounds", return_value=False):
+            with self.assertRaisesRegex(RuntimeError, "terminal-exchange certificate"):
+                initial(source)
+            graph, info = solve_epr_free(target, total_vertices=11)
+        self.assertIsNone(graph)
+        self.assertEqual(info["status"], "unknown")
+        self.assertIn("terminal-exchange certificate", info["error"])
+
+    def test_exchange_capacity_coefficients_force_exactly_the_claimed_quadrant(self):
+        patterns = ((1, 0, 0, 1), (0, 1, 1, 0), (1, 1, 0, 0), (0, 0, 1, 1))
+        for kind, (a, b, c, d) in enumerate(patterns):
+            for u, v in product(range(16), repeat=2):
+                occupied = (u & ~v, v & ~u, u & v, 15 & ~(u | v))[kind]
+                for bulk in range(4):
+                    x, y = (u >> bulk) & 1, (v >> bulk) & 1
+                    delta = int(a != x) + int(b != y) - int(c != x) - int(d != y)
+                    self.assertEqual(delta < 0, bool(occupied >> bulk & 1))
+                    if not occupied:
+                        self.assertGreaterEqual(delta, 0)
+
+    def test_exchange_witnesses_have_exact_membership_and_entropy_values(self):
+        h = np.random.default_rng(202610170840).integers(0, 1000, 64)
+        h[0] = 0
+        bounds, witnesses = exchange_bounds(h)
+        self.assertTrue(verify_exchange_bounds(h, bounds, witnesses))
+        for k, (a, b) in enumerate(combinations(range(1, 64), 2)):
+            regions = (a & ~b, b & ~a, a & b, 127 & ~(a | b))
+            for kind in range(4):
+                transfer = int(witnesses[k, kind])
+                self.assertFalse(transfer & ~regions[kind])
+                if kind == 0:
+                    c, d = a & ~transfer, b | transfer
+                elif kind == 1:
+                    c, d = a | transfer, b & ~transfer
+                elif kind == 2:
+                    c, d = a & ~transfer, b & ~transfer
+                else:
+                    c, d = a | transfer, b | transfer
+                c, d = (c ^ 127 if c & 64 else c), (d ^ 127 if d & 64 else d)
+                self.assertEqual(h[c] + h[d], bounds[k, kind])
+        bad = bounds.copy()
+        bad[0, 0] += 1
+        self.assertFalse(verify_exchange_bounds(h, bad, witnesses))
+        bad_transfer = witnesses.copy()
+        bad_transfer[0, 0] = 128
+        self.assertFalse(verify_exchange_bounds(h, bounds, bad_transfer))
 
     def test_random_graph_minimal_cut_families_survive_domains_and_every_root_constraint(self):
         rng = np.random.default_rng(20261017553)
@@ -148,6 +211,10 @@ class MinimumCutDomainTests(unittest.TestCase):
                     self.assertNotEqual(minimal[a], minimal[b])
                 if flags & 8:
                     self.assertNotEqual(minimal[a], minimal[b] ^ 15)
+                ua, ub = int(minimal[a]), int(minimal[b])
+                for k, occupied in enumerate((ua & ~ub, ub & ~ua, ua & ub, 15 & ~(ua | ub))):
+                    if flags & (16 << k):
+                        self.assertTrue(occupied)
             self.assertTrue(close(base, joins))
             self.assertTrue(all(base[s] >> int(minimal[s]) & 1 for s in range(64)))
             left_sub, right_sub = source.profile["paired_cut_subsystems"]
@@ -299,11 +366,17 @@ class MinimumCutDomainTests(unittest.TestCase):
                 self.assertEqual(attempt["resource_limits"]["limits/nodes"], -1)
                 branch = attempt["branching"]
                 self.assertEqual(branch["kind"], "minimal_cut_domain_branching")
-                self.assertEqual(branch["propagation_policy"], "balanced_affine_cut_pairs")
-                self.assertTrue(branch["balanced_certificate_verified"])
-                self.assertEqual(len(branch["balanced_certificate_sha256"]), 64)
-                self.assertGreaterEqual(branch["balanced_equal_exclusions"], 0)
-                self.assertGreaterEqual(branch["balanced_opposite_exclusions"], 0)
+                self.assertEqual(branch["propagation_policy"], "terminal_exchange_cut_regions")
+                self.assertTrue(branch["cut_certificate_verified"])
+                self.assertEqual(len(branch["cut_certificate_sha256"]), 64)
+                self.assertGreaterEqual(branch["cut_equal_exclusions"], 0)
+                self.assertGreaterEqual(branch["cut_opposite_exclusions"], 0)
+                self.assertGreaterEqual(branch["cut_quadrant_requirements"], 0)
+                self.assertEqual(branch["binary_support_policy"], "immutable_complete_support_images")
+                self.assertEqual(attempt["search_policy"], "symmetric_max_core_depth_first")
+                self.assertEqual(attempt["search_configuration"]["objective_coefficients"], [0.0] * 21 + [1.0] * 6)
+                self.assertEqual(attempt["search_configuration"]["objective_sense"], "maximize")
+                self.assertEqual(attempt["search_configuration"]["node_selection"], "dfs")
                 self.assertTrue(branch["covers_complete"])
                 self.assertGreater(branch["root_orbit_candidates"], 0)
                 self.assertTrue(branch["automatic_symmetry_disabled"])
