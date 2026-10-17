@@ -4,7 +4,7 @@ Flipping terminal t in a minimum cut S gives the necessary inequality
   2 * crossing_capacity(t,S) <= d[t] + h(S) - h(S xor {t}).
 Mandatory bulk memberships yield subset upper bounds on terminal capacities.
 Nonnegative capacities and their exact terminal degree sums yield cover bounds.
-Bounds on the six bulk edges feed back into these same minimum-cut budgets.
+Bounds on the bulk edges feed back into these same minimum-cut budgets.
 
 Bounds are represented in twice-capacity units. This does NOT require integer
 or half-integer edge weights: all variables remain arbitrary nonnegative reals.
@@ -83,15 +83,16 @@ def geometry():
 @njit(cache=True)
 def close_terminal_upper(upper, degree):
     """Nonnegativity, subset monotonicity, and finite subset-cover bounds."""
+    full = upper.shape[1] - 1
     for t in range(7):
         while True:
             changed = False
-            for q in range(15, 0, -1):
-                for r in range(1, 16):
+            for q in range(full, 0, -1):
+                for r in range(1, full + 1):
                     if q & r == q and upper[t, r] < upper[t, q]:
                         upper[t, q] = upper[t, r]
                         changed = True
-            for q in range(1, 16):
+            for q in range(1, full + 1):
                 a = (q - 1) & q
                 while a:
                     bound = upper[t, a] + upper[t, q ^ a]
@@ -99,7 +100,7 @@ def close_terminal_upper(upper, degree):
                         upper[t, q] = bound
                         changed = True
                     a = (a - 1) & q
-            if upper[t, 15] < degree[t]:
+            if upper[t, full] < degree[t]:
                 return False
             if not changed:
                 break
@@ -108,11 +109,20 @@ def close_terminal_upper(upper, degree):
 
 @njit(cache=True)
 def prune_capacity(domains, h, degree, caps, inside, outside, core_masks):
+    return prune_capacity_memberships(domains, h, degree, caps, inside[domains], outside[domains], core_masks, 4)
+
+
+@njit(cache=True)
+def prune_capacity_memberships(domains, h, degree, caps, inside, outside, core_masks, bulk_count):
     """Return -1 on an exact contradiction, 1 on pruning, or 0 if unchanged."""
-    upper = np.empty((7, 16), dtype=np.int64)
+    size = 1 << bulk_count
+    full = size - 1
+    half = size // 2
+    edges = bulk_count * (bulk_count - 1) // 2
+    upper = np.empty((7, size), dtype=np.int64)
     maximum = 2 * h.max()  # The original complete model clips each core edge here.
     for t in range(7):
-        for q in range(16):
+        for q in range(size):
             upper[t, q] = degree[t] if q else 0
     for side in range(1, 64):
         if not domains[side]:
@@ -121,27 +131,27 @@ def prune_capacity(domains, h, degree, caps, inside, outside, core_masks):
             cap = caps[side, t]
             if cap < 0:
                 return -1
-            q = outside[domains[side]] if side >> t & 1 else inside[domains[side]]
+            q = outside[side] if side >> t & 1 else inside[side]
             if q and cap < upper[t, q]:
                 upper[t, q] = cap
     while True:
         if not close_terminal_upper(upper, degree):
             return -1
-        lower_cut = np.zeros(8, dtype=np.int64)
-        upper_cut = np.zeros(8, dtype=np.int64)
-        for k in range(1, 8):
-            for e in range(6):
+        lower_cut = np.zeros(half, dtype=np.int64)
+        upper_cut = np.zeros(half, dtype=np.int64)
+        for k in range(1, half):
+            for e in range(edges):
                 if core_masks[k] >> e & 1:
                     upper_cut[k] += maximum
         for side in range(1, 64):
             common = -1
             best_upper = -1
-            for u in range(16):
-                k = min(u, u ^ 15)
+            for u in range(size):
+                k = min(u, u ^ full)
                 lo = hi = 0
                 for t in range(7):
-                    crossing = (u ^ 15) if side >> t & 1 else u
-                    lo += max(0, degree[t] - upper[t, crossing ^ 15])
+                    crossing = (u ^ full) if side >> t & 1 else u
+                    lo += max(0, degree[t] - upper[t, crossing ^ full])
                     hi += upper[t, crossing]
                 # Every cut, not merely an attaining cut, obeys its entropy lower bound.
                 lower_cut[k] = max(lower_cut[k], 2 * h[side] - hi)
@@ -154,22 +164,22 @@ def prune_capacity(domains, h, degree, caps, inside, outside, core_masks):
             # Complementary bulk sides have exactly the same core-cut capacity.
             if common >= 0:
                 upper_cut[common] = min(upper_cut[common], best_upper)
-        lower_edge = np.zeros(6, dtype=np.int64)
-        upper_edge = np.full(6, maximum, dtype=np.int64)
+        lower_edge = np.zeros(edges, dtype=np.int64)
+        upper_edge = np.full(edges, maximum, dtype=np.int64)
         if lower_cut[0] > 0 or upper_cut[0] < 0:
             return -1
         while True:
             changed = False
-            for k in range(1, 8):
+            for k in range(1, half):
                 bits = core_masks[k]
                 lo = hi = 0
-                for e in range(6):
+                for e in range(edges):
                     if bits >> e & 1:
                         lo += lower_edge[e]
                         hi += upper_edge[e]
                 if lo > upper_cut[k] or hi < lower_cut[k]:
                     return -1
-                for e in range(6):
+                for e in range(edges):
                     if not bits >> e & 1:
                         continue
                     lb = max(lower_edge[e], lower_cut[k] - (hi - upper_edge[e]))
@@ -184,9 +194,9 @@ def prune_capacity(domains, h, degree, caps, inside, outside, core_masks):
                         changed = True
             if not changed:
                 break
-        for k in range(1, 8):
+        for k in range(1, half):
             lo = hi = 0
-            for e in range(6):
+            for e in range(edges):
                 if core_masks[k] >> e & 1:
                     lo += lower_edge[e]
                     hi += upper_edge[e]
@@ -197,20 +207,20 @@ def prune_capacity(domains, h, degree, caps, inside, outside, core_masks):
         tightened = False
         for side in range(1, 64):
             for t in range(7):
-                q = outside[domains[side]] if side >> t & 1 else inside[domains[side]]
+                q = outside[side] if side >> t & 1 else inside[side]
                 if not q:
                     continue
                 budget = -1
-                for u in range(16):
+                for u in range(size):
                     if not domains[side] >> u & 1:
                         continue
                     others = 0
                     for j in range(7):
                         if j == t:
                             continue
-                        crossing = (u ^ 15) if side >> j & 1 else u
-                        others += max(0, degree[j] - upper[j, crossing ^ 15])
-                    budget = max(budget, 2 * h[side] - lower_cut[min(u, u ^ 15)] - others)
+                        crossing = (u ^ full) if side >> j & 1 else u
+                        others += max(0, degree[j] - upper[j, crossing ^ full])
+                    budget = max(budget, 2 * h[side] - lower_cut[min(u, u ^ full)] - others)
                 if budget < 0:
                     return -1
                 if budget < upper[t, q]:
@@ -222,14 +232,14 @@ def prune_capacity(domains, h, degree, caps, inside, outside, core_masks):
     for side in range(1, 64):
         current = domains[side]
         kept = 0
-        for u in range(16):
+        for u in range(size):
             if not current >> u & 1:
                 continue
-            lo, hi = lower_cut[min(u, u ^ 15)], upper_cut[min(u, u ^ 15)]
+            lo, hi = lower_cut[min(u, u ^ full)], upper_cut[min(u, u ^ full)]
             possible = True
             for t in range(7):
-                crossing = (u ^ 15) if side >> t & 1 else u
-                lower = max(0, degree[t] - upper[t, crossing ^ 15])
+                crossing = (u ^ full) if side >> t & 1 else u
+                lower = max(0, degree[t] - upper[t, crossing ^ full])
                 if lower > caps[side, t]:
                     possible = False
                     break
