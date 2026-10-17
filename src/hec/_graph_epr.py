@@ -269,6 +269,9 @@ def solve_epr_free(target: tuple[int, ...]) -> tuple[dict[str, Any] | None, dict
     model = _build_epr_model(target)
     if model is None:
         return None
+    from ._graph_pair import pair_cut_disjunctions
+
+    model = pair_cut_disjunctions(model)
     profile = {**model.profile, "build_s": time.perf_counter() - started}
     try:
         solution, attempt = _solve_epr_native(model)
