@@ -366,13 +366,25 @@ class MinimumCutDomainTests(unittest.TestCase):
                 self.assertEqual(attempt["resource_limits"]["limits/nodes"], -1)
                 branch = attempt["branching"]
                 self.assertEqual(branch["kind"], "minimal_cut_domain_branching")
-                self.assertEqual(branch["propagation_policy"], "terminal_exchange_cut_regions")
+                self.assertEqual(branch["propagation_policy"], "cut_regions_and_exact_capacity_budgets")
                 self.assertTrue(branch["cut_certificate_verified"])
                 self.assertEqual(len(branch["cut_certificate_sha256"]), 64)
                 self.assertGreaterEqual(branch["cut_equal_exclusions"], 0)
                 self.assertGreaterEqual(branch["cut_opposite_exclusions"], 0)
                 self.assertGreaterEqual(branch["cut_quadrant_requirements"], 0)
                 self.assertEqual(branch["binary_support_policy"], "immutable_complete_support_images")
+                self.assertEqual(branch["capacity_budget_policy"], "exact_terminal_and_core_interval_feedback")
+                self.assertEqual(len(branch["capacity_certificate_sha256"]), 64)
+                self.assertIs(branch["edge_weight_integrality_required"], False)
+                construction = attempt["model_construction"]
+                self.assertEqual(construction["policy"], "fresh_batched_scip_constraints")
+                self.assertIs(construction["all_original_constraints_retained"], True)
+                self.assertIs(construction["native_state_reused"], False)
+                self.assertEqual(construction["solutions_before_solve"], 0)
+                self.assertEqual(construction["variables"], 27)
+                self.assertEqual(
+                    construction["native_constraints"], construction["linear_rows"] + construction["disjunctions"]
+                )
                 self.assertEqual(attempt["search_policy"], "symmetric_max_core_depth_first")
                 self.assertEqual(attempt["search_configuration"]["objective_coefficients"], [0.0] * 21 + [1.0] * 6)
                 self.assertEqual(attempt["search_configuration"]["objective_sense"], "maximize")
