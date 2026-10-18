@@ -563,6 +563,19 @@ class OrbitCover(pyscipopt.Conshdlr):
         self.children = 0
         self.zero_bounds = 0
         self.root_children = 0
+        self.child_priority_calls = 0
+        self.child_priority_nonfinite_fallbacks = 0
+
+    def child_priority(self, slack):
+        """Guide DFS towards the current LP point; never omit a child or row."""
+        if self.source.bulk_count != 5:
+            return 0.0
+        self.child_priority_calls += 1
+        if not np.isfinite(slack):
+            # Search order is optional information, never an infeasibility test.
+            self.child_priority_nonfinite_fallbacks += 1
+            return 0.0
+        return -float(slack)
 
     def add_root_constraints(self, node, choice, template):
         source = self.source
@@ -737,6 +750,9 @@ class DomainCover(OrbitCover):
                 return {"result": SCIP_RESULT.CUTOFF}
             first, second = self.source.profile["paired_cut_subsystems"]
             left, right = self.boundary[first], self.boundary[second]
+            point = (
+                np.asarray([self.model.getSolVal(None, v) for v in self.variables]) if self.bulk_count == 5 else None
+            )
             created = 0
             for choice, template in zip(self.source.disjunctions[0], self.templates, strict=True):
                 a, b, *_ = template
@@ -748,7 +764,8 @@ class DomainCover(OrbitCover):
                     self.pruned += 1
                     self.root_pruned += 1
                     continue
-                node = self.model.createChild(0, self.model.getLocalEstimate())
+                slack = float(np.asarray(choice[0]) @ point - choice[1]) if point is not None else 0.0
+                node = self.model.createChild(self.child_priority(slack), self.model.getLocalEstimate())
                 self.children += 1
                 self.root_children += 1
                 created += 1
@@ -802,7 +819,8 @@ class DomainCover(OrbitCover):
                 self.pruned += 1
                 self.branch_pruned += 1
                 continue
-            node = self.model.createChild(0, self.model.getLocalEstimate())
+            slack = float(violations[self.free.index(sub), mask - 1])
+            node = self.model.createChild(self.child_priority(slack), self.model.getLocalEstimate())
             self.children += 1
             created += 1
             new_fixed = self.enforce_singles(node, trial, fixed)
@@ -825,6 +843,7 @@ class DomainCover(OrbitCover):
             if self.bulk_count == 4
             else "immutable_split_support_images",
             "capacity_budget_policy": "exact_terminal_and_core_interval_feedback",
+            "capacity_kernel_policy": "subset_transform_partition_dp_and_shared_terminal_sums",
             "capacity_certificate_sha256": self.rules.capacity.certificate_sha256,
             "edge_weight_integrality_required": False,
             "total_vertices": 7 + self.bulk_count,
@@ -850,6 +869,9 @@ class DomainCover(OrbitCover):
             "symmetry_consistent": self.symmetry_consistent,
             "capacity_ordering_disabled": True,
             "branch_selection": "largest_minimum_slack_then_fewest_orbits",
+            "child_selection_policy": "minimum_local_cut_slack" if self.bulk_count == 5 else "neutral",
+            "child_priority_calls": self.child_priority_calls,
+            "child_priority_nonfinite_fallbacks": self.child_priority_nonfinite_fallbacks,
             "domain_state_fallbacks": self.state_fallbacks,
             "covers_complete": (
                 self.symmetry_consistent

@@ -126,6 +126,12 @@ class CutBundleTests(unittest.TestCase):
         self.assertEqual(branch["upper_cut_policy"], "exact_nonnegative_slack_aggregation")
         self.assertLessEqual(branch["upper_cut_rows"], branch["forced_upper_cuts"])
         self.assertEqual(branch["upper_cut_numeric_fallbacks"], 0)
+        self.assertEqual(branch["child_selection_policy"], "minimum_local_cut_slack")
+        self.assertEqual(branch["child_priority_nonfinite_fallbacks"], 0)
+        self.assertEqual(
+            branch["child_priority_calls"], branch["root_orbit_children"] + branch["domain_branch_children"]
+        )
+        self.assertEqual(branch["capacity_kernel_policy"], "subset_transform_partition_dp_and_shared_terminal_sums")
         self.assertTrue(branch["covers_complete"])
         self.assertTrue(attempt["model_construction"]["all_original_constraints_retained"])
         self.assertFalse(attempt["model_construction"]["native_state_reused"])
