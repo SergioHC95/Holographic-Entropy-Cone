@@ -27,6 +27,13 @@ Native-created branches disable this quotient for their entire subtrees.
 Four/five-bulk search only; no clocks, weight integrality, or cross-case solver state.
 Five-bulk domains use four exact byte lookup slices, never a 2**32 table.
 
+Five-bulk propagation uses a verified complete rule-incidence queue. Every
+changed domain reschedules every incident rule, including after full capacity
+feedback. A restriction of an unchanged, closed parent seeds only its changes;
+all other entries retain a complete initial scan. Monotone contracting rules
+therefore reach the same greatest fixed point as full repeated sweeps. Queues
+and domains remain local to one fresh model, never shared across targets.
+
 After a complete cut-orbit cover is propagated, a sole surviving child can be
 continued at the current node. Singleton assignments common to every viable
 canonical child can also be imposed there. For multiple children, discard all
@@ -52,7 +59,7 @@ import pyscipopt
 from numba import njit
 from pyscipopt import SCIP_RESULT
 
-from ._graph_capacity import CapacityPlan, capacity_plan, prune_capacity, prune_capacity_memberships
+from ._graph_capacity import CapacityPlan, capacity_plan, prune_capacity, prune_capacity_memberships, single_bit_index
 from ._graph_capacity import geometry as capacity_geometry
 
 
@@ -252,6 +259,7 @@ class CutRules:
     quadrant_requirements: int
     capacity: CapacityPlan
     bulk_count: int = 4
+    dependencies: tuple | None = None
 
 
 def initial(source):
@@ -304,8 +312,174 @@ def initial(source):
     joins.setflags(write=False)
     binary.setflags(write=False)
     return domains, CutRules(
-        joins, binary, int(equal), int(opposite), digest, int(quadrants), capacity, source.bulk_count
+        joins,
+        binary,
+        int(equal),
+        int(opposite),
+        digest,
+        int(quadrants),
+        capacity,
+        source.bulk_count,
+        make_dependencies(binary, joins) if source.bulk_count == 5 else None,
     )
+
+
+@njit(cache=True)
+def dependency_arrays(binary, joins):
+    """CSR adjacency for every variable occurrence in every binary/join rule."""
+    counts = np.zeros(64, dtype=np.int64)
+    for row in binary:
+        counts[row[0]] += 1
+        counts[row[1]] += 1
+    for row in joins:
+        for side in row:
+            counts[side] += 1
+    offsets = np.empty(65, dtype=np.int64)
+    offsets[0] = 0
+    for side in range(64):
+        offsets[side + 1] = offsets[side] + counts[side]
+    neighbors = np.empty(offsets[64], dtype=np.int64)
+    cursor = offsets.copy()
+    for k in range(len(binary)):
+        for position in range(2):
+            side = binary[k, position]
+            neighbors[cursor[side]] = k
+            cursor[side] += 1
+    for k in range(len(joins)):
+        for side in joins[k]:
+            neighbors[cursor[side]] = len(binary) + k
+            cursor[side] += 1
+    return offsets, neighbors
+
+
+def make_dependencies(binary, joins):
+    offsets, neighbors = dependency_arrays(binary, joins)
+    if not verify_dependencies(binary, joins, offsets, neighbors):
+        raise RuntimeError("invalid complete propagation dependency certificate")
+    for array in (offsets, neighbors):
+        array.setflags(write=False)
+    return offsets, neighbors
+
+
+@njit(cache=True)
+def verify_dependencies(binary, joins, offsets, neighbors):
+    """Check a bijection onto all rule positions, independently of CSR creation."""
+    count = len(binary) + len(joins)
+    if len(offsets) != 65 or len(neighbors) != 2 * len(binary) + 3 * len(joins):
+        return False
+    if offsets[0] != 0 or offsets[64] != len(neighbors):
+        return False
+    seen = np.zeros((count, 3), dtype=np.uint8)
+    for side in range(64):
+        first, last = offsets[side], offsets[side + 1]
+        if first < 0 or last < first or last > len(neighbors):
+            return False
+        for position in range(first, last):
+            k = neighbors[position]
+            if k < 0 or k >= count:
+                return False
+            found = -1
+            if k < len(binary):
+                for p in range(2):
+                    if binary[k, p] == side:
+                        found = p
+            else:
+                for p in range(3):
+                    if joins[k - len(binary), p] == side:
+                        found = p
+            if found < 0 or seen[k, found]:
+                return False
+            seen[k, found] = 1
+    return True
+
+
+@njit(cache=True)
+def propagate_events(
+    domains, binary, mapping, images, joins, image, preimage, offsets, neighbors, seeds, full_scan, metrics
+):
+    count = len(binary) + len(joins)
+    metrics[0 if full_scan else 1] += 1
+    processed = 0
+    queue = np.empty(count + 1, dtype=np.int64)
+    queued = np.zeros(count, dtype=np.uint8)
+    first = last = 0
+    if full_scan:
+        for k in range(count):
+            queue[last] = k
+            last += 1
+            queued[k] = 1
+    else:
+        for side in range(64):
+            if seeds[side]:
+                for p in range(offsets[side], offsets[side + 1]):
+                    k = neighbors[p]
+                    if not queued[k]:
+                        queue[last] = k
+                        last += 1
+                        if last == count + 1:
+                            last = 0
+                        queued[k] = 1
+    changed = np.empty(3, dtype=np.int64)
+    while first != last:
+        processed += 1
+        k = queue[first]
+        first += 1
+        if first == count + 1:
+            first = 0
+        queued[k] = 0
+        changed[:] = 0
+        if k < len(binary):
+            i, j, flags = binary[k]
+            a, b = domains[i], domains[j]
+            aa = a & byte_image(images, mapping[1, flags], b)
+            bb = b & byte_image(images, mapping[0, flags], aa)
+            if not aa or not bb:
+                metrics[2] += processed
+                return False
+            if aa != a:
+                domains[i] = aa
+                changed[0] = i
+            if bb != b:
+                domains[j] = bb
+                changed[1] = j
+        else:
+            i, j, u = joins[k - len(binary)]
+            a, b, c = domains[i], domains[j], domains[u]
+            aa = bb = cc = 0
+            remaining = a
+            while remaining:
+                one = remaining & -remaining
+                x = single_bit_index(one)
+                remaining ^= one
+                allowed = b & byte_image(preimage, x, c)
+                if allowed:
+                    aa |= one
+                    bb |= allowed
+                    cc |= byte_image(image, x, allowed)
+            if not aa or not bb or not cc:
+                metrics[2] += processed
+                return False
+            if aa != a:
+                domains[i] = aa
+                changed[0] = i
+            if bb != b:
+                domains[j] = bb
+                changed[1] = j
+            if cc != c:
+                domains[u] = cc
+                changed[2] = u
+        for side in changed:
+            if side:
+                for p in range(offsets[side], offsets[side + 1]):
+                    other = neighbors[p]
+                    if not queued[other]:
+                        queue[last] = other
+                        last += 1
+                        if last == count + 1:
+                            last = 0
+                        queued[other] = 1
+    metrics[2] += processed
+    return True
 
 
 @njit(cache=True)
@@ -500,21 +674,86 @@ def propagate(domains, binary, mapping, images, joins, image, preimage):
             return True
 
 
-def close(domains, rules):
+@njit(cache=True)
+def close_five_events(
+    domains,
+    binary,
+    mapping,
+    images,
+    joins,
+    image,
+    preimage,
+    offsets,
+    neighbors,
+    entropy,
+    degree,
+    caps,
+    cuts,
+    previous,
+    seeded,
+    metrics,
+):
+    seeds = np.zeros(64, dtype=np.uint8)
+    full_scan = not seeded
+    for side in range(64):
+        if domains[side] <= 0 or domains[side] >> 32:
+            if not domains[side]:
+                return False
+            raise ValueError("invalid five-bulk cut domain")
+        if domains[side] & ~previous[side]:
+            full_scan = True
+        seeds[side] = domains[side] != previous[side]
+    while True:
+        if not propagate_events(
+            domains, binary, mapping, images, joins, image, preimage, offsets, neighbors, seeds, full_scan, metrics
+        ):
+            return False
+        before = domains.copy()
+        inside, outside = five_memberships(domains)
+        changed = prune_capacity_memberships(domains, entropy, degree, caps, inside, outside, cuts, 5)
+        if changed <= 0:
+            return changed == 0
+        for side in range(64):
+            seeds[side] = domains[side] != before[side]
+        full_scan = False
+
+
+def close(domains, rules, previous=None, metrics=None):
+    """Greatest necessary fixed point; previous, if given, is a closed parent.
+
+    Only restrictions of a successfully closed, unchanged parent under these
+    same target-local rules may seed the queue. Root assignments that expand
+    that parent automatically retain the complete initial scan. Capacity
+    feedback always runs in full and queues every domain it changes.
+    """
     if rules.bulk_count == 5:
+        if domains.shape != (64,) or domains.dtype != np.dtype("int64"):
+            raise ValueError("five-bulk closure requires 64 exact int64 domains")
+        if previous is not None and (previous.shape != (64,) or previous.dtype != domains.dtype):
+            raise ValueError("incompatible closed parent")
         mapping, images = support_tables(5)
         image, preimage = five_join_tables()
         cuts = five_core_cuts()
         plan = rules.capacity
-        while True:
-            if not propagate_five(domains, rules.binary, mapping, images, rules.joins, image, preimage):
-                return False
-            inside, outside = five_memberships(domains)
-            changed = prune_capacity_memberships(
-                domains, plan.entropy, plan.degree_twice, plan.crossing_caps, inside, outside, cuts, 5
-            )
-            if changed <= 0:
-                return changed == 0
+        offsets, neighbors = rules.dependencies
+        return close_five_events(
+            domains,
+            rules.binary,
+            mapping,
+            images,
+            rules.joins,
+            image,
+            preimage,
+            offsets,
+            neighbors,
+            plan.entropy,
+            plan.degree_twice,
+            plan.crossing_caps,
+            cuts,
+            domains if previous is None else previous,
+            previous is not None,
+            np.zeros(3, dtype=np.int64) if metrics is None else metrics,
+        )
     mapping, images = support_tables()
     image, preimage = tables()
     inside, outside, cuts = capacity_geometry()
@@ -680,7 +919,8 @@ class DomainCover(OrbitCover):
     def __init__(self, source, variables, templates):
         super().__init__(source, variables, templates)
         self.base, self.rules = initial(source)
-        self.base_ok = close(self.base, self.rules)
+        self.propagation_metrics = np.zeros(3, dtype=np.int64)
+        self.base_ok = close(self.base, self.rules, metrics=self.propagation_metrics)
         self.states = {}
         self.symmetry_nodes = set()
         self.symmetry_raw_masks = 0
@@ -812,7 +1052,7 @@ class DomainCover(OrbitCover):
                 trial = self.base.copy()
                 trial[left] = 1 << a
                 trial[right] = 1 << b
-                if not close(trial, self.rules):
+                if not close(trial, self.rules, self.base, self.propagation_metrics):
                     self.pruned += 1
                     self.root_pruned += 1
                     continue
@@ -865,7 +1105,7 @@ class DomainCover(OrbitCover):
             for mask in allowed:
                 trial = current.copy()
                 trial[side] = 1 << mask
-                possible = close(trial, self.rules)
+                possible = close(trial, self.rules, current, self.propagation_metrics)
                 prepared.append(trial if possible else None)
                 if possible:
                     viable.append(trial)
@@ -873,7 +1113,7 @@ class DomainCover(OrbitCover):
             self.constructive_failed_probes += len(allowed) - len(viable)
             if len(viable) > 1:
                 refined, lifts, valid = common_singleton_domains(current, np.asarray(viable))
-                if not valid or (lifts and not close(refined, self.rules)):
+                if not valid or (lifts and not close(refined, self.rules, current, self.propagation_metrics)):
                     self.symmetry_consistent = False
                     self.model.interruptSolve()
                     return {"result": SCIP_RESULT.FEASIBLE}
@@ -905,7 +1145,7 @@ class DomainCover(OrbitCover):
             if prepared is None:
                 trial = current.copy()
                 trial[side] = 1 << mask
-                if not close(trial, self.rules):
+                if not close(trial, self.rules, current, self.propagation_metrics):
                     trial = None
             else:
                 trial = prepared[ordinal]
@@ -928,6 +1168,14 @@ class DomainCover(OrbitCover):
             "kind": "minimal_cut_domain_branching",
             "recipe_sha256": self.recipe_sha256,
             "propagation_policy": "cut_regions_and_exact_capacity_budgets",
+            "propagation_engine": "verified_dependency_queue_from_closed_parent"
+            if self.bulk_count == 5
+            else "full_sweep",
+            "dependency_certificate_verified": self.bulk_count == 5,
+            "dependency_entries": 0 if self.rules.dependencies is None else len(self.rules.dependencies[1]),
+            "event_full_propagations": int(self.propagation_metrics[0]),
+            "event_seeded_propagations": int(self.propagation_metrics[1]),
+            "event_rule_visits": int(self.propagation_metrics[2]),
             "cut_certificate_verified": True,
             "cut_certificate_sha256": self.rules.certificate_sha256,
             "cut_equal_exclusions": self.rules.equal_exclusions,
@@ -1044,6 +1292,9 @@ def install_cut_domain_branching(model, source, variables):
         "symmetry_policy": "dynamic_minimal_cut_stabilizer",
         "native_branch_guard": True,
         "capacity_ordering": False,
+        "propagation_engine": "verified_dependency_queue_from_closed_parent"
+        if source.bulk_count == 5
+        else "full_sweep",
         "branch_selection": "largest_minimum_slack_then_fewest_orbits",
         "constructive_policy": "complete_cut_orbit_unit_and_common_singleton_propagation"
         if source.bulk_count == 5
