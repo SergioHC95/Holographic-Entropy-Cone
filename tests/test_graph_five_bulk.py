@@ -9,11 +9,11 @@ from test_graph_epr_four_bulk import full_table
 
 from hec._graph_cut_domains import (
     affine_geometry,
+    byte_image,
     close,
     five_core_cuts,
     five_join_tables,
     five_memberships,
-    half_image,
     initial,
     propagate_five,
     stabilizer_representatives,
@@ -55,13 +55,13 @@ class FiveBulkTests(unittest.TestCase):
             expected = {(a, b) for a in range(1, 31) for b in range(1, 31) if _allowed_pair(left, right, a, b)}
             self.assertEqual(covered, expected)
 
-    def test_every_split_support_entry_matches_independent_finite_relation(self):
+    def test_every_byte_support_entry_matches_independent_finite_relation(self):
         _, support = affine_geometry(5)
         mapping, images = support_tables(5)
-        self.assertEqual(images.shape[1:], (2, 65536))
-        self.assertLessEqual(images.nbytes, 64 * 1024**2)
+        self.assertEqual(images.shape[1:], (4, 256))
+        self.assertEqual(images.nbytes + sum(a.nbytes for a in five_join_tables()), 512 * 1024)
         self.assertFalse(images.flags.writeable)
-        masks = np.arange(65536, dtype=np.uint32)
+        masks = np.arange(256, dtype=np.uint32)
         checked = set()
         for orientation in range(2):
             for flags in range(256):
@@ -69,16 +69,16 @@ class FiveBulkTests(unittest.TestCase):
                 if row in checked:
                     continue
                 checked.add(row)
-                for half in range(2):
-                    expected = np.zeros(65536, dtype=np.uint32)
-                    for bit in range(16):
-                        expected |= np.where(masks >> bit & 1, support[orientation, flags, bit + 16 * half], 0).astype(
+                for part in range(4):
+                    expected = np.zeros(256, dtype=np.uint32)
+                    for bit in range(8):
+                        expected |= np.where(masks >> bit & 1, support[orientation, flags, bit + 8 * part], 0).astype(
                             np.uint32
                         )
-                    self.assertTrue(np.array_equal(expected, images[row, half]))
+                    self.assertTrue(np.array_equal(expected, images[row, part]))
         self.assertEqual(len(checked), len(images))
 
-    def test_split_join_images_and_preimages_are_exact_including_bit_31(self):
+    def test_byte_join_images_and_preimages_are_exact_including_bit_31(self):
         image, preimage = five_join_tables()
         rng = np.random.default_rng(20261017121)
         for domain in [0, 1, 1 << 31, (1 << 32) - 1, *map(int, rng.integers(0, 1 << 32, 100))]:
@@ -89,8 +89,8 @@ class FiveBulkTests(unittest.TestCase):
                         expected_image |= 1 << (a | b)
                     if domain >> (a | b) & 1:
                         expected_preimage |= 1 << b
-                self.assertEqual(half_image(image, a, domain), expected_image)
-                self.assertEqual(half_image(preimage, a, domain), expected_preimage)
+                self.assertEqual(byte_image(image, a, domain), expected_image)
+                self.assertEqual(byte_image(preimage, a, domain), expected_preimage)
 
     def test_combined_supports_match_slow_bruteforce_arc_consistency(self):
         rng = np.random.default_rng(20261017122)
@@ -247,7 +247,7 @@ class FiveBulkTests(unittest.TestCase):
         self.assertEqual(attempt["model_construction"]["variables"], 38)
         self.assertEqual(attempt["model_construction"]["policy"], "fresh_batched_scip_constraints")
         self.assertEqual(attempt["branching"]["total_vertices"], 12)
-        self.assertEqual(attempt["branching"]["binary_support_policy"], "immutable_split_support_images")
+        self.assertEqual(attempt["branching"]["binary_support_policy"], "immutable_byte_support_images")
         self.assertTrue(attempt["branching"]["covers_complete"])
         self.assertGreaterEqual(attempt["resource_limits"]["limits/time"], 1e20)
         self.assertEqual(attempt["resource_limits"]["limits/nodes"], -1)
