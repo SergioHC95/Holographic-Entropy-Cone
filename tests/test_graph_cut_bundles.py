@@ -131,7 +131,7 @@ class CutBundleTests(unittest.TestCase):
         self.assertEqual(
             branch["child_priority_calls"], branch["root_orbit_children"] + branch["domain_branch_children"]
         )
-        self.assertEqual(branch["capacity_kernel_policy"], "subset_transform_partition_dp_and_shared_terminal_sums")
+        self.assertEqual(branch["capacity_kernel_policy"], "subset_dp_and_sparse_set_bit_feedback")
         self.assertTrue(branch["covers_complete"])
         self.assertTrue(attempt["model_construction"]["all_original_constraints_retained"])
         self.assertFalse(attempt["model_construction"]["native_state_reused"])
