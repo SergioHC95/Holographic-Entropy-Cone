@@ -6,6 +6,12 @@ Mandatory bulk memberships yield subset upper bounds on terminal capacities.
 Nonnegative capacities and their exact terminal degree sums yield cover bounds.
 Bounds on the bulk edges feed back into these same minimum-cut budgets.
 
+Tight entropy submodularity forces zero weight between the two cut differences;
+tight weak monotonicity forces zero weight between their common and outside
+regions. Mandatory domain memberships expose these zeros without choosing an
+unfixed cut. Every terminal-pair identity is independently checked in integers
+before its zero-edge implications enter five-bulk capacity feedback.
+
 Bounds are represented in twice-capacity units. This does NOT require integer
 or half-integer edge weights: all variables remain arbitrary nonnegative reals.
 No clock, search budget, native model, or cross-target state is used here.
@@ -96,6 +102,78 @@ class CapacityPlan:
     degree_twice: np.ndarray
     crossing_caps: np.ndarray
     certificate_sha256: str
+    zero_pairs: np.ndarray
+
+
+@njit(cache=True)
+def tight_pair_regions(h):
+    rows = np.empty((3906, 5), dtype=np.int64)
+    count = 0
+    for a in range(1, 64):
+        for b in range(a + 1, 64):
+            value = h[a] + h[b]
+            if value == h[a & b] + h[a | b]:
+                rows[count] = np.array((a, b, 0, a & ~b, b & ~a))
+                count += 1
+            if value == h[a & ~b] + h[b & ~a]:
+                rows[count] = np.array((a, b, 1, a & b, 127 & ~(a | b)))
+                count += 1
+    return rows[:count].copy()
+
+
+@njit(cache=True)
+def verify_tight_pairs(h, pairs):
+    """Check every identity, region, and occurrence without trusting creation."""
+    if pairs.ndim != 2 or pairs.shape[1] != 5:
+        return False
+    seen = np.zeros((64, 64, 2), dtype=np.uint8)
+    for a, b, kind, left, right in pairs:
+        if not 0 < a < b < 64 or kind not in (0, 1) or seen[a, b, kind]:
+            return False
+        if kind == 0:
+            if left != a & ~b or right != b & ~a or h[a] + h[b] != h[a & b] + h[a | b]:
+                return False
+        elif left != a & b or right != 127 & ~(a | b) or h[a] + h[b] != h[a & ~b] + h[b & ~a]:
+            return False
+        seen[a, b, kind] = 1
+    for a in range(1, 64):
+        for b in range(a + 1, 64):
+            if bool(seen[a, b, 0]) != (h[a] + h[b] == h[a & b] + h[a | b]):
+                return False
+            if bool(seen[a, b, 1]) != (h[a] + h[b] == h[a & ~b] + h[b & ~a]):
+                return False
+    return True
+
+
+@njit(cache=True)
+def mandatory_zero_edges(inside, outside, pairs, bulk_count):
+    """Exact uncrossing zeros valid for every cut choice in these domains.
+
+    C(X)+C(Y)-C(X intersect Y)-C(X union Y) is twice the weight
+    between X\\Y and Y\\X. The symmetric-difference variant is twice the
+    weight between X intersect Y and the outside of X union Y. For a tight
+    entropy identity both differences vanish, since all cut slacks and edge
+    weights are nonnegative. No edge-weight integrality is assumed.
+    """
+    terminal = np.zeros(7, dtype=np.int64)
+    core = 0
+    for a, b, kind, terminal_left, terminal_right in pairs:
+        if kind == 0:
+            left, right = inside[a] & outside[b], inside[b] & outside[a]
+        else:
+            left, right = inside[a] & inside[b], outside[a] & outside[b]
+        for t in range(7):
+            if terminal_left >> t & 1:
+                terminal[t] |= right
+            if terminal_right >> t & 1:
+                terminal[t] |= left
+        e = 0
+        for i in range(bulk_count):
+            for j in range(i + 1, bulk_count):
+                if (left >> i & 1 and right >> j & 1) or (right >> i & 1 and left >> j & 1):
+                    core |= 1 << e
+                e += 1
+    return terminal, core
 
 
 def capacity_plan(h, degrees):
@@ -113,10 +191,13 @@ def capacity_plan(h, degrees):
             if flipped & 64:
                 flipped ^= 127
             caps[side, terminal] = degrees[terminal] + entropy[side] - entropy[flipped]
-    digest = hashlib.sha256(entropy.tobytes() + degree.tobytes() + caps.tobytes()).hexdigest()
-    for array in (entropy, degree, caps):
+    pairs = tight_pair_regions(entropy)
+    if not verify_tight_pairs(entropy, pairs):
+        raise RuntimeError("invalid exact tight-pair zero-edge certificate")
+    digest = hashlib.sha256(entropy.tobytes() + degree.tobytes() + caps.tobytes() + pairs.tobytes()).hexdigest()
+    for array in (entropy, degree, caps, pairs):
         array.setflags(write=False)
-    return CapacityPlan(entropy, degree, caps, digest)
+    return CapacityPlan(entropy, degree, caps, digest, pairs)
 
 
 @njit(cache=True)
@@ -184,7 +265,7 @@ def prune_capacity(domains, h, degree, caps, inside, outside, core_masks):
 
 
 @njit(cache=True)
-def prune_capacity_memberships(domains, h, degree, caps, inside, outside, core_masks, bulk_count):
+def prune_capacity_memberships(domains, h, degree, caps, inside, outside, core_masks, bulk_count, zero_pairs=None):
     """Return -1 on an exact contradiction, 1 on pruning, or 0 if unchanged."""
     if bulk_count not in (4, 5):
         raise ValueError("capacity propagation requires four or five bulk vertices")
@@ -197,6 +278,11 @@ def prune_capacity_memberships(domains, h, degree, caps, inside, outside, core_m
     for t in range(7):
         for q in range(size):
             upper[t, q] = degree[t] if q else 0
+    zero_core = 0
+    if zero_pairs is not None:
+        zero_terminal, zero_core = mandatory_zero_edges(inside, outside, zero_pairs, bulk_count)
+        for t in range(7):
+            upper[t, zero_terminal[t]] = 0
     for side in range(1, 64):
         if domains[side] < 0 or domains[side] >> size:
             raise ValueError("domain exceeds the validated bulk-choice width")
@@ -239,6 +325,9 @@ def prune_capacity_memberships(domains, h, degree, caps, inside, outside, core_m
                 upper_cut[common] = min(upper_cut[common], best_upper)
         lower_edge = np.zeros(edges, dtype=np.int64)
         upper_edge = np.full(edges, maximum, dtype=np.int64)
+        for e in range(edges):
+            if zero_core >> e & 1:
+                upper_edge[e] = 0
         if lower_cut[0] > 0 or upper_cut[0] < 0:
             return -1
         while True:

@@ -35,7 +35,15 @@ def dense_close(domains, rules):
             return False
         inside, outside = five_memberships(domains)
         changed = prune_capacity_memberships(
-            domains, plan.entropy, plan.degree_twice, plan.crossing_caps, inside, outside, five_core_cuts(), 5
+            domains,
+            plan.entropy,
+            plan.degree_twice,
+            plan.crossing_caps,
+            inside,
+            outside,
+            five_core_cuts(),
+            5,
+            plan.zero_pairs,
         )
         if changed <= 0:
             return changed == 0
