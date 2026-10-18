@@ -25,7 +25,13 @@ At every branch, quotient cut choices by permutations of bulk vertices with
 identical fixed-cut signatures. There is no competing capacity ordering.
 Native-created branches disable this quotient for their entire subtrees.
 Four/five-bulk search only; no clocks, weight integrality, or cross-case solver state.
-Five-bulk domains use two exact sixteen-bit lookup halves, never a 2**32 table.
+Five-bulk domains use four exact byte lookup slices, never a 2**32 table.
+
+After a complete cut-orbit cover is propagated, a sole surviving child can be
+continued at the current node. Singleton assignments common to every viable
+canonical child can also be imposed there. For multiple children, discard all
+other canonical-child domain restrictions and reclose from the old parent:
+retaining those restrictions could impose competing orders on unfixed cuts.
 
 For newly forced cuts, every cut slack is already nonnegative under the full
 base model. One upper bound on their sum is therefore exactly equivalent to
@@ -335,25 +341,29 @@ def support_tables(bulk_count=4):
                 rows.append(row)
             mapping[orientation, flags] = ids[key]
     rows = np.asarray(rows, dtype=np.int64)
-    images = make_support_images(rows) if bulk_count == 4 else make_half_images(rows)
+    images = make_support_images(rows) if bulk_count == 4 else make_byte_images(rows)
     mapping.setflags(write=False)
     images.setflags(write=False)
     return mapping, images
 
 
 @njit(cache=True)
-def make_half_images(rows):
-    """Exact union homomorphism: image(D)=image(lo16(D)) | image(hi16(D))."""
-    images = np.zeros((len(rows), 2, 65536), dtype=np.uint32)
+def make_byte_images(rows):
+    """Image preserves unions, so four byte images exactly cover a 32-bit set.
+
+    Four 256-entry slices replace two 65536-entry halves. There is no sampling,
+    approximation, or restriction on domains, including the highest bit.
+    """
+    images = np.zeros((len(rows), 4, 256), dtype=np.uint32)
     for k in range(len(rows)):
-        for half in range(2):
-            for domain in range(1, 65536):
+        for part in range(4):
+            for domain in range(1, 256):
                 rest = domain & (domain - 1)
                 one = domain ^ rest
                 value = 0
                 while (1 << value) != one:
                     value += 1
-                images[k, half, domain] = images[k, half, rest] | rows[k, value + 16 * half]
+                images[k, part, domain] = images[k, part, rest] | rows[k, value + 8 * part]
     return images
 
 
@@ -364,14 +374,19 @@ def five_join_tables():
         for b in range(32):
             rows[a, b] = 1 << (a | b)
             rows[32 + a, a | b] |= 1 << b
-    result = make_half_images(rows)
+    result = make_byte_images(rows)
     result.setflags(write=False)
     return result[:32], result[32:]
 
 
 @njit(cache=True)
-def half_image(images, row, domain):
-    return int(images[row, 0, domain & 65535]) | int(images[row, 1, domain >> 16])
+def byte_image(images, row, domain):
+    return (
+        int(images[row, 0, domain & 255])
+        | int(images[row, 1, (domain >> 8) & 255])
+        | int(images[row, 2, (domain >> 16) & 255])
+        | int(images[row, 3, domain >> 24])
+    )
 
 
 @njit(cache=True)
@@ -381,8 +396,8 @@ def propagate_five(domains, binary, mapping, images, joins, image, preimage):
         for k in range(len(binary)):
             i, j, flags = binary[k]
             a, b = domains[i], domains[j]
-            aa = a & half_image(images, mapping[1, flags], b)
-            bb = b & half_image(images, mapping[0, flags], aa)
+            aa = a & byte_image(images, mapping[1, flags], b)
+            bb = b & byte_image(images, mapping[0, flags], aa)
             if not aa or not bb:
                 return False
             if aa != a:
@@ -398,11 +413,11 @@ def propagate_five(domains, binary, mapping, images, joins, image, preimage):
             for x in range(32):
                 if not a & (1 << x):
                     continue
-                allowed = b & half_image(preimage, x, c)
+                allowed = b & byte_image(preimage, x, c)
                 if allowed:
                     aa |= 1 << x
                     bb |= allowed
-                    cc |= half_image(image, x, allowed)
+                    cc |= byte_image(image, x, allowed)
             if not aa or not bb or not cc:
                 return False
             if aa != a:
@@ -633,6 +648,34 @@ def forced_cut_bundle(trial, parent_fixed, side_index, coefficients, bounds, ful
     return fixed, row, rhs, count
 
 
+@njit(cache=True)
+def common_singleton_domains(parent, children):
+    """Lift only common assignments, not asymmetric unions of orbit domains.
+
+    Every parent graph orbit has a representative in the complete child cover.
+    A singleton common to its viable children therefore retains a representative
+    of every such orbit. Reclosing the old parent with just those fixed cuts
+    preserves invariance under the resulting fixed-cut stabilizer.
+    """
+    refined = parent.copy()
+    if not len(children) or children.shape[1] != len(parent):
+        return refined, 0, False
+    union = np.zeros(len(parent), dtype=np.int64)
+    for child in children:
+        for side in range(len(parent)):
+            value = child[side]
+            if value <= 0 or value & ~parent[side]:
+                return refined, 0, False
+            union[side] |= value
+    count = 0
+    for side in range(1, len(parent)):
+        value = union[side]
+        if not value & (value - 1) and parent[side] & (parent[side] - 1):
+            refined[side] = value
+            count += 1
+    return refined, count, True
+
+
 class DomainCover(OrbitCover):
     def __init__(self, source, variables, templates):
         super().__init__(source, variables, templates)
@@ -654,6 +697,10 @@ class DomainCover(OrbitCover):
         self.state_fallbacks = 0
         self.upper_cut_rows = 0
         self.upper_cut_numeric_fallbacks = 0
+        self.unit_continuations = 0
+        self.constructive_lifts = 0
+        self.constructive_probes = 0
+        self.constructive_failed_probes = 0
         from ._graph_epr import _epr_geometry
 
         self.bulk_count = source.bulk_count
@@ -669,7 +716,12 @@ class DomainCover(OrbitCover):
         self.degree_sums = [sum(source.degrees[t] for t in range(6) if side >> t & 1) for side in self.boundary]
         self.free = [i for i, h in enumerate(source.target) if h not in (self.degree_sums[i], D - self.degree_sums[i])]
         self.expressions = {}
-        self.gather = self.coefficients[self.free].reshape(-1, len(source.upper))
+        # Exact -1/0/1 coefficients convert once, not at every LP callback.
+        # This matrix guides search only; native constraints remain unchanged.
+        self.gather = np.ascontiguousarray(
+            self.coefficients[self.free].reshape(-1, len(source.upper)), dtype=np.float64
+        )
+        self.gather.setflags(write=False)
         self.upper_cut_rhs = np.asarray(
             [
                 [
@@ -806,16 +858,58 @@ class DomainCover(OrbitCover):
         if not candidates:
             return {"result": SCIP_RESULT.FEASIBLE}
         _, sub, side, allowed = min(candidates, key=lambda item: item[0])
+        prepared = None
+        viable = []
+        if self.bulk_count == 5:
+            prepared = []
+            for mask in allowed:
+                trial = current.copy()
+                trial[side] = 1 << mask
+                possible = close(trial, self.rules)
+                prepared.append(trial if possible else None)
+                if possible:
+                    viable.append(trial)
+            self.constructive_probes += len(allowed)
+            self.constructive_failed_probes += len(allowed) - len(viable)
+            if len(viable) > 1:
+                refined, lifts, valid = common_singleton_domains(current, np.asarray(viable))
+                if not valid or (lifts and not close(refined, self.rules)):
+                    self.symmetry_consistent = False
+                    self.model.interruptSolve()
+                    return {"result": SCIP_RESULT.FEASIBLE}
+                if lifts:
+                    focus = self.model.getCurrentNode()
+                    before = self.upper_cut_rows
+                    new_fixed = self.enforce_singles(focus, refined, fixed)
+                    if self.upper_cut_rows > before:
+                        self.states[focus.getNumber()] = (refined, new_fixed)
+                        self.constructive_lifts += 1
+                        return {"result": SCIP_RESULT.CONSADDED}
         raw_count = int(current[side]).bit_count()
         self.symmetry_raw_masks += raw_count
         self.symmetry_orbit_masks += len(allowed)
         self.symmetry_skipped_masks += raw_count - len(allowed)
+        if self.bulk_count == 5 and len(viable) == 1:
+            focus = self.model.getCurrentNode()
+            trial = viable[0]
+            new_fixed = self.enforce_singles(focus, trial, fixed)
+            self.states[focus.getNumber()] = (trial, new_fixed)
+            self.branch_candidates += len(allowed)
+            self.branch_pruned += len(allowed) - 1
+            self.pruned += len(allowed) - 1
+            self.unit_continuations += 1
+            return {"result": SCIP_RESULT.CONSADDED}
         created = 0
-        for mask in allowed:
+        for ordinal, mask in enumerate(allowed):
             self.branch_candidates += 1
-            trial = current.copy()
-            trial[side] = 1 << mask
-            if not close(trial, self.rules):
+            if prepared is None:
+                trial = current.copy()
+                trial[side] = 1 << mask
+                if not close(trial, self.rules):
+                    trial = None
+            else:
+                trial = prepared[ordinal]
+            if trial is None:
                 self.pruned += 1
                 self.branch_pruned += 1
                 continue
@@ -841,7 +935,7 @@ class DomainCover(OrbitCover):
             "cut_quadrant_requirements": self.rules.quadrant_requirements,
             "binary_support_policy": "immutable_complete_support_images"
             if self.bulk_count == 4
-            else "immutable_split_support_images",
+            else "immutable_byte_support_images",
             "capacity_budget_policy": "exact_terminal_and_core_interval_feedback",
             "capacity_kernel_policy": "subset_transform_partition_dp_and_shared_terminal_sums",
             "capacity_certificate_sha256": self.rules.capacity.certificate_sha256,
@@ -853,6 +947,13 @@ class DomainCover(OrbitCover):
             "domain_branch_candidates": self.branch_candidates,
             "domain_branch_children": self.children - self.root_children,
             "domain_branch_pruned": self.branch_pruned,
+            "domain_unit_continuations": self.unit_continuations,
+            "constructive_parent_lifts": self.constructive_lifts,
+            "constructive_probes": self.constructive_probes,
+            "constructive_failed_probes": self.constructive_failed_probes,
+            "constructive_policy": "complete_cut_orbit_unit_and_common_singleton_propagation"
+            if self.bulk_count == 5
+            else "disabled",
             "forced_upper_cuts": self.forced,
             "upper_cut_rows": self.upper_cut_rows,
             "upper_cut_numeric_fallbacks": self.upper_cut_numeric_fallbacks,
@@ -876,7 +977,9 @@ class DomainCover(OrbitCover):
             "covers_complete": (
                 self.symmetry_consistent
                 and self.root_candidates == self.root_children + self.root_pruned
-                and self.branch_candidates == self.children - self.root_children + self.branch_pruned
+                and 0 <= self.unit_continuations <= self.branch_candidates
+                and self.branch_candidates
+                == self.children - self.root_children + self.branch_pruned + self.unit_continuations
                 and self.symmetry_raw_masks == self.symmetry_orbit_masks + self.symmetry_skipped_masks
                 and self.symmetry_orbit_masks == self.branch_candidates
             ),
@@ -932,7 +1035,7 @@ def install_cut_domain_branching(model, source, variables):
         "cut_certificate_sha256": handler.rules.certificate_sha256,
         "binary_support_policy": "immutable_complete_support_images"
         if source.bulk_count == 4
-        else "immutable_split_support_images",
+        else "immutable_byte_support_images",
         "capacity_budget_policy": "exact_terminal_and_core_interval_feedback",
         "capacity_certificate_sha256": handler.rules.capacity.certificate_sha256,
         "anchor_subsystems": [left, right],
@@ -941,6 +1044,9 @@ def install_cut_domain_branching(model, source, variables):
         "native_branch_guard": True,
         "capacity_ordering": False,
         "branch_selection": "largest_minimum_slack_then_fewest_orbits",
+        "constructive_policy": "complete_cut_orbit_unit_and_common_singleton_propagation"
+        if source.bulk_count == 5
+        else "disabled",
     }
     handler.recipe_sha256 = hashlib.sha256(
         json.dumps(recipe, sort_keys=True, separators=(",", ":")).encode()
