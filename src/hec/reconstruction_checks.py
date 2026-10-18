@@ -198,11 +198,16 @@ def ci_matrix(root=None):
     for current_n in reversed(ns):
         catalog, inequalities = bound_catalog(current_n, root)
         counts = {}
-        for kind in ("facets", "graphs", "rays"):
+        from .graph_store import GraphCatalog
+
+        counts["graphs"] = len(GraphCatalog(data_path(current_n, "graphs", root=root)))
+        for kind in ("facets", "rays"):
             rows = load_json(data_path(current_n, kind, root=root))
             if not isinstance(rows, list):
-                raise ValueError("CI requires list-valued facet/ray/graph datasets")
+                raise ValueError("CI requires list-valued facet/ray datasets")
             counts[kind] = len(rows)
+        if counts["graphs"] != counts["rays"]:
+            raise ValueError("CI graph/ray coverage counts disagree")
         counts.update(contractions=len(catalog), **{"database-bindings": len(inequalities.entries)})
         audit_count = min(PROOF_JOB_LIMIT, max(1, math.ceil(len(catalog) / PROOF_TARGET)), len(catalog))
         owned_entries = proof_groups(catalog, inequalities, audit_count)
@@ -210,6 +215,8 @@ def ci_matrix(root=None):
             groups = audit_count if kind == "contractions" else 1
             if kind == "facets":
                 groups = min(8, max(1, math.ceil(counts[kind] / 10_000)))
+            elif kind in ("graphs", "rays"):
+                groups = min(16, max(1, math.ceil(counts[kind] / 25_000)))
             for group in range(groups):
                 task = {
                     "kind": kind,

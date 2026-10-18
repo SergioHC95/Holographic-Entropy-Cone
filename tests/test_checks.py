@@ -13,6 +13,7 @@ from proof_fixtures import document
 from hec.checks import check_stored_contractions, check_stored_facets, check_stored_graphs, check_stored_rays
 from hec.count_proofs import canonical_json, compatible_vertices, geometry, proof_id
 from hec.data import default_data_root
+from hec.graph_store import GraphCatalog, write_graph_catalog
 from hec.inequality_records import inequality_catalog, write_inequality_catalog
 from hec.proof_store import write_proof_catalog
 
@@ -25,10 +26,15 @@ def _temporary_dataset(n: int, *kinds: str) -> tuple[TemporaryDirectory, Path, d
     records = {
         kind: json.loads((source / f"{kind}.json").read_text(encoding="utf-8"))
         for kind in kinds
-        if kind != "contractions"
+        if kind not in ("contractions", "graphs")
     }
+    if "graphs" in kinds:
+        records["graphs"] = list(GraphCatalog(source / "graphs.json"))
     for kind, values in records.items():
-        (target / f"{kind}.json").write_text(json.dumps(values), encoding="utf-8")
+        if kind == "graphs":
+            write_graph_catalog(target / "graphs.json", values)
+        else:
+            (target / f"{kind}.json").write_text(json.dumps(values), encoding="utf-8")
     if "contractions" in kinds:
         proofs = []
         for facet in records["facets"]:
@@ -89,7 +95,7 @@ class StoredGraphCheckTests(unittest.TestCase):
         temporary, target, records = _temporary_dataset(1, "rays", "graphs")
         self.addCleanup(temporary.cleanup)
         records["graphs"][0]["weights"] = [2]
-        (target / "graphs.json").write_text(json.dumps(records["graphs"]), encoding="utf-8")
+        write_graph_catalog(target / "graphs.json", records["graphs"])
 
         with self.assertRaisesRegex(ValueError, "canonical stored form"):
             list(check_stored_graphs(temporary.name, n=1))
@@ -98,7 +104,7 @@ class StoredGraphCheckTests(unittest.TestCase):
         temporary, target, records = _temporary_dataset(1, "rays", "graphs")
         self.addCleanup(temporary.cleanup)
         records["graphs"][0]["edges"] = [["A", "Z"]]
-        (target / "graphs.json").write_text(json.dumps(records["graphs"]), encoding="utf-8")
+        write_graph_catalog(target / "graphs.json", records["graphs"])
 
         with self.assertRaisesRegex(ValueError, "not a terminal"):
             list(check_stored_graphs(temporary.name, n=1))

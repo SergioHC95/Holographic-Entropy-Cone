@@ -69,7 +69,7 @@ def repository_paths(root):
     paths = set(filter(None, raw.decode("utf-8").split("\0")))
     allowed = re.compile(
         r"data/(?:storage\.json|n=[1-9][0-9]*/(?:(?:facets|rays|graphs|inequalities|proofs)\.json"
-        r"|proof-shards/[0-9a-f]{64}\.proofpack))"
+        r"|proof-shards/[0-9a-f]{64}\.proofpack|graph-shards/[0-9a-f]{64}\.json))"
     )
     if any(allowed.fullmatch(path) is None for path in paths):
         raise ValueError("unexpected production data path; research and migration records belong outside the data tree")
@@ -83,6 +83,7 @@ def make_plan(root):
     NO mathematical or byte-validity acceptance. Required storage and full-cube
     CI jobs independently verify the actual saved bytes.
     """
+    from .graph_store import GraphCatalog
     from .proof_store import ProofCatalog
 
     root = Path(root).resolve()
@@ -110,11 +111,25 @@ def make_plan(root):
     actual = {path for path in known if "/proof-shards/" in path}
     if expected != actual:
         raise ValueError("missing or unindexed ordinary-Git proof payload")
+    graph_payloads, graph_expected = [], set()
+    for relative in sorted(path for path in known if re.fullmatch(r"data/n=[1-9][0-9]*/graphs.json", path)):
+        path = safe_path(root, relative)
+        catalog = GraphCatalog(path)
+        for shard in catalog.shards:
+            item = f"{path.parent.relative_to(root)}/{shard.path}"
+            graph_expected.add(item)
+            graph_payloads.append(
+                {"path": item, "sha256": shard.sha256, "bytes": shard.bytes, "n": int(path.parent.name[2:])}
+            )
+    if graph_expected != {path for path in known if "/graph-shards/" in path}:
+        raise ValueError("missing or unindexed ordinary-Git graph payload")
     return {
         "format": "hec-git-storage-plan",
         "proofs": count,
         "payloads": payloads,
         "payload_bytes": sum(row["bytes"] for row in payloads),
+        "graph_payloads": graph_payloads,
+        "graph_payload_bytes": sum(row["bytes"] for row in graph_payloads),
         "content_verified": False,
         "mathematical_acceptance": False,
     }
@@ -123,7 +138,7 @@ def make_plan(root):
 def inventory_document(root):
     root = Path(root).resolve()
     plan = make_plan(root)
-    required = {row["path"]: row for row in plan["payloads"]}
+    required = {row["path"]: row for row in [*plan["payloads"], *plan["graph_payloads"]]}
     paths = repository_paths(root)
     paths.discard(INVENTORY)
     entries = []
@@ -137,7 +152,7 @@ def inventory_document(root):
         if relative in required:
             item = required[relative]
             if type(item["bytes"]) is not int or item["bytes"] != size or item["sha256"] != sha:
-                raise ValueError("required payload differs from its proof identity")
+                raise ValueError("required payload differs from its content identity")
         entries.append({"path": relative, "sha256": sha, "bytes": size})
     if not entries or not required.keys() <= {entry["path"] for entry in entries}:
         raise ValueError("incomplete ordinary-Git inventory")
