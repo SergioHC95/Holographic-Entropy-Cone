@@ -51,13 +51,13 @@ the two catalogues cover exactly the same listed representatives.
 Rows use cardinality-then-lexicographic subset order. Non-lift facet rows are
 row-lexicographically sorted. There is exactly one full-map proof per listed facet,
 bound by content rather than facet-row position. The six-party data has
-**84,987 listed facet representatives**, with exactly matching inequality
+**84,988 listed facet representatives**, with exactly matching inequality
 and proof catalogues. Candidates without facet certification do not belong
 in the accepted data tree.
 `data/storage.json` binds every payload to its byte length and SHA256.
 
-Across all party counts, **85,001 full-map proofs** occupy **18 proof shards**
-totalling **153,928,740 bytes**. Git LFS is not required.
+Across all party counts, **85,002 full-map proofs** occupy **19 proof shards**
+totalling **154,158,027 bytes**. Git LFS is not required.
 
 One [mathematical specification](docs/proofs.md) defines the reconstruction
 contract. One [schema](schemas/repository.schema.json) describes proofs,
@@ -128,7 +128,7 @@ proof coverage does not mean the six-party cone is fully known.
 | 3 | 2 | 7 | 2 | 7 | 2 | complete |
 | 4 | 2 | 20 | 3 | 20 | 2 | complete |
 | 5 | 8 | 372 | 19 | 2,267 | 8 | complete |
-| 6 | 84,987 | 421,869,938 | 4,167 | 15,481,186 | 84,987 | partial |
+| 6 | 84,988 | 421,874,978 | 101,676 | 478,503,805 | 84,988 | partial |
 
 CI recomputes this table and the proof-storage totals from the data; stale
 README counts fail the tests. These documentation checks do not replace
