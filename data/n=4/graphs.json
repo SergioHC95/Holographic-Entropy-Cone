@@ -1,5 +1,1 @@
-[
-  {"edges": [["A","B"]],"weights": [1]},
-  {"edges": [["A","x1"],["B","x1"],["C","x1"],["D","x1"]],"weights": [1,1,1,1]},
-  {"edges": [["A","x1"],["B","x1"],["C","x1"],["D","x1"],["x1","O"]],"weights": [1,1,1,1,2]}
-]
+{"count":3,"format":"hec-graph-catalogue","shards":[{"bytes":219,"count":3,"sha256":"a81fe80e227e8ca334f58685601f1a5273c919f7af9b1ed4f045b9a91492d4e2"}]}

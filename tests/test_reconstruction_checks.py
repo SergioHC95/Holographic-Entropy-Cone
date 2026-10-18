@@ -15,11 +15,28 @@ from proof_fixtures import document, unsupported_definition, write_frames
 from hec import reconstruction_checks as checks
 from hec._proof_partitions import partition_entries, proof_work
 from hec.count_proofs import geometry, inequality_id, proof_id
+from hec.graph_store import GRAPH_FORMAT, write_graph_catalog
 from hec.inequality_records import write_inequality_catalog
 from hec.proof_store import ProofCatalog
 
 
 class ReconstructionChecksTests(unittest.TestCase):
+    def test_large_graph_and_ray_partitions_cover_all_rows_without_payload_acceptance(self):
+        self.stage(self.documents[:1])
+        count = 50_001
+        (self.directory / "rays.json").write_text(json.dumps([[1, 0, 1]] * count))
+        (self.directory / "graphs.json").write_text(
+            json.dumps(
+                {"format": GRAPH_FORMAT, "count": count, "shards": [{"sha256": "0" * 64, "bytes": 10, "count": count}]}
+            )
+        )
+        plan = checks.ci_matrix(self.root)
+        for kind in ("graphs", "rays"):
+            tasks = [task for task in plan["include"] if task["kind"] == kind]
+            self.assertEqual(len(tasks), 3)
+            coverage = [i for task in tasks for i in range(task["shard_index"], count, task["shard_count"])]
+            self.assertEqual(sorted(coverage), list(range(count)))
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="hec-exact-ci-")
         self.addCleanup(self.temporary.cleanup)
@@ -48,8 +65,9 @@ class ReconstructionChecksTests(unittest.TestCase):
             self.directory / "inequalities.json",
             {"format": "hec-inequality-catalog", "entries": sorted(entries, key=lambda entry: entry["id"])},
         )
-        for name, value in (("facets", [[1, 1, -1]]), ("rays", [[1, 0, 1]]), ("graphs", [])):
+        for name, value in (("facets", [[1, 1, -1]]), ("rays", [[1, 0, 1]])):
             self.directory.joinpath(f"{name}.json").write_text(json.dumps(value))
+        write_graph_catalog(self.directory / "graphs.json", [{"edges": [["A", "O"]], "weights": [1]}])
 
     def cli(self, *args):
         return subprocess.run(

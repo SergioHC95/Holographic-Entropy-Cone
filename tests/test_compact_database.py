@@ -16,6 +16,7 @@ from hec.checks import check_stored_facet_database_format
 from hec.contractions import read_contractions
 from hec.count_proofs import geometry
 from hec.data import load_hec_data
+from hec.graph_store import GraphCatalog
 from hec.inequality_records import inequality_catalog, write_inequality_catalog
 from hec.proof_store import write_proof_catalog
 from hec.rank import check_support_rank
@@ -49,8 +50,9 @@ class ReadmeDataTests(unittest.TestCase):
         for directory in sorted((cls.root / "data").glob("n=*"), key=lambda path: int(path.name[2:])):
             docs = {
                 kind: json.loads((directory / f"{kind}.json").read_bytes())
-                for kind in ("facets", "rays", "graphs", "inequalities", "proofs")
+                for kind in ("facets", "rays", "inequalities", "proofs")
             }
+            docs["graphs"] = GraphCatalog(directory / "graphs.json")
             cls.datasets.append((int(directory.name[2:]), docs))
 
     def test_cone_table_matches_every_tracked_catalogue_and_exact_orbit_size(self):
@@ -98,12 +100,13 @@ class ReadmeDataTests(unittest.TestCase):
     def _certified_facet_ray_pair(self):
         data = dict(self.datasets)[6]
         ray_id = "39484b4dc968ef126c6fa47184797b727397c291fb831c2105dee3ba703cad8f"
-        pairs = [
-            (ray, graph)
-            for ray, graph in zip(data["rays"], data["graphs"], strict=True)
+        indices = [
+            index
+            for index, ray in enumerate(data["rays"])
             if hashlib.sha256(json.dumps(ray, separators=(",", ":")).encode()).hexdigest() == ray_id
         ]
-        self.assertEqual(len(pairs), 1)
+        self.assertEqual(len(indices), 1)
+        pair = (data["rays"][indices[0]], data["graphs"][indices[0]])
         identity = "e7b8a988f55d1418c78bfc1e2e1580952fcfbc2d418d37b7097480e021eb1e10"
         entry = next(row for row in data["inequalities"]["entries"] if row["id"] == identity)
         facet = [int(value) for value in entry["coefficients"]]
@@ -111,7 +114,7 @@ class ReadmeDataTests(unittest.TestCase):
         proofs = [row["proof_id"] for row in data["proofs"]["entries"] if row["inequality_id"] == identity]
         self.assertEqual(proofs, entry["proof_ids"])
         self.assertEqual(len(proofs), 1)
-        return facet, *pairs[0]
+        return facet, *pair
 
     def test_certified_ray_graph_matches_exhaustive_integer_cuts(self):
         _facet, ray, graph = self._certified_facet_ray_pair()
