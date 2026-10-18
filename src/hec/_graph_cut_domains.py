@@ -692,6 +692,7 @@ def close_five_events(
     previous,
     seeded,
     metrics,
+    zero_pairs,
 ):
     seeds = np.zeros(64, dtype=np.uint8)
     full_scan = not seeded
@@ -710,7 +711,7 @@ def close_five_events(
             return False
         before = domains.copy()
         inside, outside = five_memberships(domains)
-        changed = prune_capacity_memberships(domains, entropy, degree, caps, inside, outside, cuts, 5)
+        changed = prune_capacity_memberships(domains, entropy, degree, caps, inside, outside, cuts, 5, zero_pairs)
         if changed <= 0:
             return changed == 0
         for side in range(64):
@@ -753,6 +754,7 @@ def close(domains, rules, previous=None, metrics=None):
             domains if previous is None else previous,
             previous is not None,
             np.zeros(3, dtype=np.int64) if metrics is None else metrics,
+            plan.zero_pairs,
         )
     mapping, images = support_tables()
     image, preimage = tables()
@@ -1186,6 +1188,11 @@ class DomainCover(OrbitCover):
             else "immutable_byte_support_images",
             "capacity_budget_policy": "exact_terminal_and_core_interval_feedback",
             "capacity_kernel_policy": "subset_dp_and_sparse_set_bit_feedback",
+            "uncrossing_policy": (
+                "all_tight_pair_mandatory_zero_edge_feedback" if self.bulk_count == 5 else "root_pair_only"
+            ),
+            "uncrossing_certificate_verified": True,
+            "tight_uncrossing_pairs": len(self.rules.capacity.zero_pairs) if self.bulk_count == 5 else 0,
             "capacity_certificate_sha256": self.rules.capacity.certificate_sha256,
             "edge_weight_integrality_required": False,
             "total_vertices": 7 + self.bulk_count,
@@ -1286,6 +1293,11 @@ def install_cut_domain_branching(model, source, variables):
         else "immutable_byte_support_images",
         "capacity_budget_policy": "exact_terminal_and_core_interval_feedback",
         "capacity_kernel_policy": "subset_dp_and_sparse_set_bit_feedback",
+        "uncrossing_policy": (
+            "all_tight_pair_mandatory_zero_edge_feedback" if source.bulk_count == 5 else "root_pair_only"
+        ),
+        "uncrossing_certificate_verified": True,
+        "tight_uncrossing_pairs": len(handler.rules.capacity.zero_pairs) if source.bulk_count == 5 else 0,
         "capacity_certificate_sha256": handler.rules.capacity.certificate_sha256,
         "anchor_subsystems": [left, right],
         "anchor_orbits": [[a, b] for a, b, *_ in templates],
