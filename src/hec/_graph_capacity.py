@@ -82,28 +82,31 @@ def geometry():
 
 @njit(cache=True)
 def close_terminal_upper(upper, degree):
-    """Nonnegativity, subset monotonicity, and finite subset-cover bounds."""
+    """Exact monotone/subadditive closure by a subset transform and partition DP.
+
+    First minimize each bound over supersets. Then minimize over partitions,
+    considering each split only once (the anchored half contains the low bit).
+    Proper parts precede their union numerically. Restricting a partition to a
+    subset proves the result is still monotone, so no repeated sweep is needed.
+    This is the same greatest fixed point as alternating the two old closures.
+    """
     full = upper.shape[1] - 1
     for t in range(7):
-        while True:
-            changed = False
-            for q in range(full, 0, -1):
-                for r in range(1, full + 1):
-                    if q & r == q and upper[t, r] < upper[t, q]:
-                        upper[t, q] = upper[t, r]
-                        changed = True
+        bit = 1
+        while bit <= full:
             for q in range(1, full + 1):
-                a = (q - 1) & q
-                while a:
-                    bound = upper[t, a] + upper[t, q ^ a]
-                    if bound < upper[t, q]:
-                        upper[t, q] = bound
-                        changed = True
-                    a = (a - 1) & q
-            if upper[t, full] < degree[t]:
-                return False
-            if not changed:
-                break
+                if not q & bit:
+                    upper[t, q] = min(upper[t, q], upper[t, q | bit])
+            bit <<= 1
+        for q in range(1, full + 1):
+            anchor = q & -q
+            a = (q - 1) & q
+            while a:
+                if a & anchor:
+                    upper[t, q] = min(upper[t, q], upper[t, a] + upper[t, q ^ a])
+                a = (a - 1) & q
+        if upper[t, full] < degree[t]:
+            return False
     return True
 
 
@@ -137,6 +140,21 @@ def prune_capacity_memberships(domains, h, degree, caps, inside, outside, core_m
     while True:
         if not close_terminal_upper(upper, degree):
             return -1
+        # Share the terminal sums between core-cut bounds and every terminal's
+        # feedback budget, replacing a quadratic terminal loop by a linear one.
+        # This iteration uses a snapshot; any tightening repeats the closure.
+        terminal_lower = np.empty((7, size), dtype=np.int64)
+        total_lower = np.zeros((64, size), dtype=np.int64)
+        total_upper = np.zeros((64, size), dtype=np.int64)
+        for t in range(7):
+            for q in range(size):
+                terminal_lower[t, q] = max(0, degree[t] - upper[t, q ^ full])
+        for side in range(1, 64):
+            for u in range(size):
+                for t in range(7):
+                    crossing = (u ^ full) if side >> t & 1 else u
+                    total_lower[side, u] += terminal_lower[t, crossing]
+                    total_upper[side, u] += upper[t, crossing]
         lower_cut = np.zeros(half, dtype=np.int64)
         upper_cut = np.zeros(half, dtype=np.int64)
         for k in range(1, half):
@@ -148,11 +166,7 @@ def prune_capacity_memberships(domains, h, degree, caps, inside, outside, core_m
             best_upper = -1
             for u in range(size):
                 k = min(u, u ^ full)
-                lo = hi = 0
-                for t in range(7):
-                    crossing = (u ^ full) if side >> t & 1 else u
-                    lo += max(0, degree[t] - upper[t, crossing ^ full])
-                    hi += upper[t, crossing]
+                lo, hi = total_lower[side, u], total_upper[side, u]
                 # Every cut, not merely an attaining cut, obeys its entropy lower bound.
                 lower_cut[k] = max(lower_cut[k], 2 * h[side] - hi)
                 if domains[side] >> u & 1:
@@ -214,12 +228,8 @@ def prune_capacity_memberships(domains, h, degree, caps, inside, outside, core_m
                 for u in range(size):
                     if not domains[side] >> u & 1:
                         continue
-                    others = 0
-                    for j in range(7):
-                        if j == t:
-                            continue
-                        crossing = (u ^ full) if side >> j & 1 else u
-                        others += max(0, degree[j] - upper[j, crossing ^ full])
+                    crossing = (u ^ full) if side >> t & 1 else u
+                    others = total_lower[side, u] - terminal_lower[t, crossing]
                     budget = max(budget, 2 * h[side] - lower_cut[min(u, u ^ full)] - others)
                 if budget < 0:
                     return -1

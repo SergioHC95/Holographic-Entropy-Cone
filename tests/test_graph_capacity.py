@@ -5,6 +5,7 @@ from itertools import combinations
 from math import gcd
 
 import numpy as np
+from numba import njit
 from test_graph_epr_four_bulk import full_table
 
 from hec._graph_capacity import capacity_plan, close_terminal_upper, geometry
@@ -13,7 +14,50 @@ from hec._graph_epr import _build_epr_model, _epr_geometry
 from hec._graph_pair import pair_cut_disjunctions
 
 
+@njit(cache=True)
+def repeated_cover_closure(upper, degree):
+    """Independent slow definition: alternate all supersets and all splits."""
+    full = upper.shape[1] - 1
+    for t in range(7):
+        while True:
+            changed = False
+            for q in range(full, 0, -1):
+                for r in range(1, full + 1):
+                    if q & r == q and upper[t, r] < upper[t, q]:
+                        upper[t, q] = upper[t, r]
+                        changed = True
+            for q in range(1, full + 1):
+                a = (q - 1) & q
+                while a:
+                    value = upper[t, a] + upper[t, q ^ a]
+                    if value < upper[t, q]:
+                        upper[t, q] = value
+                        changed = True
+                    a = (a - 1) & q
+            if upper[t, full] < degree[t]:
+                return False
+            if not changed:
+                break
+    return True
+
+
 class CapacityBudgetTests(unittest.TestCase):
+    def test_partition_dp_matches_repeated_exact_closure(self):
+        rng = np.random.default_rng(202610180024)
+        for bulk in (4, 5):
+            for turn in range(1500):
+                size = 1 << bulk
+                upper = rng.integers(0, 1 << (40 if turn % 3 == 0 else 7), (7, size), dtype=np.int64)
+                upper[:, 0] = 0
+                # Include many complete, noncontradictory fixed points as well
+                # as early contradictions and large exact integer bounds.
+                degree = np.zeros(7, dtype=np.int64) if turn % 2 else rng.integers(0, 50, 7, dtype=np.int64)
+                expected, actual = upper.copy(), upper.copy()
+                possible = repeated_cover_closure(expected, degree)
+                self.assertEqual(close_terminal_upper(actual, degree), possible)
+                if possible:
+                    np.testing.assert_array_equal(actual, expected)
+
     def test_all_memberships_and_complementary_core_cuts_are_exact(self):
         inside, outside, cuts = geometry()
         domains = np.arange(65536, dtype=np.int64)
