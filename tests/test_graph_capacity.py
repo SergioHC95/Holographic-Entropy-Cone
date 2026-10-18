@@ -8,7 +8,16 @@ import numpy as np
 from numba import njit
 from test_graph_epr_four_bulk import full_table
 
-from hec._graph_capacity import capacity_plan, close_terminal_upper, geometry
+from hec._graph_capacity import (
+    _BIT_INDEX,
+    capacity_plan,
+    close_terminal_upper,
+    geometry,
+    prune_capacity_memberships,
+    single_bit_index,
+    sparse_terminal_budgets,
+    terminal_totals,
+)
 from hec._graph_cut_domains import close, initial
 from hec._graph_epr import _build_epr_model, _epr_geometry
 from hec._graph_pair import pair_cut_disjunctions
@@ -42,6 +51,76 @@ def repeated_cover_closure(upper, degree):
 
 
 class CapacityBudgetTests(unittest.TestCase):
+    def test_one_hot_decoder_covers_all_thirty_two_bits(self):
+        self.assertEqual(_BIT_INDEX.shape, (32,))
+        self.assertFalse(_BIT_INDEX.flags.writeable)
+        for bit in range(32):
+            self.assertEqual(single_bit_index(1 << bit), bit)
+
+    def test_terminal_subset_sums_match_independent_dense_sums(self):
+        rng = np.random.default_rng(202610180244)
+        for bulk in (4, 5):
+            size, full = 1 << bulk, (1 << bulk) - 1
+            for _ in range(30):
+                upper = rng.integers(0, 1 << 40, (7, size), dtype=np.int64)
+                degree = rng.integers(0, 1 << 40, 7, dtype=np.int64)
+                saved_upper, saved_degree = upper.copy(), degree.copy()
+                lower, total_lower, total_upper = terminal_totals(upper, degree)
+                for side in range(64):
+                    for u in range(size):
+                        crossings = [(u ^ full) if side >> t & 1 else u for t in range(7)]
+                        self.assertEqual(
+                            int(total_upper[side, u]), sum(int(upper[t, q]) for t, q in enumerate(crossings))
+                        )
+                        self.assertEqual(
+                            int(total_lower[side, u]),
+                            sum(max(0, int(degree[t]) - int(upper[t, q ^ full])) for t, q in enumerate(crossings)),
+                        )
+                np.testing.assert_array_equal(upper, saved_upper)
+                np.testing.assert_array_equal(degree, saved_degree)
+
+    def test_sparse_feedback_matches_dense_choice_enumeration(self):
+        rng = np.random.default_rng(202610180245)
+        for bulk in (4, 5):
+            size, full = 1 << bulk, (1 << bulk) - 1
+            domains = [1 << u for u in range(size)] + [(1 << size) - 1]
+            domains += list(map(int, rng.integers(1, 1 << size, 300)))
+            for domain in domains:
+                side = int(rng.integers(1, 64))
+                inside, outside = int(rng.integers(0, size)), int(rng.integers(0, size))
+                h = int(rng.integers(0, 100))
+                cuts = rng.integers(0, 100, size // 2, dtype=np.int64)
+                total = rng.integers(0, 100, size, dtype=np.int64)
+                terminal = rng.integers(0, 100, (7, size), dtype=np.int64)
+                expected = np.full(7, -1, dtype=np.int64)
+                for t in range(7):
+                    q = outside if side >> t & 1 else inside
+                    if not q:
+                        continue
+                    for u in range(size):
+                        if domain >> u & 1:
+                            crossing = (u ^ full) if side >> t & 1 else u
+                            expected[t] = max(
+                                expected[t],
+                                2 * h - int(cuts[min(u, u ^ full)]) - int(total[u]) + int(terminal[t, crossing]),
+                            )
+                np.testing.assert_array_equal(
+                    sparse_terminal_budgets(domain, side, inside, outside, h, cuts, total, terminal), expected
+                )
+
+    def test_invalid_width_or_bulk_scope_is_not_an_infeasibility_verdict(self):
+        domains = np.ones(64, dtype=np.int64)
+        h = np.ones(64, dtype=np.int64)
+        degree = np.ones(7, dtype=np.int64)
+        caps = np.ones((64, 7), dtype=np.int64)
+        memberships = np.zeros(64, dtype=np.int64)
+        cuts = np.zeros(16, dtype=np.int64)
+        for bulk, value in ((4, 1 << 16), (5, 1 << 32), (5, -1), (6, 1)):
+            invalid = domains.copy()
+            invalid[1] = value
+            with self.subTest(bulk=bulk, value=value), self.assertRaises(ValueError):
+                prune_capacity_memberships(invalid, h, degree, caps, memberships, memberships, cuts, bulk)
+
     def test_partition_dp_matches_repeated_exact_closure(self):
         rng = np.random.default_rng(202610180024)
         for bulk in (4, 5):

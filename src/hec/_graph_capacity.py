@@ -22,6 +22,74 @@ import numpy as np
 from numba import njit
 
 
+def _single_bit_index_table():
+    table = np.zeros(32, dtype=np.int64)
+    for bit in range(32):
+        table[(((1 << bit) * 0x077CB531) & 0xFFFFFFFF) >> 27] = bit
+    if not np.array_equal(np.sort(table), np.arange(32)):
+        raise RuntimeError("invalid one-hot bit-index geometry")
+    table.setflags(write=False)
+    return table
+
+
+_BIT_INDEX = _single_bit_index_table()
+
+
+@njit(cache=True, inline="always")
+def single_bit_index(one):
+    """Perfect hash of a nonzero one-hot 32-bit word; callers ensure that form."""
+    return _BIT_INDEX[((one * 0x077CB531) & 0xFFFFFFFF) >> 27]
+
+
+@njit(cache=True, inline="always")
+def terminal_totals(upper, degree):
+    """Exact subset DP for the same seven-terminal crossing sums.
+
+    Terminal O stays outside every represented side. Starting with side zero,
+    adding terminal t flips only that terminal's bulk-side contribution.
+    """
+    size = upper.shape[1]
+    full = size - 1
+    lower = np.empty((7, size), dtype=np.int64)
+    total_lower = np.empty((64, size), dtype=np.int64)
+    total_upper = np.empty((64, size), dtype=np.int64)
+    for t in range(7):
+        for q in range(size):
+            lower[t, q] = max(0, degree[t] - upper[t, q ^ full])
+    for u in range(size):
+        total_lower[0, u] = total_upper[0, u] = 0
+        for t in range(7):
+            total_lower[0, u] += lower[t, u]
+            total_upper[0, u] += upper[t, u]
+    for side in range(1, 64):
+        one = side & -side
+        t = single_bit_index(one)
+        previous = side ^ one
+        for u in range(size):
+            total_lower[side, u] = total_lower[previous, u] + lower[t, u ^ full] - lower[t, u]
+            total_upper[side, u] = total_upper[previous, u] + upper[t, u ^ full] - upper[t, u]
+    return lower, total_lower, total_upper
+
+
+@njit(cache=True, inline="always")
+def sparse_terminal_budgets(domain, side, inside, outside, entropy, lower_cut, total_lower, terminal_lower):
+    """Evaluate the original maxima over set bits only; no choices are omitted."""
+    full = terminal_lower.shape[1] - 1
+    budgets = np.full(7, -1, dtype=np.int64)
+    remaining = domain
+    while remaining:
+        one = remaining & -remaining
+        u = single_bit_index(one)
+        remaining ^= one
+        residual = 2 * entropy - lower_cut[min(u, u ^ full)] - total_lower[u]
+        for t in range(7):
+            q = outside if side >> t & 1 else inside
+            if q:
+                crossing = (u ^ full) if side >> t & 1 else u
+                budgets[t] = max(budgets[t], residual + terminal_lower[t, crossing])
+    return budgets
+
+
 @dataclass(frozen=True)
 class CapacityPlan:
     entropy: np.ndarray
@@ -118,6 +186,8 @@ def prune_capacity(domains, h, degree, caps, inside, outside, core_masks):
 @njit(cache=True)
 def prune_capacity_memberships(domains, h, degree, caps, inside, outside, core_masks, bulk_count):
     """Return -1 on an exact contradiction, 1 on pruning, or 0 if unchanged."""
+    if bulk_count not in (4, 5):
+        raise ValueError("capacity propagation requires four or five bulk vertices")
     size = 1 << bulk_count
     full = size - 1
     half = size // 2
@@ -128,6 +198,8 @@ def prune_capacity_memberships(domains, h, degree, caps, inside, outside, core_m
         for q in range(size):
             upper[t, q] = degree[t] if q else 0
     for side in range(1, 64):
+        if domains[side] < 0 or domains[side] >> size:
+            raise ValueError("domain exceeds the validated bulk-choice width")
         if not domains[side]:
             return -1
         for t in range(7):
@@ -140,21 +212,8 @@ def prune_capacity_memberships(domains, h, degree, caps, inside, outside, core_m
     while True:
         if not close_terminal_upper(upper, degree):
             return -1
-        # Share the terminal sums between core-cut bounds and every terminal's
-        # feedback budget, replacing a quadratic terminal loop by a linear one.
-        # This iteration uses a snapshot; any tightening repeats the closure.
-        terminal_lower = np.empty((7, size), dtype=np.int64)
-        total_lower = np.zeros((64, size), dtype=np.int64)
-        total_upper = np.zeros((64, size), dtype=np.int64)
-        for t in range(7):
-            for q in range(size):
-                terminal_lower[t, q] = max(0, degree[t] - upper[t, q ^ full])
-        for side in range(1, 64):
-            for u in range(size):
-                for t in range(7):
-                    crossing = (u ^ full) if side >> t & 1 else u
-                    total_lower[side, u] += terminal_lower[t, crossing]
-                    total_upper[side, u] += upper[t, crossing]
+        # All feedback reads this snapshot; any tightening repeats the closure.
+        terminal_lower, total_lower, total_upper = terminal_totals(upper, degree)
         lower_cut = np.zeros(half, dtype=np.int64)
         upper_cut = np.zeros(half, dtype=np.int64)
         for k in range(1, half):
@@ -220,17 +279,16 @@ def prune_capacity_memberships(domains, h, degree, caps, inside, outside, core_m
                 return -1
         tightened = False
         for side in range(1, 64):
+            if not (inside[side] or outside[side]):
+                continue
+            budgets = sparse_terminal_budgets(
+                domains[side], side, inside[side], outside[side], h[side], lower_cut, total_lower[side], terminal_lower
+            )
             for t in range(7):
                 q = outside[side] if side >> t & 1 else inside[side]
                 if not q:
                     continue
-                budget = -1
-                for u in range(size):
-                    if not domains[side] >> u & 1:
-                        continue
-                    crossing = (u ^ full) if side >> t & 1 else u
-                    others = total_lower[side, u] - terminal_lower[t, crossing]
-                    budget = max(budget, 2 * h[side] - lower_cut[min(u, u ^ full)] - others)
+                budget = budgets[t]
                 if budget < 0:
                     return -1
                 if budget < upper[t, q]:
@@ -242,9 +300,11 @@ def prune_capacity_memberships(domains, h, degree, caps, inside, outside, core_m
     for side in range(1, 64):
         current = domains[side]
         kept = 0
-        for u in range(size):
-            if not current >> u & 1:
-                continue
+        remaining = current
+        while remaining:
+            one = remaining & -remaining
+            u = single_bit_index(one)
+            remaining ^= one
             lo, hi = lower_cut[min(u, u ^ full)], upper_cut[min(u, u ^ full)]
             possible = True
             for t in range(7):

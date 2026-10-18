@@ -937,7 +937,7 @@ class DomainCover(OrbitCover):
             if self.bulk_count == 4
             else "immutable_byte_support_images",
             "capacity_budget_policy": "exact_terminal_and_core_interval_feedback",
-            "capacity_kernel_policy": "subset_transform_partition_dp_and_shared_terminal_sums",
+            "capacity_kernel_policy": "subset_dp_and_sparse_set_bit_feedback",
             "capacity_certificate_sha256": self.rules.capacity.certificate_sha256,
             "edge_weight_integrality_required": False,
             "total_vertices": 7 + self.bulk_count,
@@ -1037,6 +1037,7 @@ def install_cut_domain_branching(model, source, variables):
         if source.bulk_count == 4
         else "immutable_byte_support_images",
         "capacity_budget_policy": "exact_terminal_and_core_interval_feedback",
+        "capacity_kernel_policy": "subset_dp_and_sparse_set_bit_feedback",
         "capacity_certificate_sha256": handler.rules.capacity.certificate_sha256,
         "anchor_subsystems": [left, right],
         "anchor_orbits": [[a, b] for a, b, *_ in templates],
