@@ -43,7 +43,8 @@ the two catalogues cover exactly the same listed representatives.
 | --- | --- |
 | `facets.json` | Listed facet representatives, with lower-party lifts first. |
 | `rays.json` | Extreme-ray representatives, with lifts first. |
-| `graphs.json` | One exact graph realization per `rays.json` row, in the same order. |
+| `graphs.json` | Ordered graph-shard index, with exactly one graph per `rays.json` row. |
+| `graph-shards/*.json` | Exact edge/weight records in deterministic, content-addressed shards. |
 | `inequalities.json` | Exact facet identities and their selected full-map proofs. |
 | `proofs.json` | Content-addressed proof/frame index. |
 | `proof-shards/*.proofpack` | Seekable exact definitions, stored in ordinary Git. |
@@ -55,6 +56,10 @@ bound by content rather than facet-row position. The six-party data has
 and proof catalogues. Candidates without facet certification do not belong
 in the accepted data tree.
 `data/storage.json` binds every payload to its byte length and SHA256.
+Graph shards are at most 16 MiB, preserve ray-row alignment, and use ordinary
+Git. Readers check every shard's hash, byte length, and row count; CI still
+independently checks every graph realization and exact ray rank. No stored
+hash or catalogue metadata substitutes for mathematical verification.
 
 Across all party counts, **85,002 full-map proofs** occupy **19 proof shards**
 totalling **154,158,027 bytes**. Git LFS is not required.
@@ -128,7 +133,7 @@ proof coverage does not mean the six-party cone is fully known.
 | 3 | 2 | 7 | 2 | 7 | 2 | complete |
 | 4 | 2 | 20 | 3 | 20 | 2 | complete |
 | 5 | 8 | 372 | 19 | 2,267 | 8 | complete |
-| 6 | 84,988 | 421,874,978 | 101,676 | 478,503,805 | 84,988 | partial |
+| 6 | 84,988 | 421,874,978 | 387,359 | 1,895,792,923 | 84,988 | partial |
 
 CI recomputes this table and the proof-storage totals from the data; stale
 README counts fail the tests. These documentation checks do not replace

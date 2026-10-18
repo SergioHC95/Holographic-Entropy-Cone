@@ -20,7 +20,7 @@ from ._graph_validation import (
     graph_total_vertices,
 )
 from .coordinates import infer_n
-from .serialization import load_json_records, save_json_records
+from .graph_store import GraphCatalog, write_graph_catalog
 
 Graph = dict[str, Any]
 MatchMode = Literal["ray", "exact"]
@@ -71,11 +71,11 @@ def check_graph(
 
 
 def read_graphs(path: str | Path) -> list[Graph]:
-    return load_json_records(path, "graph", normalize_graph)
+    return [normalize_graph(graph) for graph in GraphCatalog(path)]
 
 
 def write_graphs(path: str | Path, graphs: Iterable[Graph]) -> None:
-    save_json_records(path, (normalize_graph(graph) for graph in graphs))
+    write_graph_catalog(path, (normalize_graph(graph) for graph in graphs))
 
 
 def _validated_integer_target(v: Sequence[int | float]) -> tuple[int, np.ndarray]:

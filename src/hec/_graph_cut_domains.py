@@ -1,0 +1,1326 @@
+r"""Exact finite-domain propagation for inclusion-minimal graph cuts.
+
+Minimal cuts form a monotone map on terminal sets and cuts for disjoint
+terminal sets are disjoint. When entropy submodularity is tight, the union
+of two minimal cuts is a minimum cut for the union. It contains that union's
+unique minimal cut and is contained in it by monotonicity, hence they coincide.
+Only these necessary properties are propagated; nonempty domains are never
+treated as graph realizations or proofs of feasibility.
+
+With no terminal-terminal edges, a fixed bulk side has cut capacity affine in
+the terminal indicator vector. Complementary bulk sides have opposite slopes.
+Balanced sums of entropy lower bounds therefore certify pairs of cuts that
+cannot use equal or complementary bulk sides. Each exclusion is backed by an
+explicit integer pair witness, checked before any domains are pruned.
+
+Terminal exchanges also force bulk-cut regions to be nonempty. If U_A is
+contained in U_B, moving T contained in A\B from A to B cannot increase the
+sum of capacities: the difference is twice the nonnegative capacity from T
+to U_B\U_A. A strict entropy increase therefore forces U_A\U_B nonempty.
+Complement either cut to obtain the other three quadrant rules. These too
+carry exact integer witnesses. Support images are immutable finite tables,
+not cached target-specific domains or reusable native solver state.
+
+At every branch, quotient cut choices by permutations of bulk vertices with
+identical fixed-cut signatures. There is no competing capacity ordering.
+Native-created branches disable this quotient for their entire subtrees.
+Four/five-bulk search only; no clocks, weight integrality, or cross-case solver state.
+Five-bulk domains use four exact byte lookup slices, never a 2**32 table.
+
+Five-bulk propagation uses a verified complete rule-incidence queue. Every
+changed domain reschedules every incident rule, including after full capacity
+feedback. A restriction of an unchanged, closed parent seeds only its changes;
+all other entries retain a complete initial scan. Monotone contracting rules
+therefore reach the same greatest fixed point as full repeated sweeps. Queues
+and domains remain local to one fresh model, never shared across targets.
+
+After a complete cut-orbit cover is propagated, a sole surviving child can be
+continued at the current node. Singleton assignments common to every viable
+canonical child can also be imposed there. For multiple children, discard all
+other canonical-child domain restrictions and reclose from the old parent:
+retaining those restrictions could impose competing orders on unfixed cuts.
+
+For newly forced cuts, every cut slack is already nonnegative under the full
+base model. One upper bound on their sum is therefore exactly equivalent to
+all of their individual upper bounds. Aggregation reduces local native rows,
+not the feasible set or the retained original disjunction checks.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from dataclasses import dataclass
+from functools import lru_cache
+from itertools import combinations
+
+import numpy as np
+import pyscipopt
+from numba import njit
+from pyscipopt import SCIP_RESULT
+
+from ._graph_capacity import CapacityPlan, capacity_plan, prune_capacity, prune_capacity_memberships, single_bit_index
+from ._graph_capacity import geometry as capacity_geometry
+
+
+@njit(cache=True)
+def make_join_tables():
+    image = np.zeros((16, 65536), dtype=np.uint16)
+    preimage = np.zeros((16, 65536), dtype=np.uint16)
+    single = np.zeros((16, 16), dtype=np.uint16)
+    for a in range(16):
+        for b in range(16):
+            single[a, a | b] |= 1 << b
+        for mask in range(1, 65536):
+            rest = mask & (mask - 1)
+            one = mask ^ rest
+            b = 0
+            while (1 << b) != one:
+                b += 1
+            image[a, mask] = image[a, rest] | (1 << (a | b))
+            preimage[a, mask] = preimage[a, rest] | single[a, b]
+    return image, preimage
+
+
+@lru_cache(maxsize=1)
+def tables():
+    result = make_join_tables()
+    for array in result:
+        array.setflags(write=False)
+    return result
+
+
+@lru_cache(maxsize=2)
+def affine_geometry(bulk_count=4):
+    """Carry-free ternary codes for terminal sums/differences; exact supports.
+
+    Relation flags are nested (1), disjoint (2), unequal (4), not opposite (8),
+    and nonempty A-only/B-only/common/outside quadrants (16/32/64/128).
+    Combine flags before arc consistency, not as separate weaker relations.
+    """
+    powers = 3 ** np.arange(6, dtype=np.int64)
+    bits = np.asarray([[(s >> t) & 1 for t in range(6)] for s in range(64)])
+    codes = np.empty((2, 64, 64), dtype=np.int64)
+    for a in range(64):
+        for b in range(64):
+            codes[0, a, b] = (bits[a] + bits[b]) @ powers
+            codes[1, a, b] = (bits[a] - bits[b] + 1) @ powers
+    if bulk_count not in (4, 5):
+        raise ValueError("unsupported cut-domain size")
+    size = 1 << bulk_count
+    full = size - 1
+    support = np.zeros((2, 256, size), dtype=np.int64)
+    for flags in range(256):
+        for a in range(size):
+            for b in range(size):
+                good = (not flags & 1 or a & b == a) and (not flags & 2 or not a & b)
+                good = good and (not flags & 4 or a != b) and (not flags & 8 or a != (b ^ full))
+                good = good and (not flags & 16 or bool(a & ~b)) and (not flags & 32 or bool(b & ~a))
+                good = good and (not flags & 64 or bool(a & b)) and (not flags & 128 or bool(full & ~(a | b)))
+                if good:
+                    support[0, flags, a] |= 1 << b
+                    support[1, flags, b] |= 1 << a
+    codes.setflags(write=False)
+    support.setflags(write=False)
+    return codes, support
+
+
+@njit(cache=True)
+def affine_pair_bounds(h, codes):
+    """Max-plus bounds with explicit attaining terminal-pair witnesses.
+
+    If U minimizes A and B, then h(A)+h(B) = C_U(A)+C_U(B) must be at least
+    h(C)+h(D) for every 1_A+1_B = 1_C+1_D. If U minimizes A and its complement
+    minimizes B, use 1_A-1_B = 1_C-1_D instead: complementary cut capacities
+    have opposite terminal slopes and their constant sum is independent of S.
+    A strict violation therefore forbids the corresponding bulk-side pair.
+    No converse is assumed; remaining domains still require the full solver.
+    """
+    bounds = np.full((2, 729), -1, dtype=np.int64)
+    witnesses = np.zeros((2, 729, 2), dtype=np.uint8)
+    for a in range(64):
+        for b in range(64):
+            value = h[a] + h[b]
+            for kind in range(2):
+                code = codes[kind, a, b]
+                if value > bounds[kind, code]:
+                    bounds[kind, code] = value
+                    witnesses[kind, code, 0] = a
+                    witnesses[kind, code, 1] = b
+    return bounds, witnesses
+
+
+@njit(cache=True)
+def verify_affine_bounds(h, bounds, witnesses):
+    # Check every coordinate directly, independently of the code lookup table.
+    # An attaining witness is enough for soundness; maximality only adds pruning.
+    for kind in range(2):
+        for code in range(729):
+            a, b = witnesses[kind, code]
+            if a >= 64 or b >= 64 or h[a] + h[b] != bounds[kind, code]:
+                return False
+            for t in range(6):
+                digit = code // (3**t) % 3
+                value = ((a >> t) & 1) + ((b >> t) & 1) if kind == 0 else ((a >> t) & 1) - ((b >> t) & 1) + 1
+                if value != digit:
+                    return False
+    return True
+
+
+@njit(cache=True)
+def exchanged_sides(a, b, transfer, kind):
+    if kind == 0:
+        c, d = a & ~transfer, b | transfer
+    elif kind == 1:
+        c, d = a | transfer, b & ~transfer
+    elif kind == 2:
+        c, d = a & ~transfer, b & ~transfer
+    else:
+        c, d = a | transfer, b | transfer
+    return c ^ 127 if c & 64 else c, d ^ 127 if d & 64 else d
+
+
+@njit(cache=True)
+def exchange_bounds(h):
+    bounds = np.empty((1953, 4), dtype=np.int64)
+    witnesses = np.zeros((1953, 4), dtype=np.uint8)
+    k = 0
+    for a in range(1, 64):
+        for b in range(a + 1, 64):
+            regions = (a & ~b, b & ~a, a & b, 127 & ~(a | b))
+            for kind in range(4):
+                best = -1
+                argument = 0
+                transfer = regions[kind]
+                while True:
+                    c, d = exchanged_sides(a, b, transfer, kind)
+                    value = h[c] + h[d]
+                    if value > best:
+                        best, argument = value, transfer
+                    if not transfer:
+                        break
+                    transfer = (transfer - 1) & regions[kind]
+                bounds[k, kind], witnesses[k, kind] = best, argument
+            k += 1
+    return bounds, witnesses
+
+
+@njit(cache=True)
+def verify_exchange_bounds(h, bounds, witnesses):
+    k = 0
+    for a in range(1, 64):
+        for b in range(a + 1, 64):
+            for kind in range(4):
+                region = a & ~b if kind == 0 else b & ~a if kind == 1 else a & b if kind == 2 else 127 & ~(a | b)
+                transfer = witnesses[k, kind]
+                if transfer & ~region:
+                    return False
+                c, d = exchanged_sides(a, b, transfer, kind)
+                if h[c] + h[d] != bounds[k, kind]:
+                    return False
+            k += 1
+    return True
+
+
+@njit(cache=True)
+def affine_relations(h, codes, bounds, exchanges):
+    relations = np.empty((1953, 3), dtype=np.int64)
+    count = equal = opposite = quadrants = k = 0
+    for a in range(1, 64):
+        for b in range(a + 1, 64):
+            flags = 1 if a & b == a else 2 if not a & b else 0
+            value = h[a] + h[b]
+            if value < bounds[0, codes[0, a, b]]:
+                flags |= 4
+                equal += 1
+            if value < bounds[1, codes[1, a, b]]:
+                flags |= 8
+                opposite += 1
+            for kind in range(4):
+                if value < exchanges[k, kind]:
+                    flags |= 16 << kind
+                    quadrants += 1
+            if flags:
+                relations[count, 0], relations[count, 1], relations[count, 2] = a, b, flags
+                count += 1
+            k += 1
+    return relations[:count], equal, opposite, quadrants
+
+
+@dataclass(frozen=True)
+class CutRules:
+    """Immutable, target-local plan; never shared mutable solver state."""
+
+    joins: np.ndarray
+    binary: np.ndarray
+    equal_exclusions: int
+    opposite_exclusions: int
+    certificate_sha256: str
+    quadrant_requirements: int
+    capacity: CapacityPlan
+    bulk_count: int = 4
+    dependencies: tuple | None = None
+
+
+def initial(source):
+    from ._graph_epr import _epr_geometry
+
+    if source.bulk_count not in (4, 5):
+        raise ValueError("minimum-cut domains require four or five bulk vertices")
+    if any(not 0 <= v <= np.iinfo(np.int64).max // 2 for v in source.target):
+        raise ValueError("balanced-cut arithmetic exceeds its exact integer range")
+    boundary, _ = _epr_geometry(source.bulk_count)
+    full = (1 << source.bulk_count) - 1
+    h = np.zeros(64, dtype=np.int64)
+    domains = np.ones(64, dtype=np.int64)
+    total = sum(source.degrees)
+    for i, s in enumerate(boundary):
+        h[s] = source.target[i]
+        ds = sum(source.degrees[t] for t in range(6) if s >> t & 1)
+        if h[s] == ds:
+            domains[s] = 1
+        elif h[s] == total - ds:
+            domains[s] = (1 << (full + 1)) - 2
+        else:
+            domains[s] = (1 << full) - 2
+    rules = []
+    for a, b in combinations(range(1, 64), 2):
+        if a & b in (a, b):
+            continue
+        union = a | b
+        if h[a] + h[b] == h[a & b] + h[union]:
+            rules.append((a, b, union))
+    joins = np.asarray(rules, dtype=np.int64).reshape(-1, 3)
+    codes, _ = affine_geometry(source.bulk_count)
+    bounds, witnesses = affine_pair_bounds(h, codes)
+    if not verify_affine_bounds(h, bounds, witnesses):
+        raise RuntimeError("invalid exact balanced-cut certificate")
+    exchanges, transfers = exchange_bounds(h)
+    if not verify_exchange_bounds(h, exchanges, transfers):
+        raise RuntimeError("invalid exact terminal-exchange certificate")
+    binary, equal, opposite, quadrants = affine_relations(h, codes, bounds, exchanges)
+    capacity = capacity_plan(h, source.degrees)
+    digest = hashlib.sha256(
+        h.tobytes()
+        + bounds.tobytes()
+        + witnesses.tobytes()
+        + exchanges.tobytes()
+        + transfers.tobytes()
+        + binary.tobytes()
+        + capacity.certificate_sha256.encode()
+    ).hexdigest()
+    joins.setflags(write=False)
+    binary.setflags(write=False)
+    return domains, CutRules(
+        joins,
+        binary,
+        int(equal),
+        int(opposite),
+        digest,
+        int(quadrants),
+        capacity,
+        source.bulk_count,
+        make_dependencies(binary, joins) if source.bulk_count == 5 else None,
+    )
+
+
+@njit(cache=True)
+def dependency_arrays(binary, joins):
+    """CSR adjacency for every variable occurrence in every binary/join rule."""
+    counts = np.zeros(64, dtype=np.int64)
+    for row in binary:
+        counts[row[0]] += 1
+        counts[row[1]] += 1
+    for row in joins:
+        for side in row:
+            counts[side] += 1
+    offsets = np.empty(65, dtype=np.int64)
+    offsets[0] = 0
+    for side in range(64):
+        offsets[side + 1] = offsets[side] + counts[side]
+    neighbors = np.empty(offsets[64], dtype=np.int64)
+    cursor = offsets.copy()
+    for k in range(len(binary)):
+        for position in range(2):
+            side = binary[k, position]
+            neighbors[cursor[side]] = k
+            cursor[side] += 1
+    for k in range(len(joins)):
+        for side in joins[k]:
+            neighbors[cursor[side]] = len(binary) + k
+            cursor[side] += 1
+    return offsets, neighbors
+
+
+def make_dependencies(binary, joins):
+    offsets, neighbors = dependency_arrays(binary, joins)
+    if not verify_dependencies(binary, joins, offsets, neighbors):
+        raise RuntimeError("invalid complete propagation dependency certificate")
+    for array in (offsets, neighbors):
+        array.setflags(write=False)
+    return offsets, neighbors
+
+
+@njit(cache=True)
+def verify_dependencies(binary, joins, offsets, neighbors):
+    """Check a bijection onto all rule positions, independently of CSR creation."""
+    count = len(binary) + len(joins)
+    if len(offsets) != 65 or len(neighbors) != 2 * len(binary) + 3 * len(joins):
+        return False
+    if offsets[0] != 0 or offsets[64] != len(neighbors):
+        return False
+    seen = np.zeros((count, 3), dtype=np.uint8)
+    for side in range(64):
+        first, last = offsets[side], offsets[side + 1]
+        if first < 0 or last < first or last > len(neighbors):
+            return False
+        for position in range(first, last):
+            k = neighbors[position]
+            if k < 0 or k >= count:
+                return False
+            found = -1
+            if k < len(binary):
+                for p in range(2):
+                    if binary[k, p] == side:
+                        found = p
+            else:
+                for p in range(3):
+                    if joins[k - len(binary), p] == side:
+                        found = p
+            if found < 0 or seen[k, found]:
+                return False
+            seen[k, found] = 1
+    return True
+
+
+@njit(cache=True)
+def propagate_events(
+    domains, binary, mapping, images, joins, image, preimage, offsets, neighbors, seeds, full_scan, metrics
+):
+    count = len(binary) + len(joins)
+    metrics[0 if full_scan else 1] += 1
+    processed = 0
+    queue = np.empty(count + 1, dtype=np.int64)
+    queued = np.zeros(count, dtype=np.uint8)
+    first = last = 0
+    if full_scan:
+        for k in range(count):
+            queue[last] = k
+            last += 1
+            queued[k] = 1
+    else:
+        for side in range(64):
+            if seeds[side]:
+                for p in range(offsets[side], offsets[side + 1]):
+                    k = neighbors[p]
+                    if not queued[k]:
+                        queue[last] = k
+                        last += 1
+                        if last == count + 1:
+                            last = 0
+                        queued[k] = 1
+    changed = np.empty(3, dtype=np.int64)
+    while first != last:
+        processed += 1
+        k = queue[first]
+        first += 1
+        if first == count + 1:
+            first = 0
+        queued[k] = 0
+        changed[:] = 0
+        if k < len(binary):
+            i, j, flags = binary[k]
+            a, b = domains[i], domains[j]
+            aa = a & byte_image(images, mapping[1, flags], b)
+            bb = b & byte_image(images, mapping[0, flags], aa)
+            if not aa or not bb:
+                metrics[2] += processed
+                return False
+            if aa != a:
+                domains[i] = aa
+                changed[0] = i
+            if bb != b:
+                domains[j] = bb
+                changed[1] = j
+        else:
+            i, j, u = joins[k - len(binary)]
+            a, b, c = domains[i], domains[j], domains[u]
+            aa = bb = cc = 0
+            remaining = a
+            while remaining:
+                one = remaining & -remaining
+                x = single_bit_index(one)
+                remaining ^= one
+                allowed = b & byte_image(preimage, x, c)
+                if allowed:
+                    aa |= one
+                    bb |= allowed
+                    cc |= byte_image(image, x, allowed)
+            if not aa or not bb or not cc:
+                metrics[2] += processed
+                return False
+            if aa != a:
+                domains[i] = aa
+                changed[0] = i
+            if bb != b:
+                domains[j] = bb
+                changed[1] = j
+            if cc != c:
+                domains[u] = cc
+                changed[2] = u
+        for side in changed:
+            if side:
+                for p in range(offsets[side], offsets[side + 1]):
+                    other = neighbors[p]
+                    if not queued[other]:
+                        queue[last] = other
+                        last += 1
+                        if last == count + 1:
+                            last = 0
+                        queued[other] = 1
+    metrics[2] += processed
+    return True
+
+
+@njit(cache=True)
+def make_support_images(rows):
+    images = np.zeros((len(rows), 65536), dtype=np.uint16)
+    for k in range(len(rows)):
+        for domain in range(1, 65536):
+            rest = domain & (domain - 1)
+            one = domain ^ rest
+            value = 0
+            while (1 << value) != one:
+                value += 1
+            images[k, domain] = images[k, rest] | rows[k, value]
+    return images
+
+
+@lru_cache(maxsize=2)
+def support_tables(bulk_count=4):
+    """Deduplicate the 512 directed relations into 64 exact support images.
+
+    Eight MiB per worker replace per-value loops with two table lookups.
+    Every entry is the union of the same explicit finite relation's supports.
+    """
+    _, support = affine_geometry(bulk_count)
+    ids, rows = {}, []
+    mapping = np.empty((2, 256), dtype=np.uint8 if bulk_count == 4 else np.uint16)
+    for orientation in range(2):
+        for flags in range(256):
+            row = support[orientation, flags]
+            key = row.tobytes()
+            if key not in ids:
+                ids[key] = len(rows)
+                rows.append(row)
+            mapping[orientation, flags] = ids[key]
+    rows = np.asarray(rows, dtype=np.int64)
+    images = make_support_images(rows) if bulk_count == 4 else make_byte_images(rows)
+    mapping.setflags(write=False)
+    images.setflags(write=False)
+    return mapping, images
+
+
+@njit(cache=True)
+def make_byte_images(rows):
+    """Image preserves unions, so four byte images exactly cover a 32-bit set.
+
+    Four 256-entry slices replace two 65536-entry halves. There is no sampling,
+    approximation, or restriction on domains, including the highest bit.
+    """
+    images = np.zeros((len(rows), 4, 256), dtype=np.uint32)
+    for k in range(len(rows)):
+        for part in range(4):
+            for domain in range(1, 256):
+                rest = domain & (domain - 1)
+                one = domain ^ rest
+                value = 0
+                while (1 << value) != one:
+                    value += 1
+                images[k, part, domain] = images[k, part, rest] | rows[k, value + 8 * part]
+    return images
+
+
+@lru_cache(maxsize=1)
+def five_join_tables():
+    rows = np.zeros((64, 32), dtype=np.int64)
+    for a in range(32):
+        for b in range(32):
+            rows[a, b] = 1 << (a | b)
+            rows[32 + a, a | b] |= 1 << b
+    result = make_byte_images(rows)
+    result.setflags(write=False)
+    return result[:32], result[32:]
+
+
+@njit(cache=True)
+def byte_image(images, row, domain):
+    return (
+        int(images[row, 0, domain & 255])
+        | int(images[row, 1, (domain >> 8) & 255])
+        | int(images[row, 2, (domain >> 16) & 255])
+        | int(images[row, 3, domain >> 24])
+    )
+
+
+@njit(cache=True)
+def propagate_five(domains, binary, mapping, images, joins, image, preimage):
+    while True:
+        changed = False
+        for k in range(len(binary)):
+            i, j, flags = binary[k]
+            a, b = domains[i], domains[j]
+            aa = a & byte_image(images, mapping[1, flags], b)
+            bb = b & byte_image(images, mapping[0, flags], aa)
+            if not aa or not bb:
+                return False
+            if aa != a:
+                domains[i] = aa
+                changed = True
+            if bb != b:
+                domains[j] = bb
+                changed = True
+        for k in range(len(joins)):
+            i, j, u = joins[k]
+            a, b, c = domains[i], domains[j], domains[u]
+            aa = bb = cc = 0
+            for x in range(32):
+                if not a & (1 << x):
+                    continue
+                allowed = b & byte_image(preimage, x, c)
+                if allowed:
+                    aa |= 1 << x
+                    bb |= allowed
+                    cc |= byte_image(image, x, allowed)
+            if not aa or not bb or not cc:
+                return False
+            if aa != a:
+                domains[i] = aa
+                changed = True
+            if bb != b:
+                domains[j] = bb
+                changed = True
+            if cc != c:
+                domains[u] = cc
+                changed = True
+        if not changed:
+            return True
+
+
+@njit(cache=True)
+def five_memberships(domains):
+    inside = np.full(len(domains), 31, dtype=np.int64)
+    outside = np.zeros(len(domains), dtype=np.int64)
+    for side in range(len(domains)):
+        for value in range(32):
+            if domains[side] >> value & 1:
+                inside[side] &= value
+                outside[side] |= value
+    return inside, outside ^ 31
+
+
+@lru_cache(maxsize=1)
+def five_core_cuts():
+    edges = tuple(combinations(range(5), 2))
+    cuts = np.asarray(
+        [sum(1 << e for e, (a, b) in enumerate(edges) if ((u >> a) & 1) != ((u >> b) & 1)) for u in range(16)],
+        dtype=np.int64,
+    )
+    cuts.setflags(write=False)
+    return cuts
+
+
+@njit(cache=True)
+def propagate(domains, binary, mapping, images, joins, image, preimage):
+    while True:
+        changed = False
+        for k in range(len(binary)):
+            i, j, flags = binary[k]
+            a, b = domains[i], domains[j]
+            aa = a & images[mapping[1, flags], b]
+            bb = b & images[mapping[0, flags], aa]
+            if not aa or not bb:
+                return False
+            if aa != a:
+                domains[i] = aa
+                changed = True
+            if bb != b:
+                domains[j] = bb
+                changed = True
+        for k in range(len(joins)):
+            i, j, u = joins[k]
+            a, b, c = domains[i], domains[j], domains[u]
+            aa = bb = cc = 0
+            for x in range(16):
+                if not a & (1 << x):
+                    continue
+                allowed = b & int(preimage[x, c])
+                if allowed:
+                    aa |= 1 << x
+                    bb |= allowed
+                    cc |= int(image[x, allowed])
+            if not aa or not bb or not cc:
+                return False
+            if aa != a:
+                domains[i] = aa
+                changed = True
+            if bb != b:
+                domains[j] = bb
+                changed = True
+            if cc != c:
+                domains[u] = cc
+                changed = True
+        if not changed:
+            return True
+
+
+@njit(cache=True)
+def close_five_events(
+    domains,
+    binary,
+    mapping,
+    images,
+    joins,
+    image,
+    preimage,
+    offsets,
+    neighbors,
+    entropy,
+    degree,
+    caps,
+    cuts,
+    previous,
+    seeded,
+    metrics,
+    zero_pairs,
+):
+    seeds = np.zeros(64, dtype=np.uint8)
+    full_scan = not seeded
+    for side in range(64):
+        if domains[side] <= 0 or domains[side] >> 32:
+            if not domains[side]:
+                return False
+            raise ValueError("invalid five-bulk cut domain")
+        if domains[side] & ~previous[side]:
+            full_scan = True
+        seeds[side] = domains[side] != previous[side]
+    while True:
+        if not propagate_events(
+            domains, binary, mapping, images, joins, image, preimage, offsets, neighbors, seeds, full_scan, metrics
+        ):
+            return False
+        before = domains.copy()
+        inside, outside = five_memberships(domains)
+        changed = prune_capacity_memberships(domains, entropy, degree, caps, inside, outside, cuts, 5, zero_pairs)
+        if changed <= 0:
+            return changed == 0
+        for side in range(64):
+            seeds[side] = domains[side] != before[side]
+        full_scan = False
+
+
+def close(domains, rules, previous=None, metrics=None):
+    """Greatest necessary fixed point; previous, if given, is a closed parent.
+
+    Only restrictions of a successfully closed, unchanged parent under these
+    same target-local rules may seed the queue. Root assignments that expand
+    that parent automatically retain the complete initial scan. Capacity
+    feedback always runs in full and queues every domain it changes.
+    """
+    if rules.bulk_count == 5:
+        if domains.shape != (64,) or domains.dtype != np.dtype("int64"):
+            raise ValueError("five-bulk closure requires 64 exact int64 domains")
+        if previous is not None and (previous.shape != (64,) or previous.dtype != domains.dtype):
+            raise ValueError("incompatible closed parent")
+        mapping, images = support_tables(5)
+        image, preimage = five_join_tables()
+        cuts = five_core_cuts()
+        plan = rules.capacity
+        offsets, neighbors = rules.dependencies
+        return close_five_events(
+            domains,
+            rules.binary,
+            mapping,
+            images,
+            rules.joins,
+            image,
+            preimage,
+            offsets,
+            neighbors,
+            plan.entropy,
+            plan.degree_twice,
+            plan.crossing_caps,
+            cuts,
+            domains if previous is None else previous,
+            previous is not None,
+            np.zeros(3, dtype=np.int64) if metrics is None else metrics,
+            plan.zero_pairs,
+        )
+    mapping, images = support_tables()
+    image, preimage = tables()
+    inside, outside, cuts = capacity_geometry()
+    plan = rules.capacity
+    while True:
+        if not propagate(domains, rules.binary, mapping, images, rules.joins, image, preimage):
+            return False
+        changed = prune_capacity(domains, plan.entropy, plan.degree_twice, plan.crossing_caps, inside, outside, cuts)
+        if changed <= 0:
+            return changed == 0
+
+
+def local_zero_rows(penalty, degree, bulk_count):
+    stride = bulk_count - 1
+    zeros = []
+    for t in range(7):
+        for k in range(stride):
+            if penalty[t * stride + k] + degree[t]:
+                zeros.append(("bound", t * stride + k))
+        if degree[t]:
+            zeros.append(("last", t))
+    for j in range(7 * stride, len(penalty)):
+        if penalty[j]:
+            zeros.append(("bound", j))
+    return zeros
+
+
+@njit(cache=True)
+def stabilizer_representatives(fixed, tracked=True, bulk_count=4):
+    """One proper mask per orbit of the fixed-cut signature stabilizer.
+
+    Within each equal-signature block, put the next cut's ones at the largest
+    vertex indices. This is the maximum integer in each orbit. Only a single
+    next cut is ordered: ordering every unfixed cut at once would be unsound.
+    Untracked native branches may have additional asymmetric constraints.
+    """
+    full = (1 << bulk_count) - 1
+    representatives = (1 << full) - 2
+    if not tracked:
+        return representatives
+    for left in range(bulk_count):
+        for right in range(left + 1, bulk_count):
+            same = True
+            for side in range(1, 64):
+                if fixed[side] >= 0 and (fixed[side] >> left & 1) != (fixed[side] >> right & 1):
+                    same = False
+                    break
+            if same:
+                for value in range(1, full):
+                    if (value >> left & 1) > (value >> right & 1):
+                        representatives &= ~(1 << value)
+    return representatives
+
+
+class OrbitCover(pyscipopt.Conshdlr):
+    def __init__(self, source, variables, templates):
+        self.source = source
+        self.variables = variables
+        self.templates = templates
+        self.calls = 0
+        self.children = 0
+        self.zero_bounds = 0
+        self.root_children = 0
+        self.child_priority_calls = 0
+        self.child_priority_nonfinite_fallbacks = 0
+
+    def child_priority(self, slack):
+        """Guide DFS towards the current LP point; never omit a child or row."""
+        if self.source.bulk_count != 5:
+            return 0.0
+        self.child_priority_calls += 1
+        if not np.isfinite(slack):
+            # Search order is optional information, never an infeasibility test.
+            self.child_priority_nonfinite_fallbacks += 1
+            return 0.0
+        return -float(slack)
+
+    def add_root_constraints(self, node, choice, template):
+        source = self.source
+        stride = source.bulk_count - 1
+        a, b, penalty, degree, zeros = template
+        row, rhs = choice
+        self.model.addConsNode(
+            node, pyscipopt.quicksum(v * self.variables[j] for j, v in enumerate(row) if v) <= rhs, removable=False
+        )
+        for kind, j in local_zero_rows(penalty, degree, source.bulk_count):
+            if kind == "bound":
+                self.model.chgVarUbNode(node, self.variables[j], 0.0)
+            else:
+                expr = pyscipopt.quicksum(self.variables[j * stride + k] for k in range(stride))
+                self.model.addConsNode(node, expr >= source.degrees[j], removable=False)
+            self.zero_bounds += 1
+
+    def conscheck(self, *args, **kwargs):
+        return {"result": SCIP_RESULT.FEASIBLE}
+
+    def consenfops(self, *args, **kwargs):
+        return {"result": SCIP_RESULT.SOLVELP}
+
+    def conslock(self, *args, **kwargs):
+        pass
+
+
+@lru_cache(maxsize=65536)
+def proper_values(mask, bulk_count=4):
+    return tuple(k for k in range(1, (1 << bulk_count) - 1) if mask >> k & 1)
+
+
+@njit(cache=True)
+def forced_cut_bundle(trial, parent_fixed, side_index, coefficients, bounds, full):
+    """Collect exact integer rows without mutating parent or child domains."""
+    fixed = parent_fixed.copy()
+    row = np.zeros(coefficients.shape[2], dtype=np.int64)
+    rhs = count = 0
+    for side in range(1, 64):
+        domain = trial[side]
+        if not domain or domain & (domain - 1):
+            continue
+        value = 0
+        while (1 << value) != domain:
+            value += 1
+        if fixed[side] == value:
+            continue
+        fixed[side] = value
+        if 0 < value < full:
+            sub = side_index[side]
+            for column in range(len(row)):
+                row[column] += coefficients[sub, value - 1, column]
+            rhs += bounds[sub, value - 1]
+            count += 1
+    return fixed, row, rhs, count
+
+
+@njit(cache=True)
+def common_singleton_domains(parent, children):
+    """Lift only common assignments, not asymmetric unions of orbit domains.
+
+    Every parent graph orbit has a representative in the complete child cover.
+    A singleton common to its viable children therefore retains a representative
+    of every such orbit. Reclosing the old parent with just those fixed cuts
+    preserves invariance under the resulting fixed-cut stabilizer.
+    """
+    refined = parent.copy()
+    if not len(children) or children.shape[1] != len(parent):
+        return refined, 0, False
+    union = np.zeros(len(parent), dtype=np.int64)
+    for child in children:
+        for side in range(len(parent)):
+            value = child[side]
+            if value <= 0 or value & ~parent[side]:
+                return refined, 0, False
+            union[side] |= value
+    count = 0
+    for side in range(1, len(parent)):
+        value = union[side]
+        if not value & (value - 1) and parent[side] & (parent[side] - 1):
+            refined[side] = value
+            count += 1
+    return refined, count, True
+
+
+class DomainCover(OrbitCover):
+    def __init__(self, source, variables, templates):
+        super().__init__(source, variables, templates)
+        self.base, self.rules = initial(source)
+        self.propagation_metrics = np.zeros(3, dtype=np.int64)
+        self.base_ok = close(self.base, self.rules, metrics=self.propagation_metrics)
+        self.states = {}
+        self.symmetry_nodes = set()
+        self.symmetry_raw_masks = 0
+        self.symmetry_orbit_masks = 0
+        self.symmetry_skipped_masks = 0
+        self.symmetry_untracked_enforcements = 0
+        self.symmetry_consistent = True
+        self.pruned = 0
+        self.forced = 0
+        self.root_candidates = 0
+        self.root_pruned = 0
+        self.branch_candidates = 0
+        self.branch_pruned = 0
+        self.state_fallbacks = 0
+        self.upper_cut_rows = 0
+        self.upper_cut_numeric_fallbacks = 0
+        self.unit_continuations = 0
+        self.constructive_lifts = 0
+        self.constructive_probes = 0
+        self.constructive_failed_probes = 0
+        from ._graph_epr import _epr_geometry
+
+        self.bulk_count = source.bulk_count
+        self.full = (1 << self.bulk_count) - 1
+        self.last_bit = 1 << (self.bulk_count - 1)
+        self.proper_count = self.full - 1
+        self.boundary, self.coefficients = _epr_geometry(self.bulk_count)
+        self.index = {s: i for i, s in enumerate(self.boundary)}
+        self.side_index = np.zeros(64, dtype=np.int64)
+        for side, sub in self.index.items():
+            self.side_index[side] = sub
+        D = sum(source.degrees)
+        self.degree_sums = [sum(source.degrees[t] for t in range(6) if side >> t & 1) for side in self.boundary]
+        self.free = [i for i, h in enumerate(source.target) if h not in (self.degree_sums[i], D - self.degree_sums[i])]
+        self.expressions = {}
+        # Exact -1/0/1 coefficients convert once, not at every LP callback.
+        # This matrix guides search only; native constraints remain unchanged.
+        self.gather = np.ascontiguousarray(
+            self.coefficients[self.free].reshape(-1, len(source.upper)), dtype=np.float64
+        )
+        self.gather.setflags(write=False)
+        self.upper_cut_rhs = np.asarray(
+            [
+                [
+                    source.target[i] - (D - self.degree_sums[i] if mask & self.last_bit else self.degree_sums[i])
+                    for mask in range(1, self.full)
+                ]
+                for i in range(63)
+            ],
+            dtype=np.int64,
+        )
+        self.bounds = self.upper_cut_rhs[self.free]
+
+    def expression(self, sub, mask):
+        key = (sub, mask)
+        if key not in self.expressions:
+            row = self.coefficients[sub, mask - 1]
+            constant = (
+                sum(self.source.degrees) - self.degree_sums[sub] if mask & self.last_bit else self.degree_sums[sub]
+            )
+            rhs = self.source.target[sub] - constant
+            expr = pyscipopt.quicksum(int(value) * self.variables[j] for j, value in enumerate(row) if value)
+            self.expressions[key] = expr <= rhs
+        return self.expressions[key]
+
+    def enforce_singles(self, node, trial, parent_fixed):
+        if self.bulk_count != 5:
+            return self.enforce_individual_cuts(node, trial, parent_fixed)
+        fixed, row, rhs, count = forced_cut_bundle(
+            trial, parent_fixed, self.side_index, self.coefficients, self.upper_cut_rhs, self.full
+        )
+        if not count:
+            return fixed
+        # Source targets are below 2**45; even 63 complete cut rows fit int64.
+        # Avoid converting a large aggregated integer RHS to an inexact double:
+        # retain the original individual rows when outside this safe margin.
+        if abs(rhs) >= 1 << 50:
+            self.upper_cut_numeric_fallbacks += 1
+            return self.enforce_individual_cuts(node, trial, parent_fixed)
+        expression = pyscipopt.quicksum(int(value) * self.variables[j] for j, value in enumerate(row) if value)
+        self.model.addConsNode(node, expression <= int(rhs), removable=False)
+        self.forced += count
+        self.upper_cut_rows += 1
+        return fixed
+
+    def enforce_individual_cuts(self, node, trial, parent_fixed):
+        fixed = parent_fixed.copy()
+        for side in range(1, 64):
+            mask = int(trial[side])
+            if not mask or mask & (mask - 1):
+                continue
+            value = mask.bit_length() - 1
+            if fixed[side] == value:
+                continue
+            fixed[side] = value
+            if 0 < value < self.full:
+                self.model.addConsNode(node, self.expression(self.index[side], value), removable=False)
+                self.forced += 1
+                self.upper_cut_rows += 1
+        return fixed
+
+    def ancestor_state(self):
+        node = self.model.getCurrentNode()
+        while node is not None:
+            number = node.getNumber()
+            if number in self.states:
+                return self.states[number]
+            node = node.getParent()
+        return None
+
+    def consenfolp(self, constraints, nuseful, solinfeasible):
+        self.calls += 1
+        if self.model.getDepth() == 0:
+            self.states = {}
+            self.symmetry_nodes = set()
+            if not self.base_ok:
+                self.root_candidates += len(self.templates)
+                self.root_pruned += len(self.templates)
+                return {"result": SCIP_RESULT.CUTOFF}
+            first, second = self.source.profile["paired_cut_subsystems"]
+            left, right = self.boundary[first], self.boundary[second]
+            point = (
+                np.asarray([self.model.getSolVal(None, v) for v in self.variables]) if self.bulk_count == 5 else None
+            )
+            created = 0
+            for choice, template in zip(self.source.disjunctions[0], self.templates, strict=True):
+                a, b, *_ = template
+                self.root_candidates += 1
+                trial = self.base.copy()
+                trial[left] = 1 << a
+                trial[right] = 1 << b
+                if not close(trial, self.rules, self.base, self.propagation_metrics):
+                    self.pruned += 1
+                    self.root_pruned += 1
+                    continue
+                slack = float(np.asarray(choice[0]) @ point - choice[1]) if point is not None else 0.0
+                node = self.model.createChild(self.child_priority(slack), self.model.getLocalEstimate())
+                self.children += 1
+                self.root_children += 1
+                created += 1
+                self.add_root_constraints(node, choice, template)
+                fixed = self.enforce_singles(node, trial, np.full(64, -1, dtype=np.int16))
+                self.states[node.getNumber()] = (trial, fixed)
+                self.symmetry_nodes.add(node.getNumber())
+            return {"result": SCIP_RESULT.BRANCHED if created else SCIP_RESULT.CUTOFF}
+        state = self.ancestor_state()
+        if state is None:
+            self.state_fallbacks += 1
+            return {"result": SCIP_RESULT.FEASIBLE}
+        current, fixed = state
+        symmetry_allowed = self.model.getCurrentNode().getNumber() in self.symmetry_nodes
+        representatives = stabilizer_representatives(fixed, symmetry_allowed, self.bulk_count)
+        if not symmetry_allowed:
+            self.symmetry_untracked_enforcements += 1
+        point = np.asarray([self.model.getSolVal(None, v) for v in self.variables])
+        violations = (self.gather @ point).reshape(len(self.free), self.proper_count) - self.bounds
+        candidates = []
+        for k, sub in enumerate(self.free):
+            side = self.boundary[sub]
+            domain = int(current[side])
+            if domain.bit_count() <= 1:
+                continue
+            reduced = domain & representatives
+            if not reduced:
+                # Never turn a broken symmetry invariant into an exclusion.
+                self.symmetry_consistent = False
+                self.model.interruptSolve()
+                return {"result": SCIP_RESULT.FEASIBLE}
+            allowed = proper_values(reduced, self.bulk_count)
+            minimum = min(float(violations[k, m - 1]) for m in allowed)
+            if self.model.isFeasLE(minimum, 0.0):
+                continue
+            key = (-minimum, len(allowed), sub)
+            candidates.append((key, sub, side, allowed))
+        if not candidates:
+            return {"result": SCIP_RESULT.FEASIBLE}
+        _, sub, side, allowed = min(candidates, key=lambda item: item[0])
+        prepared = None
+        viable = []
+        if self.bulk_count == 5:
+            prepared = []
+            for mask in allowed:
+                trial = current.copy()
+                trial[side] = 1 << mask
+                possible = close(trial, self.rules, current, self.propagation_metrics)
+                prepared.append(trial if possible else None)
+                if possible:
+                    viable.append(trial)
+            self.constructive_probes += len(allowed)
+            self.constructive_failed_probes += len(allowed) - len(viable)
+            if len(viable) > 1:
+                refined, lifts, valid = common_singleton_domains(current, np.asarray(viable))
+                if not valid or (lifts and not close(refined, self.rules, current, self.propagation_metrics)):
+                    self.symmetry_consistent = False
+                    self.model.interruptSolve()
+                    return {"result": SCIP_RESULT.FEASIBLE}
+                if lifts:
+                    focus = self.model.getCurrentNode()
+                    before = self.upper_cut_rows
+                    new_fixed = self.enforce_singles(focus, refined, fixed)
+                    if self.upper_cut_rows > before:
+                        self.states[focus.getNumber()] = (refined, new_fixed)
+                        self.constructive_lifts += 1
+                        return {"result": SCIP_RESULT.CONSADDED}
+        raw_count = int(current[side]).bit_count()
+        self.symmetry_raw_masks += raw_count
+        self.symmetry_orbit_masks += len(allowed)
+        self.symmetry_skipped_masks += raw_count - len(allowed)
+        if self.bulk_count == 5 and len(viable) == 1:
+            focus = self.model.getCurrentNode()
+            trial = viable[0]
+            new_fixed = self.enforce_singles(focus, trial, fixed)
+            self.states[focus.getNumber()] = (trial, new_fixed)
+            self.branch_candidates += len(allowed)
+            self.branch_pruned += len(allowed) - 1
+            self.pruned += len(allowed) - 1
+            self.unit_continuations += 1
+            return {"result": SCIP_RESULT.CONSADDED}
+        created = 0
+        for ordinal, mask in enumerate(allowed):
+            self.branch_candidates += 1
+            if prepared is None:
+                trial = current.copy()
+                trial[side] = 1 << mask
+                if not close(trial, self.rules, current, self.propagation_metrics):
+                    trial = None
+            else:
+                trial = prepared[ordinal]
+            if trial is None:
+                self.pruned += 1
+                self.branch_pruned += 1
+                continue
+            slack = float(violations[self.free.index(sub), mask - 1])
+            node = self.model.createChild(self.child_priority(slack), self.model.getLocalEstimate())
+            self.children += 1
+            created += 1
+            new_fixed = self.enforce_singles(node, trial, fixed)
+            self.states[node.getNumber()] = (trial, new_fixed)
+            if symmetry_allowed:
+                self.symmetry_nodes.add(node.getNumber())
+        return {"result": SCIP_RESULT.BRANCHED if created else SCIP_RESULT.CUTOFF}
+
+    def record(self):
+        return {
+            "kind": "minimal_cut_domain_branching",
+            "recipe_sha256": self.recipe_sha256,
+            "propagation_policy": "cut_regions_and_exact_capacity_budgets",
+            "propagation_engine": "verified_dependency_queue_from_closed_parent"
+            if self.bulk_count == 5
+            else "full_sweep",
+            "dependency_certificate_verified": self.bulk_count == 5,
+            "dependency_entries": 0 if self.rules.dependencies is None else len(self.rules.dependencies[1]),
+            "event_full_propagations": int(self.propagation_metrics[0]),
+            "event_seeded_propagations": int(self.propagation_metrics[1]),
+            "event_rule_visits": int(self.propagation_metrics[2]),
+            "cut_certificate_verified": True,
+            "cut_certificate_sha256": self.rules.certificate_sha256,
+            "cut_equal_exclusions": self.rules.equal_exclusions,
+            "cut_opposite_exclusions": self.rules.opposite_exclusions,
+            "cut_quadrant_requirements": self.rules.quadrant_requirements,
+            "binary_support_policy": "immutable_complete_support_images"
+            if self.bulk_count == 4
+            else "immutable_byte_support_images",
+            "capacity_budget_policy": "exact_terminal_and_core_interval_feedback",
+            "capacity_kernel_policy": "subset_dp_and_sparse_set_bit_feedback",
+            "uncrossing_policy": (
+                "all_tight_pair_mandatory_zero_edge_feedback" if self.bulk_count == 5 else "root_pair_only"
+            ),
+            "uncrossing_certificate_verified": True,
+            "tight_uncrossing_pairs": len(self.rules.capacity.zero_pairs) if self.bulk_count == 5 else 0,
+            "capacity_certificate_sha256": self.rules.capacity.certificate_sha256,
+            "edge_weight_integrality_required": False,
+            "total_vertices": 7 + self.bulk_count,
+            "root_orbit_candidates": self.root_candidates,
+            "root_orbit_children": self.root_children,
+            "root_orbit_pruned": self.root_pruned,
+            "domain_branch_candidates": self.branch_candidates,
+            "domain_branch_children": self.children - self.root_children,
+            "domain_branch_pruned": self.branch_pruned,
+            "domain_unit_continuations": self.unit_continuations,
+            "constructive_parent_lifts": self.constructive_lifts,
+            "constructive_probes": self.constructive_probes,
+            "constructive_failed_probes": self.constructive_failed_probes,
+            "constructive_policy": "complete_cut_orbit_unit_and_common_singleton_propagation"
+            if self.bulk_count == 5
+            else "disabled",
+            "forced_upper_cuts": self.forced,
+            "upper_cut_rows": self.upper_cut_rows,
+            "upper_cut_numeric_fallbacks": self.upper_cut_numeric_fallbacks,
+            "upper_cut_policy": (
+                "exact_nonnegative_slack_aggregation" if self.bulk_count == 5 else "individual_minimum_cut_equalities"
+            ),
+            "zero_edge_constraints": self.zero_bounds,
+            "residual_order_rows": 0,
+            "symmetry_policy": "dynamic_minimal_cut_stabilizer",
+            "symmetry_raw_masks": self.symmetry_raw_masks,
+            "symmetry_orbit_masks": self.symmetry_orbit_masks,
+            "symmetry_skipped_masks": self.symmetry_skipped_masks,
+            "symmetry_untracked_enforcements": self.symmetry_untracked_enforcements,
+            "symmetry_consistent": self.symmetry_consistent,
+            "capacity_ordering_disabled": True,
+            "branch_selection": "largest_minimum_slack_then_fewest_orbits",
+            "child_selection_policy": "minimum_local_cut_slack" if self.bulk_count == 5 else "neutral",
+            "child_priority_calls": self.child_priority_calls,
+            "child_priority_nonfinite_fallbacks": self.child_priority_nonfinite_fallbacks,
+            "domain_state_fallbacks": self.state_fallbacks,
+            "covers_complete": (
+                self.symmetry_consistent
+                and self.root_candidates == self.root_children + self.root_pruned
+                and 0 <= self.unit_continuations <= self.branch_candidates
+                and self.branch_candidates
+                == self.children - self.root_children + self.branch_pruned + self.unit_continuations
+                and self.symmetry_raw_masks == self.symmetry_orbit_masks + self.symmetry_skipped_masks
+                and self.symmetry_orbit_masks == self.branch_candidates
+            ),
+            "automatic_symmetry_disabled": True,
+            "dual_reductions_disabled": True,
+        }
+
+
+def install_cut_domain_branching(model, source, variables):
+    """Install a complete minimal-cut orbit cover, never a heuristic filter.
+
+    Any realizing graph has unique inclusion-minimal cuts. Anchor-pair
+    signature histograms cover the initial labellings. For each next chosen
+    cut, permute only vertices with identical previously fixed signatures.
+    Those permutations preserve every ancestor constraint, so one proper mask
+    per stabilizer orbit is a complete cover. Repeat on the refined partition;
+    never simultaneously order all unfixed cuts or impose capacity ordering.
+    If native SCIP creates a branch, disable quotienting throughout its subtree
+    because its additional constraints might not preserve that stabilizer.
+    Arc consistency removes only unsupported values. All original native
+    disjunctions and independent exact graph acceptance remain in place.
+
+    Disable solver-picked symmetry and dual reductions: either could select
+    a different representative before our conditional canonical ordering.
+    """
+    if source.bulk_count not in (4, 5) or "paired_cut_subsystems" not in source.profile:
+        return None
+    from ._graph_epr import _epr_geometry
+    from ._graph_pair import _pair_penalties
+
+    boundary, _ = _epr_geometry(source.bulk_count)
+    i, j = source.profile["paired_cut_subsystems"]
+    left, right = boundary[i], boundary[j]
+    values = dict(zip(boundary, source.target, strict=True))
+    values[0] = 0
+
+    def entropy(side):
+        return values[side ^ 127 if side & 64 else side]
+
+    saturated = 9 if entropy(left) + entropy(right) == entropy(left & right) + entropy(left | right) else 0
+    saturated |= 6 if entropy(left) + entropy(right) == entropy(left & ~right) + entropy(right & ~left) else 0
+    templates = _pair_penalties(left, right, saturated, source.bulk_count)
+    model.setParam("misc/usesymmetry", 0)
+    model.setParam("misc/allowstrongdualreds", False)
+    model.setParam("misc/allowweakdualreds", False)
+    handler = DomainCover(source, variables, templates)
+    recipe = {
+        "kind": "minimal_cut_domain_branching",
+        "base_model_sha256": source.sha256,
+        "initial_closed_domains": handler.base.tolist(),
+        "tight_union_rules": handler.rules.joins.tolist(),
+        "propagation_policy": "cut_regions_and_exact_capacity_budgets",
+        "cut_certificate_sha256": handler.rules.certificate_sha256,
+        "binary_support_policy": "immutable_complete_support_images"
+        if source.bulk_count == 4
+        else "immutable_byte_support_images",
+        "capacity_budget_policy": "exact_terminal_and_core_interval_feedback",
+        "capacity_kernel_policy": "subset_dp_and_sparse_set_bit_feedback",
+        "uncrossing_policy": (
+            "all_tight_pair_mandatory_zero_edge_feedback" if source.bulk_count == 5 else "root_pair_only"
+        ),
+        "uncrossing_certificate_verified": True,
+        "tight_uncrossing_pairs": len(handler.rules.capacity.zero_pairs) if source.bulk_count == 5 else 0,
+        "capacity_certificate_sha256": handler.rules.capacity.certificate_sha256,
+        "anchor_subsystems": [left, right],
+        "anchor_orbits": [[a, b] for a, b, *_ in templates],
+        "symmetry_policy": "dynamic_minimal_cut_stabilizer",
+        "native_branch_guard": True,
+        "capacity_ordering": False,
+        "propagation_engine": "verified_dependency_queue_from_closed_parent"
+        if source.bulk_count == 5
+        else "full_sweep",
+        "branch_selection": "largest_minimum_slack_then_fewest_orbits",
+        "constructive_policy": "complete_cut_orbit_unit_and_common_singleton_propagation"
+        if source.bulk_count == 5
+        else "disabled",
+    }
+    handler.recipe_sha256 = hashlib.sha256(
+        json.dumps(recipe, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    model.includeConshdlr(
+        handler,
+        "minimal_cut_domains",
+        "complete minimum-cut domain and bulk-orbit branching",
+        enfopriority=-900000,
+        chckpriority=-900000,
+        needscons=False,
+    )
+    return handler

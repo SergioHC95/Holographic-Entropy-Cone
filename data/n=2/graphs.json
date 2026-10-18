@@ -1,3 +1,1 @@
-[
-  {"edges": [["A","B"]],"weights": [1]}
-]
+{"count":1,"format":"hec-graph-catalogue","shards":[{"bytes":44,"count":1,"sha256":"aff44169f9406136aed0bc1742ffc8e6918d24d47ad168642a1dc9d313e976b8"}]}

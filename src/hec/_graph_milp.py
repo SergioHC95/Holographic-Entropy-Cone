@@ -241,7 +241,7 @@ def _edge_bounds_exact(
     return tuple(lower), tuple(upper)
 
 
-def _cut_bound_status(lower: Fraction, upper: Fraction, target: Fraction) -> str:
+def _cut_bound_status(lower: Fraction | int, upper: Fraction | int, target: Fraction | int) -> str:
     """Classify one cut using exact order/equality only."""
 
     if upper < target:
@@ -267,20 +267,27 @@ def _exact_ahc_preprocessing(
     edges, _fixed_subsystems, fixed_sub_indices, cuts_by_sub = _ahc_structure(n, N)
     edge_lower, edge_upper = _edge_bounds_exact(edges, scaled_target, n, N)
 
+    # All cut decisions share one exact integer unit.  Summing Fraction
+    # objects edge-by-edge repeats gcd/reduction work for the same denominator
+    # thousands of times per target; defer reduction to the returned bounds.
+    denominator = lcm(*(value.denominator for value in (*scaled_target, *edge_lower, *edge_upper)))
+    target_units = tuple(value.numerator * (denominator // value.denominator) for value in scaled_target)
+    lower_units = tuple(value.numerator * (denominator // value.denominator) for value in edge_lower)
+    upper_units = tuple(value.numerator * (denominator // value.denominator) for value in edge_upper)
+
     cut_bounds: list[tuple[tuple[Fraction, Fraction], ...]] = []
     choices_by_sub: list[tuple[int, tuple[int, ...]]] = []
     auto_selected_by_sub: list[tuple[int, int]] = []
     infeasible = False
-    zero = Fraction(0)
     for sub_index, cuts in enumerate(cuts_by_sub):
-        value = scaled_target[sub_index]
+        value = target_units[sub_index]
         bounds: list[tuple[Fraction, Fraction]] = []
         choices: list[int] = []
         auto_selected: int | None = None
         for cut_index, crossing in enumerate(cuts):
-            lower = sum((edge_lower[int(edge)] for edge in crossing), zero)
-            upper = sum((edge_upper[int(edge)] for edge in crossing), zero)
-            bounds.append((lower, upper))
+            lower = sum(lower_units[edge] for edge in crossing)
+            upper = sum(upper_units[edge] for edge in crossing)
+            bounds.append((Fraction(lower, denominator), Fraction(upper, denominator)))
             status = _cut_bound_status(lower, upper, value)
             if status == "infeasible":
                 infeasible = True
@@ -484,6 +491,11 @@ def _solve_highspy_milp(
         model_status = highs.getModelStatus()
         solution = highs.getSolution()
         solver_info = highs.getInfo()
+        resource_limits = {name: highs.getOptionValue(name)[1] for name in ("time_limit", "mip_max_nodes")}
+        resource_limits = {
+            name: None if isinstance(value, float) and not math.isfinite(value) else value
+            for name, value in resource_limits.items()
+        }
         attempt: dict[str, Any] = {
             "backend": "highspy",
             "base_model_sha256": base_model_sha256,
@@ -497,6 +509,7 @@ def _solve_highspy_milp(
             "run_status": str(run_status),
             "presolve": presolve,
             "value_valid": bool(solution.value_valid),
+            "resource_limits": resource_limits,
         }
         if solver_info.valid:
             attempt["primal_solution_status"] = int(solver_info.primal_solution_status)
@@ -667,6 +680,7 @@ def _solve_scip_indicator_milp(
     node_limit: int | None = None,
     solution_limit: int | None = 1,
     time_limit_s: float | None = None,
+    emphasis: str = "DEFAULT",
 ) -> tuple[np.ndarray | None, dict[str, Any]]:
     """Solve the frozen one-hot AHC model via exact SCIP indicators.
 
@@ -736,6 +750,7 @@ def _solve_scip_indicator_milp(
         "options": dict(SCIP_INDICATOR_OPTIONS),
         "solution_limit": solution_limit,
         "time_limit_s": time_limit_s,
+        "emphasis": emphasis,
     }
 
     scip: Any | None = None
@@ -745,6 +760,8 @@ def _solve_scip_indicator_milp(
         build_start = time.perf_counter()
         scip = pyscipopt.Model("hec-ahc-one-hot-indicator")
         scip.hideOutput(True)
+        if emphasis != "DEFAULT":
+            scip.setEmphasis(getattr(pyscipopt.SCIP_PARAMEMPHASIS, emphasis), quiet=True)
         for name, value in SCIP_INDICATOR_OPTIONS.items():
             scip.setParam(name, value)
         if node_limit is not None:
@@ -753,6 +770,9 @@ def _solve_scip_indicator_milp(
             scip.setParam("limits/time", float(time_limit_s))
         if solution_limit is not None:
             scip.setParam("limits/solutions", int(solution_limit))
+        # Record effective limits after applying presets, not just the
+        # caller's arguments.  A resource stop is never an exclusion.
+        resource_limits = {name: scip.getParam(name) for name in ("limits/time", "limits/nodes", "limits/memory")}
         variables = [
             scip.addVar(
                 name=f"x{column}",
@@ -816,6 +836,7 @@ def _solve_scip_indicator_milp(
             "stage": stage,
             "stage_solved_code": int(pyscipopt.SCIP_STAGE.SOLVED),
             "status_raw": status_raw,
+            "resource_limits": resource_limits,
         }
     except Exception as exc:
         return None, {
@@ -1009,7 +1030,7 @@ def _ahc_structure(
     tuple[tuple[int, int], ...],
     tuple[frozenset[int], ...],
     frozenset[int],
-    tuple[tuple[np.ndarray, ...], ...],
+    tuple[tuple[tuple[int, ...], ...], ...],
 ]:
     edges = tuple(combinations(range(N), 2))
     terminals = range(n + 1)
@@ -1022,7 +1043,7 @@ def _ahc_structure(
         if (boundary := _boundary_subset_for_terminals(n, terminals))
     )
     bulk = list(range(n, N - 1))
-    cuts_by_sub: list[tuple[np.ndarray, ...]] = []
+    cuts_by_sub: list[tuple[tuple[int, ...], ...]] = []
     for sub in subsets(n):
         cuts = []
         for mask in range(1 << len(bulk)):
@@ -1030,7 +1051,7 @@ def _ahc_structure(
             for offset, vertex in enumerate(bulk):
                 if (mask >> offset) & 1:
                     W.add(vertex)
-            cuts.append(np.asarray(_crossing_edges(edges, W), dtype=np.int32))
+            cuts.append(tuple(_crossing_edges(edges, W)))
         cuts_by_sub.append(tuple(cuts))
     return edges, fixed_subsystems, fixed_sub_indices, tuple(cuts_by_sub)
 
@@ -1068,6 +1089,7 @@ def _attempt_record(
 
     fields = (
         "backend",
+        "emphasis",
         "base_model_sha256",
         "build_s",
         "error",
@@ -1076,15 +1098,21 @@ def _attempt_record(
         "incumbent_model_valid",
         "indicator_rows",
         "indicator_transform_sha256",
+        "indicator_equivalence_check",
         "linear_rows",
         "mip_gap",
         "mip_node_count",
         "model_status",
+        "model_status_code",
         "negative_downgraded_by_prior_model_valid_incumbent",
         "nodes",
         "presolve",
+        "pass_status_code",
+        "run_status_code",
+        "value_valid",
         "pyscipopt_version",
         "reason",
+        "resource_limits",
         "scip_version",
         "solutions",
         "solve_s",
@@ -1093,6 +1121,8 @@ def _attempt_record(
         "status_before_feasibility_contradiction",
         "status_before_shared_model_validation",
         "status_raw",
+        "stage",
+        "stage_solved_code",
         "trusted_infeasibility",
     )
     record = {field: info[field] for field in fields if info.get(field) is not None}
@@ -1276,9 +1306,25 @@ def _solve_ahc_fixed_vertices(
                 continue
             choice_index[(sub_index, cut_index)] = next_index
             next_index += 1
+    # Small bulk sets benefit from logarithmic cut memberships and native
+    # Boolean propagation.  Larger orbit-sharded models retain one-hot
+    # integrality; their different scaling needs separate tuning.
+    use_membership_encoding = bulk_count <= 3
+    membership_index: dict[tuple[int, int], int] = {}
+    if use_membership_encoding:
+        for sub_index, choices in choices_by_sub.items():
+            active = tuple(cut for cut in choices if (sub_index, cut) in choice_index)
+            for bit in range(bulk_count):
+                values = {(cut >> bit) & 1 for cut in active}
+                if values == {0, 1}:
+                    membership_index[(sub_index, bit)] = next_index
+                    next_index += 1
     var_count = next_index
     integrality = np.zeros(var_count, dtype=int)
-    integrality[edge_count:] = 1
+    for column in membership_index.values():
+        integrality[column] = 1
+    if not use_membership_encoding:
+        integrality[edge_count:] = 1
     lb = np.zeros(var_count)
     ub = np.ones(var_count)
     lb[:edge_count] = edge_lb
@@ -1340,6 +1386,23 @@ def _solve_ahc_fixed_vertices(
                 eq_data.append(1.0)
             b_eq.append(1.0)
 
+    # A simplex selector becomes integral when every varying bulk-membership
+    # bit is integral: all positive simplex coefficients must then describe
+    # the same bit string, hence exactly one cut.  This is equivalent to the
+    # original one-hot integer model, with fewer binary variables.
+    for (sub_index, bit), column in membership_index.items():
+        eq_row = len(b_eq)
+        for cut in choices_by_sub[sub_index]:
+            choice_var = choice_index.get((sub_index, cut))
+            if choice_var is not None and (cut >> bit) & 1:
+                eq_rows.append(eq_row)
+                eq_cols.append(choice_var)
+                eq_data.append(1.0)
+        eq_rows.append(eq_row)
+        eq_cols.append(column)
+        eq_data.append(-1.0)
+        b_eq.append(0.0)
+
     for terminals in fixed_subsystems:
         eq_row = len(b_eq)
         inside = {N - 1 if terminal == n else terminal for terminal in terminals}
@@ -1361,6 +1424,44 @@ def _solve_ahc_fixed_vertices(
         signature = tuple((mask >> bulk_offset) & 1 for mask in known_masks)
         prefix_blocks.setdefault(signature, []).append(bulk_offset)
     variable_subsystems = tuple(sub_index for sub_index in sorted(choices_by_sub) if sub_index not in selected_by_sub)
+
+    # Unique inclusion-minimal free cuts can be selected simultaneously.
+    # Fixed/orbit-selected cuts are not constrained to be minimal.  Any bulk
+    # relabelling needed for the existing symmetry rows remains within the
+    # fixed-prefix blocks and therefore preserves those fixed cuts.
+    nesting_rows = 0
+    disjoint_rows = 0
+    boundaries = subsets(n)
+    boundary_masks = {sub: sum(1 << vertex for vertex in boundaries[sub]) for sub in variable_subsystems}
+    lattice_subsystems = variable_subsystems if use_membership_encoding else ()
+    for left_pos, left_sub in enumerate(lattice_subsystems):
+        left_mask = boundary_masks[left_sub]
+        for right_sub in lattice_subsystems[left_pos + 1 :]:
+            right_mask = boundary_masks[right_sub]
+            if left_mask & right_mask == 0:
+                signs, original_bound, relation = (1.0, 1.0), 1.0, "disjoint"
+            elif left_mask & right_mask == left_mask:
+                signs, original_bound, relation = (1.0, -1.0), 0.0, "nested"
+            elif left_mask & right_mask == right_mask:
+                signs, original_bound, relation = (-1.0, 1.0), 0.0, "nested"
+            else:
+                continue
+            for bit in range(bulk_count):
+                row = len(b_ineq_hi)
+                bound = original_bound
+                for sub, sign in zip((left_sub, right_sub), signs, strict=True):
+                    column = membership_index.get((sub, bit))
+                    if column is not None:
+                        ineq_rows.append(row)
+                        ineq_cols.append(column)
+                        ineq_data.append(sign)
+                    else:
+                        cut = next(cut for cut in choices_by_sub[sub] if (sub, cut) in choice_index)
+                        bound -= sign * ((cut >> bit) & 1)
+                b_ineq_hi.append(bound)
+                b_ineq_lo.append(-np.inf)
+                nesting_rows += relation == "nested"
+                disjoint_rows += relation == "disjoint"
 
     if len(variable_subsystems) <= 20:
         for block in prefix_blocks.values():
@@ -1468,7 +1569,7 @@ def _solve_ahc_fixed_vertices(
         integrality,
     )
 
-    binary_count = var_count - edge_count
+    binary_count = int(np.count_nonzero(integrality))
     attempt_plan = _milp_attempt_plan(selector_count=binary_count)
     reduction_counts = {
         **deterministic_stats,
@@ -1478,10 +1579,14 @@ def _solve_ahc_fixed_vertices(
         "signature_rows": signature_rows,
         "symmetry_rows": symmetry_rows,
         "terminal_signature_pairs": terminal_signature_pairs,
+        "minimal_cut_nesting_rows": nesting_rows,
+        "minimal_cut_disjointness_rows": disjoint_rows,
     }
     profile: dict[str, Any] = {
         "edge_vars": edge_count,
         "binary_vars": binary_count,
+        "continuous_cut_selectors": len(choice_index) if use_membership_encoding else 0,
+        "cut_encoding": "bulk_membership" if use_membership_encoding else "one_hot",
         "assume_no_smaller": assume_no_smaller,
         "constraint_model_sha256": constraint_model_sha256,
         "ineq_rows": n_ineq,
@@ -1572,6 +1677,7 @@ def _solve_ahc_fixed_vertices(
                     node_limit=node_limit,
                     solution_limit=1,
                     time_limit_s=effective_time_limit,
+                    emphasis="EASYCIP" if use_membership_encoding else "DEFAULT",
                 )
             else:
                 solution, attempt_info = _solve_highspy_milp(

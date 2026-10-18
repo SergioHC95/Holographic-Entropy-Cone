@@ -11,9 +11,9 @@ from typing import TypeVar
 
 from ._graph_validation import canonical_primitive_ray_graph
 from .data import available_ns, data_path, load_hec_data
+from .graph_store import GraphCatalog
 from .graphs import check_graph
 from .rank import check_support_rank_prepared, prepare_rank_candidates
-from .serialization import load_json
 from .symmetry import canonical_vector
 from .workers import generation_worker_count
 
@@ -279,9 +279,7 @@ def check_stored_graphs(
 ) -> Iterator[str]:
     for current_n in _selected_ns(root, n):
         rays = load_hec_data(current_n, "rays", root=root)
-        graphs = load_json(data_path(current_n, "graphs", root=root))
-        if not isinstance(graphs, list):
-            raise ValueError(f"expected a list of graphs in {data_path(current_n, 'graphs', root=root)}")
+        graphs = GraphCatalog(data_path(current_n, "graphs", root=root))
         if len(rays) != len(graphs):
             raise ValueError(f"n={current_n}: {len(rays)} rays but {len(graphs)} graphs")
         selected = _shard_indices(len(rays), shard_index, shard_count)

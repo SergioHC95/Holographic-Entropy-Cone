@@ -39,9 +39,9 @@ def data_path(n: int, kind: DataKind, *, root: str | Path | None = None) -> Path
 def load_hec_data(n: int, kind: DataKind, *, root: str | Path | None = None) -> Any:
     path = data_path(n, kind, root=root)
     if kind == "graphs":
-        from .graphs import read_graphs
+        from .graph_store import GraphCatalog
 
-        return read_graphs(path)
+        return GraphCatalog(path)
     if kind == "contractions":
         from .contractions import read_contractions
 

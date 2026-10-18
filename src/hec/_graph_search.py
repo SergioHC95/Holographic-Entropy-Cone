@@ -374,6 +374,15 @@ def solve_fixed_n(
     if workers < 1:
         raise ValueError("workers must be positive")
     clean_target = tuple(int(value) for value in target)
+    reduced = None
+    # Property-derived reduction, with no dataset-specific cases. Explicitly
+    # limited calls retain their shared-budget general-planner semantics.
+    if n == 6 and total_vertices in (10, 11, 12) and node_limit is None and time_limit_s is None:
+        from ._graph_epr import solve_epr_free
+
+        reduced = solve_epr_free(clean_target, total_vertices=total_vertices)
+        if reduced is not None and reduced[1].get("status") in {"realized", "infeasible"}:
+            return reduced
     plan = plan_orbit_search(clean_target, n, total_vertices)
     if plan.mode == "monolithic":
         remaining = None if deadline is None else deadline - time.perf_counter()
@@ -391,7 +400,11 @@ def solve_fixed_n(
             node_limit=node_limit,
             time_limit_s=remaining,
         )
-        return graph, {**info, "search_plan": plan.as_record()}
+        return graph, {
+            **info,
+            "search_plan": plan.as_record(),
+            **({"reduced_model_fallback": reduced[1]} if reduced is not None else {}),
+        }
 
     base_payload = {
         "assume_no_smaller": assume_no_smaller,
