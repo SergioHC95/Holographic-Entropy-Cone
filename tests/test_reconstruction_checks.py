@@ -18,9 +18,16 @@ from hec.count_proofs import geometry, inequality_id, proof_id
 from hec.graph_store import GRAPH_FORMAT, write_graph_catalog
 from hec.inequality_records import write_inequality_catalog
 from hec.proof_store import ProofCatalog
+from hec.ray_store import write_ray_catalog
 
 
 class ReconstructionChecksTests(unittest.TestCase):
+    def test_ci_matrix_accepts_a_sharded_ray_catalogue(self):
+        self.stage(self.documents[:1])
+        write_ray_catalog(self.directory / "rays.json", [(1, 0, 1)], 2)
+        plan = checks.ci_matrix(self.root)
+        self.assertTrue(any(task["kind"] == "rays" for task in plan["include"]))
+
     def test_large_graph_and_ray_partitions_cover_all_rows_without_payload_acceptance(self):
         self.stage(self.documents[:1])
         count = 50_001

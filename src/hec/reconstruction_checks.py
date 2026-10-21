@@ -22,7 +22,6 @@ from .data import available_ns, data_path, load_hec_data
 from .inequality_records import InequalityCatalog
 from .proof_store import ProofCatalog
 from .reconstruction_verify import ReconstructionVerifier
-from .serialization import load_json
 
 PROOF_TARGET, PROOF_JOB_LIMIT = 1024, 64
 _process_catalog = _process_verifier = None
@@ -202,10 +201,10 @@ def ci_matrix(root=None):
 
         counts["graphs"] = len(GraphCatalog(data_path(current_n, "graphs", root=root)))
         for kind in ("facets", "rays"):
-            rows = load_json(data_path(current_n, kind, root=root))
-            if not isinstance(rows, list):
-                raise ValueError("CI requires list-valued facet/ray datasets")
-            counts[kind] = len(rows)
+            # Rays may use the bounded, content-addressed catalogue format.
+            # The standard data reader validates its index without loading all
+            # payloads, which preserves this planner's metadata-only scope.
+            counts[kind] = len(load_hec_data(current_n, kind, root=root))
         if counts["graphs"] != counts["rays"]:
             raise ValueError("CI graph/ray coverage counts disagree")
         counts.update(contractions=len(catalog), **{"database-bindings": len(inequalities.entries)})
