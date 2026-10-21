@@ -1,0 +1,46 @@
+{
+  "format": "EXTERNAL_GRAPH_REALIZATION_SCREEN_V1",
+  "candidate_source": {
+    "archive": "46D-20261021T173645Z-1-001.zip",
+    "archive_sha256": "addf0b85b03cf4ac778502a43161a61b827ed1d30e92b4269d9ddabc21f34f78",
+    "device_catalog_sha256": "65ff77e639042e37e69856b19b2300ac99db90e26a9ea49211ca6fe7523c9748"
+  },
+  "screen": {
+    "party_count": 6,
+    "candidate_count": 814061,
+    "fixed_native_total_vertices": 10,
+    "bulk_vertices": 3,
+    "source_head": "ca7314e3e595902629d5ed39a652e15836fad162",
+    "native_time_limit_s": null,
+    "native_node_limit": null,
+    "completed_counts": {
+      "realized_at_most_10_vertices": 722,
+      "completed_native_unsat_at_most_10_vertices": 813339,
+      "unknown": 0,
+      "error": 0
+    }
+  },
+  "positive_replay": {
+    "records": 722,
+    "S7_images_checked_per_record": 5040,
+    "independent_rational_cuts_per_record": 504,
+    "current_repository_graph_checker": true,
+    "accepted_catalogue_overlap": false,
+    "repository_base_commit": "d2b6fc8ae8b05a524dc28763feb67e50dd974900"
+  },
+  "payload": {
+    "path": "realizations.jsonl",
+    "sha256": "3896687f11d729c812144467847cdea0ca7d3432d5789921234bd7a4eed86cb2",
+    "bytes": 1083449
+  },
+  "audit_report": {
+    "path": "audit-report.json",
+    "sha256": "2887b6385aae2ce110ad12d42b87df5db716f1451f8157ca1e64f2a48d555ddb"
+  },
+  "not_a_claim": [
+    "accepted repository ray",
+    "global HEC extremality proof",
+    "minimal-vertex realization",
+    "global non-realizability result for completed fixed-10 UNSAT cases"
+  ]
+}

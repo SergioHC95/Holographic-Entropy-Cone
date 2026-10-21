@@ -1,0 +1,33 @@
+{
+  "campaign": "/Users/sergio/.hec/graph-external-46d-fixed10-20261021.QX2TbG",
+  "campaign_config_sha256": "f1e1721f3478ed96f8d3206ae00ff4d4d31253db5a8fdddce4415509d8e0c395",
+  "campaign_status_sha256": "01896bb4e23e6b08abaa7804825c01dc071781dbf3eaa595255a7790abc077df",
+  "candidate_catalog_sha256": "65ff77e639042e37e69856b19b2300ac99db90e26a9ea49211ca6fe7523c9748",
+  "completed_at": "2026-10-21T21:00:09.419943+00:00",
+  "completed_campaign_counts": {
+    "completed_native_unsat_at_most_10_vertices": 813339,
+    "error": 0,
+    "pending": 0,
+    "realized_at_most_10_vertices": 722,
+    "running": 0,
+    "unknown": 0
+  },
+  "export": {
+    "bytes": 1083449,
+    "path": "realizations.jsonl",
+    "sha256": "3896687f11d729c812144467847cdea0ca7d3432d5789921234bd7a4eed86cb2"
+  },
+  "positive_records_replayed": 722,
+  "positive_replay_checks": {
+    "all_S7_images_checked": 5040,
+    "current_repository_graph_checker": true,
+    "exact_fixed10_graph_vertices": true,
+    "independent_exact_rational_cuts_per_record": 504,
+    "input_hash_and_vector_binding": true,
+    "native_node_limit": null,
+    "native_time_limit_s": null,
+    "not_currently_accepted_repository_rays": true
+  },
+  "publication_boundary": "This audit establishes graph realizations only. It does not establish the external supplied-bank candidates as accepted repository HEC extreme rays.",
+  "repository_base_commit": "d2b6fc8ae8b05a524dc28763feb67e50dd974900"
+}
