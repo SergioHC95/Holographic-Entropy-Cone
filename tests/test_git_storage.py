@@ -14,9 +14,35 @@ from unittest.mock import patch
 from hec import storage
 from hec.count_proofs import geometry, inequality_id
 from hec.graph_store import GraphCatalog, write_graph_catalog
+from hec.ray_store import RayCatalog, write_ray_catalog
 
 
 class GitStorageTests(unittest.TestCase):
+    def test_ray_payloads_have_complete_ownership_and_actual_byte_checks(self):
+        self.shard(n=2)
+        path = self.root / "data/n=2/rays.json"
+        write_ray_catalog(path, [(1, 2, 3), (2, 3, 4)], 2, shard_bytes=20)
+        self.commit()
+        storage.snapshot(self.root)
+        self.assertEqual(len(storage.make_plan(self.root)["ray_payloads"]), 2)
+        storage.audit_inventory(self.root)
+        catalog = RayCatalog(path, 2)
+        payload = path.parent / catalog.shards[0].path
+        saved = payload.read_bytes()
+        payload.write_bytes(saved[:-1])
+        with self.assertRaises(ValueError):
+            storage.audit_inventory(self.root)
+        payload.write_bytes(saved)
+        extra = payload.parent / ("0" * 64 + ".json")
+        extra.write_text("[]")
+        with self.assertRaisesRegex(ValueError, "unindexed.*ray"):
+            storage.make_plan(self.root)
+        extra.unlink()
+        payload.unlink()
+        self.assertTrue(storage.make_plan(self.root)["ray_payloads"])
+        with self.assertRaisesRegex(ValueError, "absent"):
+            storage.audit_inventory(self.root)
+
     def test_graph_payloads_have_complete_ownership_and_actual_byte_checks(self):
         self.shard(n=2)
         path = self.root / "data/n=2/graphs.json"
