@@ -42,6 +42,10 @@ def load_hec_data(n: int, kind: DataKind, *, root: str | Path | None = None) -> 
         from .graph_store import GraphCatalog
 
         return GraphCatalog(path)
+    if kind == "rays":
+        from .ray_store import read_rays
+
+        return read_rays(path, n)
     if kind == "contractions":
         from .contractions import read_contractions
 

@@ -50,8 +50,9 @@ class ReadmeDataTests(unittest.TestCase):
         for directory in sorted((cls.root / "data").glob("n=*"), key=lambda path: int(path.name[2:])):
             docs = {
                 kind: json.loads((directory / f"{kind}.json").read_bytes())
-                for kind in ("facets", "rays", "inequalities", "proofs")
+                for kind in ("facets", "inequalities", "proofs")
             }
+            docs["rays"] = load_hec_data(int(directory.name[2:]), "rays", root=cls.root / "data")
             docs["graphs"] = GraphCatalog(directory / "graphs.json")
             cls.datasets.append((int(directory.name[2:]), docs))
 
@@ -138,7 +139,7 @@ class ReadmeDataTests(unittest.TestCase):
                 observed.append(min(costs))
         divisor = math.gcd(*observed)
         self.assertGreater(divisor, 0)
-        self.assertEqual([value // divisor for value in observed], ray)
+        self.assertEqual([value // divisor for value in observed], list(ray))
 
     def test_certified_facet_ray_pair_has_both_support_ranks(self):
         facet, ray, _graph = self._certified_facet_ray_pair()
