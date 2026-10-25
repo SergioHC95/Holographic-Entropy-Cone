@@ -10,10 +10,12 @@ from tempfile import TemporaryDirectory
 import zstandard as zstd
 from proof_fixtures import document
 
+from hec._graph_validation import canonical_primitive_ray_graph
 from hec.checks import check_stored_contractions, check_stored_facets, check_stored_graphs, check_stored_rays
 from hec.count_proofs import canonical_json, compatible_vertices, geometry, proof_id
 from hec.data import default_data_root
 from hec.graph_store import GraphCatalog, write_graph_catalog
+from hec.graphs import check_graph
 from hec.inequality_records import inequality_catalog, write_inequality_catalog
 from hec.proof_store import write_proof_catalog
 
@@ -91,6 +93,26 @@ class StoredContractionCheckTests(unittest.TestCase):
 
 
 class StoredGraphCheckTests(unittest.TestCase):
+    def test_realized_graph_with_lexicographic_purifier_edges_requires_canonical_storage(self) -> None:
+        # Imported witnesses can be mathematically correct while sorting O
+        # before bulk labels instead of last in the repository's vertex order.
+        graph = {"edges": [["A", "x1"], ["B", "x1"], ["O", "x1"]], "weights": [1, 1, 1]}
+        ray = [1, 1, 1]
+        self.assertTrue(check_graph(graph, ray, 2, match="ray")["ok"])
+        with TemporaryDirectory() as directory:
+            target = Path(directory) / "n=2"
+            target.mkdir()
+            (target / "rays.json").write_text(json.dumps([ray]))
+            write_graph_catalog(target / "graphs.json", [graph])
+            with self.assertRaisesRegex(ValueError, "canonical stored form"):
+                list(check_stored_graphs(directory, n=2))
+
+            normalized = canonical_primitive_ray_graph(graph, 2)
+            self.assertEqual(normalized["edges"], [["A", "x1"], ["B", "x1"], ["x1", "O"]])
+            self.assertTrue(check_graph(normalized, ray, 2, match="ray")["ok"])
+            write_graph_catalog(target / "graphs.json", [normalized])
+            self.assertEqual(list(check_stored_graphs(directory, n=2)), ["n=2: 1 ok"])
+
     def test_scaled_graph_is_rejected_as_nonprimitive(self) -> None:
         temporary, target, records = _temporary_dataset(1, "rays", "graphs")
         self.addCleanup(temporary.cleanup)
