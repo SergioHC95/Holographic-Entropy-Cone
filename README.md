@@ -134,7 +134,7 @@ proof coverage does not mean the six-party cone is fully known.
 | 3 | 2 | 7 | 2 | 7 | 2 | complete |
 | 4 | 2 | 20 | 3 | 20 | 2 | complete |
 | 5 | 8 | 372 | 19 | 2,267 | 8 | complete |
-| 6 | 84,988 | 421,874,978 | 1,144,247 | 5,693,990,368 | 84,988 | partial |
+| 6 | 84,988 | 421,874,978 | 1,144,358 | 5,694,549,808 | 84,988 | partial |
 
 CI recomputes this table and the proof-storage totals from the data; stale
 README counts fail the tests. These documentation checks do not replace
