@@ -12,6 +12,9 @@ permissions:
 
 env:
   HEC_CHECK_WORKERS: "2"
+  NUMBA_NUM_THREADS: "1"
+  OMP_NUM_THREADS: "1"
+  OPENBLAS_NUM_THREADS: "1"
 
 concurrency:
   group: database-integrity-proof-work-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -20,6 +23,7 @@ concurrency:
 jobs:
   quality:
     name: code quality and tests
+    needs: discover
     strategy:
       fail-fast: false
       matrix:
@@ -32,6 +36,8 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /*
+            !/data/n=6/graph-shards/*.json
+            !/data/n=6/ray-shards/*.json
             !/data/n=*/proof-shards/*.proofpack
             /data/n=[1-5]/proof-shards/*.proofpack
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
@@ -47,13 +53,22 @@ jobs:
         run: |
           uv run --no-sync hec native build --directory "$RUNNER_TEMP/hec-native"
           echo "HEC_NATIVE_DIR=$RUNNER_TEMP/hec-native" >> "$GITHUB_ENV"
-      - run: uv run --no-sync python -m unittest discover -s tests -v
+      - name: Run every portable test in the exact complete test plan
+        env:
+          EXPECTED_TEST_PLAN: ${{ needs.discover.outputs.test_plan_sha256 }}
+        run: uv run --no-sync python tests/ci_tests.py --partition unit --expected-plan "$EXPECTED_TEST_PLAN"
 
-  discover:
-    name: discover datasets
-    runs-on: ubuntu-24.04
-    outputs:
-      matrix: ${{ steps.datasets.outputs.matrix }}
+  catalogue:
+    name: catalogue integration
+    needs: discover
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    # Full-catalogue integration has the same resource budget as mathematical
+    # audits; the short portable job no longer duplicates this growing work.
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -67,10 +82,43 @@ jobs:
           version: "0.11.28"
           python-version: "3.13.14"
           enable-cache: true
-      - run: uv sync --locked --no-dev --python 3.13.14
+      - run: uv sync --locked --dev --python 3.13.14
+      - name: Build installed-package exact primitives
+        run: |
+          uv run --no-sync hec native build --directory "$RUNNER_TEMP/hec-native"
+          echo "HEC_NATIVE_DIR=$RUNNER_TEMP/hec-native" >> "$GITHUB_ENV"
+      - name: Run every catalogue test in the same complete test plan
+        env:
+          EXPECTED_TEST_PLAN: ${{ needs.discover.outputs.test_plan_sha256 }}
+        run: uv run --no-sync python tests/ci_tests.py --partition catalogue --expected-plan "$EXPECTED_TEST_PLAN"
+
+  discover:
+    name: discover datasets
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.datasets.outputs.matrix }}
+      test_plan_sha256: ${{ steps.tests.outputs.test_plan_sha256 }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/data/n=*/graph-shards/*.json
+            !/data/n=*/ray-shards/*.json
+            !/data/n=*/proof-shards/*.proofpack
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          version: "0.11.28"
+          python-version: "3.13.14"
+          enable-cache: true
+      - run: uv sync --locked --dev --python 3.13.14
       - id: datasets
         name: Plan complete disjoint mathematical audits and exact payload ownership
         run: uv run --no-sync hec plan --github-output "$GITHUB_OUTPUT"
+      - id: tests
+        name: Discover the complete disjoint unittest plan without executing cases
+        run: uv run --no-sync python tests/ci_tests.py --github-output "$GITHUB_OUTPUT"
 
   storage:
     name: ordinary Git data and complete main-ancestry hygiene
@@ -111,8 +159,9 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /*
+            !/data/n=*/graph-shards/*.json
+            !/data/n=*/ray-shards/*.json
             !/data/n=*/proof-shards/*.proofpack
-            /data/n=[1-5]/proof-shards/*.proofpack
             ${{ matrix.checkout_paths }}
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
@@ -138,6 +187,8 @@ jobs:
           CHECK_SHARD_COUNT: ${{ matrix.shard_count }}
           EXPECT_PROOFS: ${{ matrix.expect_proofs }}
           EXPECT_EDGES: ${{ matrix.expect_edges }}
+          EXPECT_ROWS: ${{ matrix.expect_rows }}
+          CHECK_PARTITION_MODE: ${{ matrix.partition_mode }}
         run: |
           if [[ "$CHECK_KIND" == "contractions" ]]; then
             uv run --no-sync hec check contractions --n "$CHECK_N" \
@@ -147,7 +198,8 @@ jobs:
             uv run --no-sync hec check database-bindings --n "$CHECK_N"
           else
             uv run --no-sync hec check "$CHECK_KIND" --n "$CHECK_N" \
-              --shard-index "$CHECK_SHARD_INDEX" --shard-count "$CHECK_SHARD_COUNT"
+              --shard-index "$CHECK_SHARD_INDEX" --shard-count "$CHECK_SHARD_COUNT" \
+              --partition-mode "$CHECK_PARTITION_MODE" --expect-rows "$EXPECT_ROWS"
           fi
 
   distribution:
@@ -160,6 +212,8 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /*
+            !/data/n=6/graph-shards/*.json
+            !/data/n=6/ray-shards/*.json
             !/data/n=*/proof-shards/*.proofpack
             /data/n=[1-5]/proof-shards/*.proofpack
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
@@ -188,18 +242,19 @@ jobs:
   gate:
     name: database integrity
     if: ${{ always() }}
-    needs: [quality, distribution, storage, discover, validate]
+    needs: [quality, catalogue, distribution, storage, discover, validate]
     runs-on: ubuntu-24.04
     steps:
       - name: Require every validation job
         env:
           DISCOVER_RESULT: ${{ needs.discover.result }}
           QUALITY_RESULT: ${{ needs.quality.result }}
+          CATALOGUE_RESULT: ${{ needs.catalogue.result }}
           DISTRIBUTION_RESULT: ${{ needs.distribution.result }}
           VALIDATE_RESULT: ${{ needs.validate.result }}
           STORAGE_RESULT: ${{ needs.storage.result }}
         run: |
-          if [[ "$DISTRIBUTION_RESULT" != "success" || "$QUALITY_RESULT" != "success" || "$DISCOVER_RESULT" != "success" || "$VALIDATE_RESULT" != "success" || "$STORAGE_RESULT" != "success" ]]; then
-            echo "required checks failed: distribution=$DISTRIBUTION_RESULT quality=$QUALITY_RESULT, discovery=$DISCOVER_RESULT, validation=$VALIDATE_RESULT, storage=$STORAGE_RESULT"
+          if [[ "$DISTRIBUTION_RESULT" != "success" || "$QUALITY_RESULT" != "success" || "$CATALOGUE_RESULT" != "success" || "$DISCOVER_RESULT" != "success" || "$VALIDATE_RESULT" != "success" || "$STORAGE_RESULT" != "success" ]]; then
+            echo "required checks failed: distribution=$DISTRIBUTION_RESULT quality=$QUALITY_RESULT, catalogue=$CATALOGUE_RESULT, discovery=$DISCOVER_RESULT, validation=$VALIDATE_RESULT, storage=$STORAGE_RESULT"
             exit 1
           fi

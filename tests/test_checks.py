@@ -3,19 +3,23 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 import zstandard as zstd
 from proof_fixtures import document
 
+from hec import checks as row_checks
 from hec.checks import check_stored_contractions, check_stored_facets, check_stored_graphs, check_stored_rays
 from hec.count_proofs import canonical_json, compatible_vertices, geometry, proof_id
 from hec.data import default_data_root
 from hec.graph_store import GraphCatalog, write_graph_catalog
 from hec.inequality_records import inequality_catalog, write_inequality_catalog
 from hec.proof_store import write_proof_catalog
+from hec.ray_store import RayCatalog, write_ray_catalog
 
 
 def _temporary_dataset(n: int, *kinds: str) -> tuple[TemporaryDirectory, Path, dict[str, list]]:
@@ -91,6 +95,37 @@ class StoredContractionCheckTests(unittest.TestCase):
 
 
 class StoredGraphCheckTests(unittest.TestCase):
+    def test_generation_bound_is_enforced_before_exact_graph_work(self):
+        graph = {"edges": [["A", "x1"], ["x1", "O"]], "weights": [1, 1]}
+        with patch.object(row_checks, "DEFAULT_MAX_VERTICES", 2), patch.object(row_checks, "check_graph") as exact:
+            index, error = row_checks._check_graph_pair((7, (1,), graph, 1))
+        self.assertEqual(index, 7)
+        self.assertIn("uses 3 vertices", error)
+        exact.assert_not_called()
+
+    def test_contiguous_jobs_need_only_their_own_ray_and_graph_payloads(self):
+        with TemporaryDirectory() as temporary:
+            directory = Path(temporary) / "n=2"
+            directory.mkdir()
+            rays = [(1, 0, 1), (0, 1, 1), (1, 1, 0)]
+            graphs = [
+                {"edges": [[left, right]], "weights": [1]} for left, right in (("A", "O"), ("B", "O"), ("A", "B"))
+            ]
+            write_ray_catalog(directory / "rays.json", rays, 2, shard_bytes=15)
+            write_graph_catalog(directory / "graphs.json", graphs, shard_bytes=80)
+            (directory / "facets.json").write_text("[[1,1,-1]]")
+            ray_catalog, graph_catalog = RayCatalog(directory / "rays.json", 2), GraphCatalog(directory / "graphs.json")
+            self.assertEqual(len(ray_catalog.shards), 3)
+            self.assertEqual(len(graph_catalog.shards), 3)
+            for catalog in (ray_catalog, graph_catalog):
+                for ordinal in (0, 2):
+                    path = directory / catalog.shards[ordinal].path
+                    path.rename(path.with_suffix(".offline"))
+            options = dict(n=2, shard_index=1, shard_count=3, partition_mode="contiguous", expect_rows=1)
+            with patch.dict(os.environ, {"HEC_CHECK_WORKERS": "1"}):
+                self.assertIn("1 ok", list(check_stored_graphs(temporary, **options))[0])
+                self.assertIn("1 ok", list(check_stored_rays(temporary, **options))[0])
+
     def test_scaled_graph_is_rejected_as_nonprimitive(self) -> None:
         temporary, target, records = _temporary_dataset(1, "rays", "graphs")
         self.addCleanup(temporary.cleanup)
@@ -136,6 +171,81 @@ class StoredRankCheckTests(unittest.TestCase):
         (target / "rays.json").write_text("[[4]]")
         with self.assertRaisesRegex(ValueError, "integer dot-product bound"):
             list(check_stored_facets(temporary.name, n=1))
+
+
+class RowCoverageTests(unittest.TestCase):
+    def test_both_partition_modes_are_disjoint_and_complete(self):
+        for length in (0, 1, 2, 7, 32, 101):
+            for groups in (1, 2, 3, 16):
+                for mode in ("round-robin", "contiguous"):
+                    rows = [
+                        index
+                        for group in range(groups)
+                        for index in row_checks._shard_indices(length, group, groups, mode)
+                    ]
+                    with self.subTest(length=length, groups=groups, mode=mode):
+                        self.assertEqual(sorted(rows), list(range(length)))
+        self.assertEqual(list(row_checks._shard_indices(10, 1, 3)), [1, 4, 7])
+        self.assertEqual(list(row_checks._shard_indices(10, 1, 3, "contiguous")), [3, 4, 5])
+        for index, count, mode in (
+            (True, 1, "contiguous"),
+            (0, True, "contiguous"),
+            (0, 0, "round-robin"),
+            (1, 1, "round-robin"),
+            (0, 1, "missing"),
+        ):
+            with self.assertRaises(ValueError):
+                row_checks._shard_indices(10, index, count, mode)
+
+    def stage(self, root, count):
+        directory = root / "n=1"
+        directory.mkdir()
+        (directory / "rays.json").write_text(json.dumps([[1]] * count))
+        (directory / "facets.json").write_text("[[1]]")
+        write_graph_catalog(directory / "graphs.json", [{"edges": [["A", "O"]], "weights": [1]}] * count)
+
+    def test_all_rows_are_visited_once_across_contiguous_graph_partitions(self):
+        with TemporaryDirectory() as temporary:
+            self.stage(Path(temporary), 7)
+            with patch.object(row_checks, "_check_graph_pair", wraps=row_checks._check_graph_pair) as work:
+                for group in range(3):
+                    selected = row_checks._shard_indices(7, group, 3, "contiguous")
+                    list(
+                        check_stored_graphs(
+                            temporary,
+                            n=1,
+                            shard_index=group,
+                            shard_count=3,
+                            partition_mode="contiguous",
+                            expect_rows=len(selected),
+                        )
+                    )
+            self.assertEqual(sorted(call.args[0][0] for call in work.call_args_list), list(range(7)))
+
+    def test_missing_duplicate_and_out_of_partition_results_fail_closed(self):
+        with TemporaryDirectory() as temporary, patch.dict(os.environ, {"HEC_CHECK_WORKERS": "2"}):
+            self.stage(Path(temporary), 33)
+            for results in ([], [(0, None), (0, None)], [(99, None)]):
+                with (
+                    patch.object(row_checks, "_bounded_parallel_map", return_value=iter(results)),
+                    self.assertRaises(ValueError),
+                ):
+                    list(check_stored_graphs(temporary, n=1))
+            valid = {"ok": True}
+            for results in ([], [(1, valid), (1, valid)], [(99, valid)]):
+                with (
+                    patch.object(row_checks, "_bounded_parallel_map", return_value=iter(results)),
+                    self.assertRaises(ValueError),
+                ):
+                    list(check_stored_rays(temporary, n=1))
+
+    def test_expected_count_preflights_before_rank_preparation(self):
+        with TemporaryDirectory() as temporary:
+            self.stage(Path(temporary), 3)
+            with patch.object(row_checks, "prepare_rank_candidates", side_effect=AssertionError("preflight first")):
+                for expected in (2, True):
+                    with self.assertRaisesRegex(ValueError, "planned row coverage"):
+                        list(check_stored_rays(temporary, n=1, expect_rows=expected))
 
 
 if __name__ == "__main__":

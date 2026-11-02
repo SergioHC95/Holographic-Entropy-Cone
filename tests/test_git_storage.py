@@ -293,7 +293,11 @@ class GitStorageTests(unittest.TestCase):
         text = (Path(__file__).parents[1] / ".github/workflows/database-integrity.yml").read_text()
         self.assertIn('branches: [main, "codex/lfs-free-main-*"]', text)
         self.assertIn("  workflow_dispatch:", text)
-        self.assertIn("needs: [quality, distribution, storage, discover, validate]", text)
+        self.assertIn("needs: [quality, catalogue, distribution, storage, discover, validate]", text)
+        self.assertIn("CATALOGUE_RESULT", text)
+        self.assertIn("needs.discover.outputs.test_plan_sha256", text)
+        self.assertIn("--partition unit --expected-plan", text)
+        self.assertIn("--partition catalogue --expected-plan", text)
 
     def test_historical_records_cannot_become_production_dependencies(self):
         self.shard()

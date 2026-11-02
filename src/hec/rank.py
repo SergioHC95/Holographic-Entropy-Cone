@@ -69,14 +69,22 @@ def _prepare_rank_candidates(candidates, n, *, shared):
             filled += 1
         if filled != count:
             raise ValueError("rank candidate count changed during preparation")
+    # Lossless range-proven storage, never clipping or floating conversion.
+    # Rank arithmetic still uses the existing int64 work/basis arrays.
+    low, high = int(candidate_arr.min(initial=0)), int(candidate_arr.max(initial=0))
+    candidate_dtype = _signed_storage_dtype(low, high)
+    if candidate_arr.dtype != candidate_dtype:
+        candidate_arr = candidate_arr.astype(candidate_dtype)
     candidate_counts = np.count_nonzero(candidate_arr, axis=1).astype(np.int64)
     max_count = int(candidate_counts.max()) if candidate_counts.size else 0
     # One-off dense queries can select only the dense or sparse-fixed kernel;
     # neither reads sparse candidate copies. Shared preparation still exposes
     # all representations for callers that explicitly exercise each kernel.
     if shared or max_count * 2 < width:
-        candidate_indices = np.zeros((candidate_arr.shape[0], max_count), dtype=np.int64)
-        candidate_values = np.zeros((candidate_arr.shape[0], max_count), dtype=np.int64)
+        candidate_indices = np.zeros(
+            (candidate_arr.shape[0], max_count), dtype=_signed_storage_dtype(0, max(0, width - 1))
+        )
+        candidate_values = np.zeros((candidate_arr.shape[0], max_count), dtype=candidate_dtype)
         for row_index, row in enumerate(candidate_arr):
             nonzero = np.flatnonzero(row)
             candidate_indices[row_index, : nonzero.size] = nonzero
@@ -108,6 +116,14 @@ def _prepare_rank_candidates(candidates, n, *, shared):
         orbit_indices,
         orbit_counts,
     )
+
+
+def _signed_storage_dtype(low: int, high: int):
+    for dtype in (np.int8, np.int16, np.int32, np.int64):
+        limits = np.iinfo(dtype)
+        if limits.min <= low <= high <= limits.max:
+            return dtype
+    raise ValueError("rank candidates exceed exact signed 64-bit storage")
 
 
 def support_rank(fixed: Sequence[int], candidates: Sequence[Sequence[int]], n: int) -> dict:

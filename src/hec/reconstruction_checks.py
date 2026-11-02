@@ -16,14 +16,16 @@ from multiprocessing.util import Finalize
 from pathlib import Path
 
 from ._proof_partitions import partition_entries, proof_groups, proof_work
-from .checks import _bounded_parallel_map, _check_facet_structure, check_worker_count, run_check
+from .checks import _bounded_parallel_map, _check_facet_structure, _shard_indices, check_worker_count, run_check
 from .count_proofs import canonical_json, decimal, geometry, inequality_id
 from .data import available_ns, data_path, load_hec_data
 from .inequality_records import InequalityCatalog
 from .proof_store import ProofCatalog
+from .ray_store import RayCatalog
 from .reconstruction_verify import ReconstructionVerifier
 
 PROOF_TARGET, PROOF_JOB_LIMIT = 1024, 64
+ROW_TARGET, ROW_JOB_LIMIT = 25_000, 16
 _process_catalog = _process_verifier = None
 
 
@@ -184,6 +186,24 @@ def check_stored_facet_database_format(root=None, *, n=None, shard_index=0, shar
     yield "complete full-map audits and exact inequality/proof bindings; no facet/rank claim inferred from validity."
 
 
+def _catalogue_payload_paths(catalogue, n, start=0, stop=None):
+    """Metadata-only immutable payload ownership for a half-open row range."""
+    from .graph_store import GraphCatalog
+
+    stop = len(catalogue) if stop is None else stop
+    if type(start) is not int or type(stop) is not int or not 0 <= start <= stop <= len(catalogue):
+        raise ValueError("invalid catalogue payload ownership range")
+    if start == stop or not isinstance(catalogue, (GraphCatalog, RayCatalog)):
+        return set()  # Small inline ray arrays already live in the index path.
+    paths, offset = set(), 0
+    for shard in catalogue.shards:
+        end = offset + shard.count
+        if start < end and offset < stop:
+            paths.add(f"/data/n={n}/{shard.path}")
+        offset = end
+    return paths
+
+
 def ci_matrix(root=None):
     """Cover every complete proof exactly once, plus all other data gates.
 
@@ -199,12 +219,12 @@ def ci_matrix(root=None):
         counts = {}
         from .graph_store import GraphCatalog
 
-        counts["graphs"] = len(GraphCatalog(data_path(current_n, "graphs", root=root)))
-        for kind in ("facets", "rays"):
-            # Rays may use the bounded, content-addressed catalogue format.
-            # The standard data reader validates its index without loading all
-            # payloads, which preserves this planner's metadata-only scope.
-            counts[kind] = len(load_hec_data(current_n, kind, root=root))
+        graphs = GraphCatalog(data_path(current_n, "graphs", root=root))
+        rays = load_hec_data(current_n, "rays", root=root)
+        counts["graphs"], counts["rays"] = len(graphs), len(rays)
+        # The standard readers validate indexes without materializing their
+        # immutable payloads, preserving this planner's metadata-only scope.
+        counts["facets"] = len(load_hec_data(current_n, "facets", root=root))
         if counts["graphs"] != counts["rays"]:
             raise ValueError("CI graph/ray coverage counts disagree")
         counts.update(contractions=len(catalog), **{"database-bindings": len(inequalities.entries)})
@@ -215,7 +235,7 @@ def ci_matrix(root=None):
             if kind == "facets":
                 groups = min(8, max(1, math.ceil(counts[kind] / 10_000)))
             elif kind in ("graphs", "rays"):
-                groups = min(16, max(1, math.ceil(counts[kind] / 25_000)))
+                groups = min(ROW_JOB_LIMIT, max(1, math.ceil(counts[kind] / ROW_TARGET)))
             for group in range(groups):
                 task = {
                     "kind": kind,
@@ -244,7 +264,7 @@ def ci_matrix(root=None):
                     # Cubic exact elimination is independently expensive. Give
                     # rank partitions early slots alongside the largest maps,
                     # rather than placing every rank job at the queue's tail.
-                    owned_rows = (counts[kind] + groups - 1 - group) // groups
+                    owned_rows = len(_shard_indices(counts[kind], group, groups, "contiguous"))
                     priority = 3 * owned_rows * ((1 << current_n) - 1) ** 3 + (1 << 18)
                 elif kind == "database-bindings":
                     # Global symmetry/normalization checks must not become a
@@ -252,6 +272,18 @@ def ci_matrix(root=None):
                     priority = counts[kind] * ((1 << current_n) - 1) * math.factorial(current_n + 1)
                 else:
                     priority = 0
+                if kind in ("graphs", "rays", "facets"):
+                    selected = _shard_indices(counts[kind], group, groups, "contiguous")
+                    task["partition_mode"] = "contiguous"
+                    task["expect_rows"] = len(selected)
+                    paths = (
+                        _catalogue_payload_paths(rays, current_n)
+                        if kind == "facets"
+                        else _catalogue_payload_paths(rays, current_n, selected.start, selected.stop)
+                    )
+                    if kind == "graphs":
+                        paths |= _catalogue_payload_paths(graphs, current_n, selected.start, selected.stop)
+                    task["checkout_paths"] = "\n".join(sorted(paths))
                 tasks.append(task)
                 priorities.append(priority)
     if len(tasks) > 256:
@@ -273,8 +305,13 @@ def main(argv=None):
     parser.add_argument("--shard-count", type=int, default=1)
     parser.add_argument("--expect-proofs", type=int)
     parser.add_argument("--expect-edges", type=int)
+    parser.add_argument("--expect-rows", type=int)
+    parser.add_argument("--partition-mode", choices=("round-robin", "contiguous"), default="round-robin")
     parser.add_argument("--github-output", type=Path)
     args = parser.parse_args(argv)
+    row_options = args.expect_rows is not None or args.partition_mode != "round-robin"
+    if row_options and args.kind not in ("graphs", "rays", "facets"):
+        parser.error("row coverage and partition mode belong only to graphs, rays and facets")
     if args.kind == "plan":
         if args.n is not None or (args.shard_index, args.shard_count) != (0, 1):
             parser.error("the CI plan must include every dataset and proof partition")
@@ -310,7 +347,10 @@ def main(argv=None):
             "rays": check_stored_rays,
             "graphs": check_stored_graphs,
         }[args.kind]
-        run_check(function(args.root, n=args.n, shard_index=args.shard_index, shard_count=args.shard_count))
+        options = {"n": args.n, "shard_index": args.shard_index, "shard_count": args.shard_count}
+        if args.kind in ("graphs", "rays", "facets"):
+            options.update(partition_mode=args.partition_mode, expect_rows=args.expect_rows)
+        run_check(function(args.root, **options))
 
 
 if __name__ == "__main__":

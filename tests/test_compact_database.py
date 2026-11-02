@@ -1,14 +1,14 @@
-import hashlib
 import json
 import math
 import os
 import tempfile
 import unittest
-from itertools import combinations
+from itertools import combinations, islice
 from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
+from catalogue_fixtures import select_rays
 from numba import njit
 from proof_fixtures import document
 
@@ -41,6 +41,16 @@ def _orbit_image_count(rows, maps):
     return total
 
 
+def orbit_image_count(rows, maps, *, batch_size=4096):
+    """Exhaustive exact count with catalogue-size-independent working storage."""
+    if type(batch_size) is not int or batch_size < 1:
+        raise ValueError("orbit batch size must be a positive integer")
+    iterator, total = iter(rows), 0
+    while batch := list(islice(iterator, batch_size)):
+        total += int(_orbit_image_count(np.asarray(batch, dtype=np.int64), maps))
+    return total
+
+
 class ReadmeDataTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -68,8 +78,8 @@ class ReadmeDataTests(unittest.TestCase):
                 self.assertEqual(len(proofs), len(inequalities))
                 self.assertEqual(len(facets), len(proofs))
             maps = permutation_array(n)
-            facet_images = _orbit_image_count(np.asarray(facets, dtype=np.int64), maps)
-            ray_images = _orbit_image_count(np.asarray(rays, dtype=np.int64), maps)
+            facet_images = orbit_image_count(facets, maps)
+            ray_images = orbit_image_count(rays, maps)
             status = "complete" if n <= 5 else "partial"
             expected.append(
                 f"| {n} | {len(facets):,} | {facet_images:,} | {len(rays):,} | "
@@ -101,13 +111,8 @@ class ReadmeDataTests(unittest.TestCase):
     def _certified_facet_ray_pair(self):
         data = dict(self.datasets)[6]
         ray_id = "39484b4dc968ef126c6fa47184797b727397c291fb831c2105dee3ba703cad8f"
-        indices = [
-            index
-            for index, ray in enumerate(data["rays"])
-            if hashlib.sha256(json.dumps(ray, separators=(",", ":")).encode()).hexdigest() == ray_id
-        ]
-        self.assertEqual(len(indices), 1)
-        pair = (data["rays"][indices[0]], data["graphs"][indices[0]])
+        index, ray = select_rays(data["rays"], [ray_id], unique=True)[ray_id]
+        pair = (ray, data["graphs"][index])
         identity = "e7b8a988f55d1418c78bfc1e2e1580952fcfbc2d418d37b7097480e021eb1e10"
         entry = next(row for row in data["inequalities"]["entries"] if row["id"] == identity)
         facet = [int(value) for value in entry["coefficients"]]
@@ -186,3 +191,26 @@ class CompactDatabaseTests(unittest.TestCase):
                 target.write_text(json.dumps([[value, 1, -1]]))
                 with self.assertRaises(ValueError):
                     read_integer_rows(target, n=2)
+
+
+class OrbitCountTests(unittest.TestCase):
+    def test_streamed_batches_match_every_explicit_small_orbit(self):
+        rng = np.random.default_rng(12301)
+        rows = rng.integers(-2, 3, size=(13, 7), dtype=np.int64)
+        rows[0] = 0
+        rows[1] = 1
+        maps = permutation_array(3)
+        expected = sum(len(np.unique(row[maps], axis=0)) for row in rows)
+        for size in (1, 2, 5, 64):
+            with self.subTest(batch_size=size):
+                self.assertEqual(orbit_image_count(iter(rows), maps, batch_size=size), expected)
+        self.assertEqual(orbit_image_count(iter(()), maps), 0)
+
+    def test_every_row_is_consumed_in_bounded_batches(self):
+        maps = permutation_array(1)
+        with patch(__name__ + "._orbit_image_count", wraps=_orbit_image_count) as kernel:
+            self.assertEqual(orbit_image_count(((1,) for _ in range(17)), maps, batch_size=4), 17)
+        self.assertEqual([len(call.args[0]) for call in kernel.call_args_list], [4, 4, 4, 4, 1])
+        for size in (0, -1, True):
+            with self.assertRaisesRegex(ValueError, "positive integer"):
+                orbit_image_count([], maps, batch_size=size)

@@ -25,6 +25,35 @@ def reference_insert(row, basis, flags, rank, target):
 
 
 class ModularRankTests(unittest.TestCase):
+    def test_storage_narrows_only_after_proving_the_complete_exact_range(self):
+        def run_all(prepared):
+            fixed = np.array([0, 300, 0], dtype=np.int64)
+            arrays, maps, inverse, indices, values, counts, target, representatives, lengths = prepared
+            return (
+                kernels.saturating_image_rank(fixed, arrays, maps, target, representatives, lengths),
+                kernels.saturating_image_rank_sparse_fixed(
+                    np.array([1]), fixed[1:2], arrays, maps, inverse, target, representatives, lengths
+                ),
+                kernels.saturating_image_rank_sparse_candidates(
+                    fixed, indices, values, counts, maps, target, representatives, lengths
+                ),
+            )
+
+        for value, itemsize in ((127, 1), (-128, 1), (128, 2), (-129, 2), (32768, 4), (1 << 42, 8)):
+            with self.subTest(value=value):
+                rows = [(value, 0, -1)]
+                prepared = kernels.prepare_rank_candidates(rows, 2)
+                np.testing.assert_array_equal(prepared[0], rows)
+                self.assertEqual(prepared[0].dtype.itemsize, itemsize)
+                self.assertEqual(prepared[3].dtype.itemsize, 1)
+                self.assertEqual(prepared[4].dtype.itemsize, itemsize)
+                wide = list(prepared)
+                for index in (0, 3, 4):
+                    wide[index] = wide[index].astype(np.int64)
+                actual = run_all(prepared)
+                self.assertEqual(actual, run_all(wide))
+                self.assertTrue(all(result[0] == prepared[6] for result in actual))
+
     def test_one_off_dense_candidates_keep_one_owned_row_matrix(self):
         for row in ((1, 2, 3, 4, 5, 6, 7), (1, 2, 0, 4, 0, 6, 0)):
             candidates = [row] * 70
