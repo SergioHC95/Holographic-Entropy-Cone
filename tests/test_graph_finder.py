@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import runpy
@@ -11,9 +10,10 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 import numpy as np
+from catalogue_fixtures import select_rays
 from scipy import sparse
 
-from hec import available_ns, load_hec_data
+from hec import load_hec_data
 from hec._graph_milp import (
     HIGHSPY_BACKEND,
     SCIP_INDICATOR_BACKEND,
@@ -37,7 +37,7 @@ from hec._graph_search import (
     solve_fixed_n,
 )
 from hec._graph_validation import graph_total_vertices
-from hec.graphs import check_graph, find_graph, find_graph_fixed_n, read_graphs, write_graphs
+from hec.graphs import DEFAULT_MAX_VERTICES, check_graph, find_graph, find_graph_fixed_n, read_graphs, write_graphs
 
 
 def _orbit_plan(*selected_cuts: tuple[tuple[int, int], ...]) -> OrbitSearchPlan:
@@ -563,13 +563,11 @@ class PublicGraphFinderTests(unittest.TestCase):
             ("4388ecb359d4478911f81ced52c033368d3753ac941657edace90389956525fd", 11),
             ("ea49fdcd8e0d15ca4e5686fedbf14ae935863894b9d6b89d34c99a7ca52b6756", 10),
         )
-        by_fingerprint = {
-            hashlib.sha256(json.dumps(list(ray), separators=(",", ":")).encode()).hexdigest(): ray for ray in rays
-        }
+        by_fingerprint = select_rays(rays, (fingerprint for fingerprint, _ in cases))
         for fingerprint, total_vertices in cases:
             with self.subTest(fingerprint=fingerprint):
                 self.assertIn(fingerprint, by_fingerprint)
-                result = find_graph_fixed_n(by_fingerprint[fingerprint], total_vertices)
+                result = find_graph_fixed_n(by_fingerprint[fingerprint][1], total_vertices)
                 self.assertEqual(result["status"], "realized")
                 self.assertTrue(result["check"]["ok"])
                 self.assertEqual(graph_total_vertices(result["graph"], 6), total_vertices)
@@ -739,10 +737,11 @@ class PublicGraphFinderTests(unittest.TestCase):
             [False, True, True, True, True, True],
         )
 
-    def test_generation_bound_covers_every_stored_graph(self) -> None:
+    def test_generation_default_matches_the_mandatory_graph_audit_policy(self) -> None:
         script = runpy.run_path(Path(__file__).parents[1] / "examples" / "find_ray_graphs.py")
-        largest = max(graph_total_vertices(graph, n) for n in available_ns() for graph in load_hec_data(n, "graphs"))
-        self.assertLessEqual(largest, script["DEFAULT_MAX_VERTICES"])
+        # Every actual record is checked by the mandatory parallel graph audit,
+        # including its generation bound; unit tests cover that enforcement.
+        self.assertEqual(script["DEFAULT_MAX_VERTICES"], DEFAULT_MAX_VERTICES)
 
     def test_ray_results_are_primitive_and_strict_json(self) -> None:
         result = find_graph_fixed_n([11, 7, 6], 5, match="ray")

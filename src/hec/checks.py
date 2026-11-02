@@ -12,7 +12,7 @@ from typing import TypeVar
 from ._graph_validation import canonical_primitive_ray_graph
 from .data import available_ns, data_path, load_hec_data
 from .graph_store import GraphCatalog
-from .graphs import check_graph
+from .graphs import DEFAULT_MAX_VERTICES, check_graph
 from .rank import check_support_rank_prepared, prepare_rank_candidates
 from .symmetry import canonical_vector
 from .workers import generation_worker_count
@@ -47,14 +47,47 @@ def _selected_ns(root: str | Path | None, n: int | None) -> list[int]:
     return [n]
 
 
-def _shard_indices(length: int, shard_index: int, shard_count: int) -> range:
-    """Return the global row indices assigned to one round-robin shard."""
+def _shard_indices(length: int, shard_index: int, shard_count: int, partition_mode: str = "round-robin") -> range:
+    """Exact row ownership; the default preserves the public round-robin API."""
 
-    if shard_count < 1:
+    if type(length) is not int or length < 0:
+        raise ValueError("row count must be a non-negative integer")
+    if type(shard_count) is not int or shard_count < 1:
         raise ValueError(f"shard count must be positive, got {shard_count}")
-    if not 0 <= shard_index < shard_count:
+    if type(shard_index) is not int or not 0 <= shard_index < shard_count:
         raise ValueError(f"shard index must be in [0, {shard_count}), got {shard_index}")
-    return range(shard_index, length, shard_count)
+    if partition_mode == "round-robin":
+        return range(shard_index, length, shard_count)
+    if partition_mode == "contiguous":
+        return range(length * shard_index // shard_count, length * (shard_index + 1) // shard_count)
+    raise ValueError("partition mode must be 'round-robin' or 'contiguous'")
+
+
+def _check_expected_rows(selected: range, expect_rows: int | None) -> None:
+    if expect_rows is not None and (type(expect_rows) is not int or expect_rows != len(selected)):
+        raise ValueError("planned row coverage differs from the selected partition")
+
+
+class _RowCoverage:
+    """One byte per owned row; completion is not inferred from a plan."""
+
+    def __init__(self, selected: range):
+        self.selected = selected
+        self.seen = bytearray(len(selected))
+        self.count = 0
+
+    def add(self, index: int) -> None:
+        if type(index) is not int or index not in self.selected:
+            raise ValueError("out-of-partition actual row result")
+        position = (index - self.selected.start) // self.selected.step
+        if self.seen[position]:
+            raise ValueError("duplicate actual row result")
+        self.seen[position] = 1
+        self.count += 1
+
+    def require_complete(self) -> None:
+        if self.count != len(self.selected):
+            raise ValueError("incomplete actual row coverage")
 
 
 def _shard_label(shard_index: int, shard_count: int) -> str:
@@ -121,12 +154,18 @@ def _check_stored_rank(
     n: int | None = None,
     shard_index: int = 0,
     shard_count: int = 1,
+    partition_mode: str = "round-robin",
+    expect_rows: int | None = None,
 ) -> Iterator[str]:
     for current_n, fixed_rows, candidate_rows in _stored(root, fixed_kind, candidate_kind, n=n):
-        selected = _shard_indices(len(fixed_rows), shard_index, shard_count)
+        if not len(fixed_rows) or not len(candidate_rows):
+            raise ValueError("empty rank catalogue is not acceptance")
+        selected = _shard_indices(len(fixed_rows), shard_index, shard_count, partition_mode)
+        _check_expected_rows(selected, expect_rows)
         selected_count = len(selected)
+        coverage = _RowCoverage(selected)
         label = _shard_label(shard_index, shard_count)
-        fixed_bound = max((abs(value) for row in fixed_rows for value in row), default=0)
+        fixed_bound = max((abs(value) for index in selected for value in fixed_rows[index]), default=0)
         candidate_bound = max((abs(value) for row in candidate_rows for value in row), default=0)
         if fixed_bound * candidate_bound * ((1 << current_n) - 1) > (1 << 63) - 1:
             raise ValueError("integer dot-product bound exceeds the exact rank backend capacity")
@@ -146,6 +185,7 @@ def _check_stored_rank(
             first = check_row(fixed_rows[first_index])
             if not first["ok"]:
                 raise ValueError(f"n={current_n}, index={first_index}: rank {first['rank']} < {first['target_rank']}")
+            coverage.add(first_index)
 
             def check_indexed(pair: tuple[int, tuple[int, ...]]) -> tuple[int, dict]:
                 index, row = pair
@@ -159,6 +199,7 @@ def _check_stored_rank(
                     max_pending=2 * workers,
                 )
                 for completed, (index, check) in enumerate(checks, start=1):
+                    coverage.add(index)
                     if not check["ok"]:
                         raise ValueError(f"n={current_n}, index={index}: rank {check['rank']} < {check['target_rank']}")
                     if completed % 1_000 == 0:
@@ -171,6 +212,8 @@ def _check_stored_rank(
                 check = check_row(fixed_rows[index])
                 if not check["ok"]:
                     raise ValueError(f"n={current_n}, index={index}: rank {check['rank']} < {check['target_rank']}")
+                coverage.add(index)
+        coverage.require_complete()
         yield f"n={current_n}{label}: {selected_count} ok"
 
 
@@ -180,6 +223,8 @@ def check_stored_facets(
     n: int | None = None,
     shard_index: int = 0,
     shard_count: int = 1,
+    partition_mode: str = "round-robin",
+    expect_rows: int | None = None,
 ) -> Iterator[str]:
     yield from _check_stored_rank(
         root,
@@ -188,6 +233,8 @@ def check_stored_facets(
         n=n,
         shard_index=shard_index,
         shard_count=shard_count,
+        partition_mode=partition_mode,
+        expect_rows=expect_rows,
     )
 
 
@@ -197,6 +244,8 @@ def check_stored_rays(
     n: int | None = None,
     shard_index: int = 0,
     shard_count: int = 1,
+    partition_mode: str = "round-robin",
+    expect_rows: int | None = None,
 ) -> Iterator[str]:
     yield from _check_stored_rank(
         root,
@@ -205,6 +254,8 @@ def check_stored_rays(
         n=n,
         shard_index=shard_index,
         shard_count=shard_count,
+        partition_mode=partition_mode,
+        expect_rows=expect_rows,
     )
 
 
@@ -265,6 +316,11 @@ def _check_graph_pair(pair: tuple[int, tuple[int, ...], dict, int]) -> tuple[int
     index, ray, graph, n = pair
     if graph != canonical_primitive_ray_graph(graph, n):
         return index, "graph is not in canonical stored form"
+    # Canonical equality has already established positive edges, exact integer
+    # weights and valid contiguous bulk labels. Do not parse/sort them again.
+    vertices = n + 1 + len({vertex for edge in graph["edges"] for vertex in edge if vertex.startswith("x")})
+    if vertices > DEFAULT_MAX_VERTICES:
+        return index, f"graph uses {vertices} vertices, above generation limit {DEFAULT_MAX_VERTICES}"
     if not check_graph(graph, ray, n, match="ray")["ok"]:
         return index, "graph/ray mismatch"
     return index, None
@@ -276,14 +332,20 @@ def check_stored_graphs(
     n: int | None = None,
     shard_index: int = 0,
     shard_count: int = 1,
+    partition_mode: str = "round-robin",
+    expect_rows: int | None = None,
 ) -> Iterator[str]:
     for current_n in _selected_ns(root, n):
         rays = load_hec_data(current_n, "rays", root=root)
         graphs = GraphCatalog(data_path(current_n, "graphs", root=root))
         if len(rays) != len(graphs):
             raise ValueError(f"n={current_n}: {len(rays)} rays but {len(graphs)} graphs")
-        selected = _shard_indices(len(rays), shard_index, shard_count)
+        if not len(rays):
+            raise ValueError("empty graph/ray catalogue is not acceptance")
+        selected = _shard_indices(len(rays), shard_index, shard_count, partition_mode)
+        _check_expected_rows(selected, expect_rows)
         selected_count = len(selected)
+        coverage = _RowCoverage(selected)
         label = _shard_label(shard_index, shard_count)
         pairs = ((index, tuple(rays[index]), graphs[index], current_n) for index in selected)
         workers = check_worker_count()
@@ -292,13 +354,16 @@ def check_stored_graphs(
             with ProcessPoolExecutor(max_workers=workers) as pool:
                 checks = _bounded_parallel_map(pool, _check_graph_pair, pairs, max_pending=2 * workers)
                 for index, error in checks:
+                    coverage.add(index)
                     if error is not None:
                         raise ValueError(f"n={current_n}, index={index}: {error}")
         else:
             for pair in pairs:
                 index, error = _check_graph_pair(pair)
+                coverage.add(index)
                 if error is not None:
                     raise ValueError(f"n={current_n}, index={index}: {error}")
+        coverage.require_complete()
         yield f"n={current_n}{label}: {selected_count} ok"
 
 

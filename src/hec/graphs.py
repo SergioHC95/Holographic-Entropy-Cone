@@ -24,6 +24,9 @@ from .graph_store import GraphCatalog, write_graph_catalog
 
 Graph = dict[str, Any]
 MatchMode = Literal["ray", "exact"]
+# The published catalogue must remain within the example generator's bound.
+# This is a catalogue policy, not a limit on exact graph verification/search.
+DEFAULT_MAX_VERTICES = 15
 
 
 def normalize_graph(graph: Graph) -> Graph:

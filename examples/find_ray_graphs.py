@@ -9,12 +9,11 @@ from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 from hec.data import default_data_root
-from hec.graphs import find_graph, write_graphs
+from hec.graphs import DEFAULT_MAX_VERTICES, find_graph, write_graphs
 from hec.runs import run_generation
 from hec.workers import generation_worker_count
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_MAX_VERTICES = 15
 WORKERS = (
     generation_worker_count("HEC_GRAPH_WORKERS")
     if "HEC_GRAPH_WORKERS" in os.environ

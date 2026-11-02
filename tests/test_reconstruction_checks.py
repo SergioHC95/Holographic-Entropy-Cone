@@ -14,11 +14,12 @@ from proof_fixtures import document, unsupported_definition, write_frames
 
 from hec import reconstruction_checks as checks
 from hec._proof_partitions import partition_entries, proof_work
+from hec.checks import _shard_indices
 from hec.count_proofs import geometry, inequality_id, proof_id
-from hec.graph_store import GRAPH_FORMAT, write_graph_catalog
+from hec.graph_store import GRAPH_FORMAT, GraphCatalog, write_graph_catalog
 from hec.inequality_records import write_inequality_catalog
 from hec.proof_store import ProofCatalog
-from hec.ray_store import write_ray_catalog
+from hec.ray_store import RAY_FORMAT, RayCatalog, write_ray_catalog
 
 
 class ReconstructionChecksTests(unittest.TestCase):
@@ -41,8 +42,13 @@ class ReconstructionChecksTests(unittest.TestCase):
         for kind in ("graphs", "rays"):
             tasks = [task for task in plan["include"] if task["kind"] == kind]
             self.assertEqual(len(tasks), 3)
-            coverage = [i for task in tasks for i in range(task["shard_index"], count, task["shard_count"])]
+            coverage = [
+                i
+                for task in tasks
+                for i in _shard_indices(count, task["shard_index"], task["shard_count"], task["partition_mode"])
+            ]
             self.assertEqual(sorted(coverage), list(range(count)))
+            self.assertEqual(sum(task["expect_rows"] for task in tasks), count)
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="hec-exact-ci-")
@@ -139,7 +145,7 @@ class ReconstructionChecksTests(unittest.TestCase):
         self.assertEqual(sum(job["expect_edges"] for job in jobs), 12)
         self.assertEqual(sum(job["kind"] == "database-bindings" for job in plan), 1)
         self.assertNotIn("database", {job["kind"] for job in plan})
-        self.assertTrue(all(bool(job["checkout_paths"]) is (job["kind"] == "contractions") for job in plan))
+        self.assertTrue(all(bool(job["checkout_paths"]) is (job["kind"] in {"contractions", "graphs"}) for job in plan))
         catalog = ProofCatalog(self.directory / "proofs.json")
         seen, total = set(), 0
         for job in jobs:
@@ -343,6 +349,66 @@ class ReconstructionChecksTests(unittest.TestCase):
         self.assertEqual(json.loads(result.stdout.splitlines()[-1])["checked_edges"], 12)
         self.assertNotEqual(self.cli("plan", "--n", "2").returncode, 0)
         self.assertNotEqual(self.cli("contractions").returncode, 0)
+
+    def test_payload_ownership_uses_only_metadata_and_exact_overlapping_ranges(self):
+        self.stage(self.documents[:1])
+        for kind, format_name, counts, base in (
+            ("graphs", GRAPH_FORMAT, [3, 4, 5], 1),
+            ("rays", RAY_FORMAT, [2, 5, 5], 10),
+        ):
+            records = [{"sha256": f"{base + i:064x}", "bytes": 10, "count": count} for i, count in enumerate(counts)]
+            (self.directory / f"{kind}.json").write_text(
+                json.dumps({"format": format_name, "count": 12, "shards": records})
+            )
+        with (
+            patch.object(GraphCatalog, "_load", side_effect=AssertionError("metadata read graph payload")),
+            patch.object(RayCatalog, "_load", side_effect=AssertionError("metadata read ray payload")),
+            patch.object(checks, "ROW_TARGET", 4),
+        ):
+            plan = checks.ci_matrix(self.root)["include"]
+        graphs, rays = GraphCatalog(self.directory / "graphs.json"), RayCatalog(self.directory / "rays.json", 2)
+        for task in plan:
+            if task["kind"] not in {"graphs", "rays"}:
+                continue
+            selected = set(_shard_indices(12, task["shard_index"], task["shard_count"], "contiguous"))
+            wanted = set()
+            for catalogue in [rays, graphs] if task["kind"] == "graphs" else [rays]:
+                offset = 0
+                for shard in catalogue.shards:
+                    if selected & set(range(offset, offset + shard.count)):
+                        wanted.add(f"/data/n=2/{shard.path}")
+                    offset += shard.count
+            self.assertEqual(set(task["checkout_paths"].splitlines()), wanted)
+            self.assertEqual(task["expect_rows"], len(selected))
+        self.assertEqual(checks._catalogue_payload_paths(rays, 2, 5, 5), set())
+        with self.assertRaisesRegex(ValueError, "ownership range"):
+            checks._catalogue_payload_paths(rays, 2, -1, 5)
+
+    def test_public_cli_rejects_wrong_row_coverage_and_nonrow_options(self):
+        self.stage(self.documents[:1])
+        good = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "hec",
+                "check",
+                "rays",
+                "--n",
+                "2",
+                "--root",
+                str(self.root),
+                "--partition-mode",
+                "contiguous",
+                "--expect-rows",
+                "1",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(good.returncode, 0, good.stderr)
+        self.assertNotEqual(self.cli("rays", "--n", "2", "--expect-rows", "2").returncode, 0)
+        self.assertNotEqual(self.cli("plan", "--partition-mode", "contiguous").returncode, 0)
+        self.assertNotEqual(self.cli("contractions", "--n", "2", "--expect-rows", "1").returncode, 0)
 
 
 if __name__ == "__main__":
