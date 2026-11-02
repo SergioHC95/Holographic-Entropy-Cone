@@ -25,6 +25,57 @@ def reference_insert(row, basis, flags, rank, target):
 
 
 class ModularRankTests(unittest.TestCase):
+    def test_one_off_dense_candidates_keep_one_owned_row_matrix(self):
+        for row in ((1, 2, 3, 4, 5, 6, 7), (1, 2, 0, 4, 0, 6, 0)):
+            candidates = [row] * 70
+            prepared = kernels._prepare_rank_candidates(candidates, 3, shared=False)
+            arrays, maps, _inverse, indices, values, _counts, target, representatives, lengths = prepared
+            np.testing.assert_array_equal(arrays, candidates)
+            self.assertEqual(indices.size, 0)
+            self.assertEqual(values.size, 0)
+            for fixed in ((1, -1, 0, 0, 0, 0, 0), (1, -1, 2, -2, 3, -3, 1)):
+                with self.subTest(row=row, fixed=fixed):
+                    actual = kernels.support_rank_prepared(fixed, 3, *prepared)
+                    expected = kernels.saturating_image_rank(
+                        np.array(fixed, dtype=np.int64), arrays, maps, target, representatives, lengths
+                    )
+                    self.assertEqual((actual["rank"], actual["saturating_images"], actual["tested_images"]), expected)
+
+    def test_rank_preparation_preserves_unsized_iterable_inputs(self):
+        rows = [(1, 0, 1), (0, 1, 1)]
+        expected = kernels.support_rank((1, 1, -1), rows, 2)
+        actual = kernels.support_rank((1, 1, -1), iter(rows), 2)
+        self.assertEqual(actual, expected)
+
+    def test_one_off_sparse_candidates_still_have_complete_sparse_rows(self):
+        candidates = [(1, 0, 0, 0, 0, 0, 0), (0, 0, 0, 0, 0, 0, 0)]
+        prepared = kernels._prepare_rank_candidates(candidates, 3, shared=False)
+        arrays, maps, _inverse, indices, values, counts, target, representatives, lengths = prepared
+        self.assertEqual(indices.shape, (2, 1))
+        np.testing.assert_array_equal(counts, [1, 0])
+        fixed = np.array([1, -1, 2, -2, 3, -3, 1], dtype=np.int64)
+        actual = kernels.support_rank_prepared(fixed, 3, *prepared)
+        expected = kernels.saturating_image_rank(fixed, arrays, maps, target, representatives, lengths)
+        self.assertEqual((actual["rank"], actual["saturating_images"], actual["tested_images"]), expected)
+        np.testing.assert_array_equal(values, [[1], [0]])
+
+    def test_sequence_count_drift_and_late_bad_rows_are_not_silently_accepted(self):
+        class ChangedSequence:
+            def __init__(self, count, rows):
+                self.count, self.rows = count, rows
+
+            def __len__(self):
+                return self.count
+
+            def __iter__(self):
+                return iter(self.rows)
+
+        for count, rows in ((2, [(1, 1, -1)]), (1, [(1, 1, -1)] * 2)):
+            with self.subTest(count=count), self.assertRaisesRegex(ValueError, "candidate count changed"):
+                kernels._prepare_rank_candidates(ChangedSequence(count, rows), 2, shared=False)
+        with self.assertRaisesRegex(ValueError, "expected vector length"):
+            kernels.support_rank((1, 1, -1), [(1, 0, 1), (0, 1, 1), (1, 2)], 2)
+
     def test_single_rank_query_does_not_pay_for_shared_orbit_preprocessing(self):
         with patch.object(kernels, "_orbit_representatives", side_effect=AssertionError("one-off orbit preprocessing")):
             result = kernels.support_rank((1, 1, -1), [(1, 0, 1), (0, 1, 1)], 2)

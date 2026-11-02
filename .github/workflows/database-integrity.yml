@@ -47,7 +47,7 @@ jobs:
         run: |
           uv run --no-sync hec native build --directory "$RUNNER_TEMP/hec-native"
           echo "HEC_NATIVE_DIR=$RUNNER_TEMP/hec-native" >> "$GITHUB_ENV"
-      - run: uv run --no-sync python -m unittest discover -s tests
+      - run: uv run --no-sync python -m unittest discover -s tests -v
 
   discover:
     name: discover datasets

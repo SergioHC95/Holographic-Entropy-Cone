@@ -52,15 +52,38 @@ def prepare_rank_candidates(
 def _prepare_rank_candidates(candidates, n, *, shared):
     width = dim(n)
     target = width - 1
-    candidate_arr = np.asarray([row_to_array(row, n, dtype=np.int64) for row in candidates], dtype=np.int64)
+    # Catalogue sequences know their row count. Fill their one owned matrix
+    # directly instead of retaining another NumPy array per row until stacking.
+    # Keep the iterable fallback for callers without sequence metadata.
+    try:
+        count = len(candidates)
+    except TypeError:
+        candidate_arr = np.asarray([row_to_array(row, n, dtype=np.int64) for row in candidates], dtype=np.int64)
+    else:
+        candidate_arr = np.empty((count, width), dtype=np.int64)
+        filled = 0
+        for row in candidates:
+            if filled == count:
+                raise ValueError("rank candidate count changed during preparation")
+            candidate_arr[filled] = row_to_array(row, n, dtype=np.int64)
+            filled += 1
+        if filled != count:
+            raise ValueError("rank candidate count changed during preparation")
     candidate_counts = np.count_nonzero(candidate_arr, axis=1).astype(np.int64)
     max_count = int(candidate_counts.max()) if candidate_counts.size else 0
-    candidate_indices = np.zeros((candidate_arr.shape[0], max_count), dtype=np.int64)
-    candidate_values = np.zeros((candidate_arr.shape[0], max_count), dtype=np.int64)
-    for row_index, row in enumerate(candidate_arr):
-        nonzero = np.flatnonzero(row)
-        candidate_indices[row_index, : nonzero.size] = nonzero
-        candidate_values[row_index, : nonzero.size] = row[nonzero]
+    # One-off dense queries can select only the dense or sparse-fixed kernel;
+    # neither reads sparse candidate copies. Shared preparation still exposes
+    # all representations for callers that explicitly exercise each kernel.
+    if shared or max_count * 2 < width:
+        candidate_indices = np.zeros((candidate_arr.shape[0], max_count), dtype=np.int64)
+        candidate_values = np.zeros((candidate_arr.shape[0], max_count), dtype=np.int64)
+        for row_index, row in enumerate(candidate_arr):
+            nonzero = np.flatnonzero(row)
+            candidate_indices[row_index, : nonzero.size] = nonzero
+            candidate_values[row_index, : nonzero.size] = row[nonzero]
+    else:
+        candidate_indices = np.empty((0, 0), dtype=np.int64)
+        candidate_values = np.empty((0, 0), dtype=np.int64)
     maps = permutation_array(n)
     inverse_maps = np.empty_like(maps)
     source_indices = np.arange(width, dtype=np.int64)
