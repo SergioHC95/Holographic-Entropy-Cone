@@ -23,6 +23,19 @@ from hec.ray_store import RAY_FORMAT, RayCatalog, write_ray_catalog
 
 
 class ReconstructionChecksTests(unittest.TestCase):
+    def test_facet_jobs_own_witness_bytes_but_planning_does_not_accept_their_math(self):
+        from test_facet_witnesses import write
+
+        self.stage(self.documents[:1])
+        write(self.directory)
+        payload = next((self.directory / "witness-shards").iterdir())
+        relative = f"/data/n=2/witness-shards/{payload.name}"
+        payload.unlink()
+        plan = checks.ci_matrix(self.root)["include"]
+        for task in plan:
+            self.assertEqual(relative in task["checkout_paths"].splitlines(), task["kind"] == "facets")
+        self.assertTrue(list(checks.check_stored_database_bindings(self.root, n=2)))
+
     def test_ci_matrix_accepts_a_sharded_ray_catalogue(self):
         self.stage(self.documents[:1])
         write_ray_catalog(self.directory / "rays.json", [(1, 0, 1)], 2)

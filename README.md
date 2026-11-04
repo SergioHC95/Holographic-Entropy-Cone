@@ -53,7 +53,7 @@ the two catalogues cover exactly the same listed representatives.
 Rows use cardinality-then-lexicographic subset order. Non-lift facet rows are
 row-lexicographically sorted. There is exactly one full-map proof per listed facet,
 bound by content rather than facet-row position. The six-party data has
-**85,348 listed facet representatives**, with exactly matching inequality
+**85,553 listed facet representatives**, with exactly matching inequality
 and proof catalogues. Candidates without facet certification do not belong
 in the accepted data tree.
 `data/storage.json` binds every payload to its byte length and SHA256. Ray and
@@ -62,8 +62,8 @@ Git. Readers check every shard's hash, byte length, and row count; CI still
 independently checks every graph realization and exact ray rank. No stored hash
 or catalogue metadata substitutes for mathematical verification.
 
-Across all party counts, **85,362 full-map proofs** occupy **22 proof shards**
-totalling **156,208,159 bytes**. Git LFS is not required.
+Across all party counts, **85,567 full-map proofs** occupy **24 proof shards**
+totalling **181,695,542 bytes**. Git LFS is not required.
 
 One [mathematical specification](docs/proofs.md) defines the reconstruction
 contract. One [schema](schemas/repository.schema.json) describes proofs,
@@ -86,9 +86,11 @@ Hash/schema checks are not mathematical acceptance. The required CI gate also
 reconstructs every proof and checks all original-cube bounds, occurrence images
 and weighted edges, plus exact facet/ray ranks, graph realizations and global
 bindings. Membership must agree in both directions: no facet without a proof
-and no unlisted proof inequality. Facet ranks are established against the
-stored rays and their independently verified graph realizations, never from
-saved rank or validity flags.
+and no unlisted proof inequality. Facet ranks use stored rays and independently
+verified graph realizations. Additional [exact graph-entropy rank witnesses](docs/facet-rank-witnesses.md)
+can supply tight directions outside the example ray catalogue. CI freshly checks
+their feasible flows, matching cuts, tightness and modular independence.
+Saved rank and validity flags confer no acceptance.
 Complete maps belong to disjoint, cost-balanced jobs; each uses at
 most four workers and only its owned shards. All jobs must pass at one commit.
 
@@ -134,11 +136,18 @@ proof coverage does not mean the six-party cone is fully known.
 | 3 | 2 | 7 | 2 | 7 | 2 | complete |
 | 4 | 2 | 20 | 3 | 20 | 2 | complete |
 | 5 | 8 | 372 | 19 | 2,267 | 8 | complete |
-| 6 | 85,348 | 423,666,698 | 3,763,751 | 18,807,044,308 | 85,348 | partial |
+| 6 | 85,553 | 424,646,978 | 3,763,751 | 18,807,044,308 | 85,553 | partial |
 
 CI recomputes this table and the proof-storage totals from the data; stale
 README counts fail the tests. These documentation checks do not replace
 independent mathematical verification.
+
+The 205 facets imported from `HEC6_207_expanded_evidence` have current-standard
+full-map proofs and exact rank-62 bases. Of these, 64 use additional graph models;
+their 40 supporting models live in the separate content-addressed witness
+catalogue. The [source ledger](research/HEC6_207_proven_facets.json) binds each
+original bank index to its stored inequality and proof. The two source rows
+still at rank 61, old indices 44610 and 59782, are excluded.
 
 ## Attribution
 

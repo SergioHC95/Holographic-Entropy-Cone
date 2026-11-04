@@ -38,6 +38,7 @@ jobs:
             /*
             !/data/n=6/graph-shards/*.json
             !/data/n=6/ray-shards/*.json
+            !/data/n=*/witness-shards/*.witnesspack
             !/data/n=*/proof-shards/*.proofpack
             /data/n=[1-5]/proof-shards/*.proofpack
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
@@ -76,6 +77,7 @@ jobs:
           sparse-checkout: |
             /*
             !/data/n=*/proof-shards/*.proofpack
+            !/data/n=*/witness-shards/*.witnesspack
             /data/n=[1-5]/proof-shards/*.proofpack
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
@@ -106,6 +108,7 @@ jobs:
             /*
             !/data/n=*/graph-shards/*.json
             !/data/n=*/ray-shards/*.json
+            !/data/n=*/witness-shards/*.witnesspack
             !/data/n=*/proof-shards/*.proofpack
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
@@ -161,6 +164,7 @@ jobs:
             /*
             !/data/n=*/graph-shards/*.json
             !/data/n=*/ray-shards/*.json
+            !/data/n=*/witness-shards/*.witnesspack
             !/data/n=*/proof-shards/*.proofpack
             ${{ matrix.checkout_paths }}
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
@@ -214,6 +218,7 @@ jobs:
             /*
             !/data/n=6/graph-shards/*.json
             !/data/n=6/ray-shards/*.json
+            !/data/n=*/witness-shards/*.witnesspack
             !/data/n=*/proof-shards/*.proofpack
             /data/n=[1-5]/proof-shards/*.proofpack
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2

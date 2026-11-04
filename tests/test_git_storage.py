@@ -18,6 +18,31 @@ from hec.ray_store import RayCatalog, write_ray_catalog
 
 
 class GitStorageTests(unittest.TestCase):
+    def test_witness_payloads_are_owned_hashed_and_required_offline(self):
+        from test_facet_witnesses import write
+
+        self.shard(n=2)
+        write(self.root / "data/n=2")
+        self.commit()
+        storage.snapshot(self.root)
+        self.assertEqual(len(storage.make_plan(self.root)["witness_payloads"]), 1)
+        storage.audit_inventory(self.root)
+        payload = next((self.root / "data/n=2/witness-shards").iterdir())
+        saved = payload.read_bytes()
+        payload.write_bytes(saved + b"x")
+        with self.assertRaises(ValueError):
+            storage.audit_inventory(self.root)
+        payload.write_bytes(saved)
+        extra = payload.parent / ("0" * 64 + ".witnesspack")
+        extra.write_bytes(b"extra")
+        with self.assertRaisesRegex(ValueError, "unindexed.*witness"):
+            storage.make_plan(self.root)
+        extra.unlink()
+        payload.unlink()
+        self.assertTrue(storage.make_plan(self.root)["witness_payloads"])
+        with self.assertRaisesRegex(ValueError, "absent"):
+            storage.audit_inventory(self.root)
+
     def test_ray_payloads_have_complete_ownership_and_actual_byte_checks(self):
         self.shard(n=2)
         path = self.root / "data/n=2/rays.json"

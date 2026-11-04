@@ -170,9 +170,22 @@ def _check_stored_rank(
         if fixed_bound * candidate_bound * ((1 << current_n) - 1) > (1 << 63) - 1:
             raise ValueError("integer dot-product bound exceeds the exact rank backend capacity")
         prepared = prepare_rank_candidates(candidate_rows, current_n)
+        witnesses = None
+        if fixed_kind == "facets":
+            from .facet_witnesses import FacetWitnessCatalog
+
+            witnesses = FacetWitnessCatalog.optional(data_path(current_n, "facets", root=root).parent, current_n)
+            if witnesses is not None:
+                from .count_proofs import geometry, inequality_id
+
+                witnesses.check_bindings(inequality_id(geometry(current_n, tuple(row))) for row in fixed_rows)
         workers = check_worker_count()
 
-        def check_row(row, *, current_n=current_n, prepared=prepared):
+        def check_row(row, *, current_n=current_n, prepared=prepared, witnesses=witnesses):
+            if witnesses is not None:
+                certified = witnesses.verify_facet(row, prepared[0])
+                if certified is not None:
+                    return certified
             return check_support_rank_prepared(row, current_n, *prepared)
 
         if workers > 1 and selected_count >= 32:

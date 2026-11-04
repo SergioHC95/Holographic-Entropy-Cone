@@ -68,8 +68,9 @@ def repository_paths(root):
     raw = run_git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "data", "provenance")
     paths = set(filter(None, raw.decode("utf-8").split("\0")))
     allowed = re.compile(
-        r"data/(?:storage\.json|n=[1-9][0-9]*/(?:(?:facets|rays|graphs|inequalities|proofs)\.json"
-        r"|proof-shards/[0-9a-f]{64}\.proofpack|graph-shards/[0-9a-f]{64}\.json|ray-shards/[0-9a-f]{64}\.json))"
+        r"data/(?:storage\.json|n=[1-9][0-9]*/(?:(?:facets|rays|graphs|inequalities|proofs|facet-witnesses)\.json"
+        r"|proof-shards/[0-9a-f]{64}\.proofpack|graph-shards/[0-9a-f]{64}\.json|ray-shards/[0-9a-f]{64}\.json"
+        r"|witness-shards/[0-9a-f]{64}\.witnesspack))"
     )
     if any(allowed.fullmatch(path) is None for path in paths):
         raise ValueError("unexpected production data path; research and migration records belong outside the data tree")
@@ -137,6 +138,19 @@ def make_plan(root):
                 )
     if ray_expected != {path for path in known if "/ray-shards/" in path}:
         raise ValueError("missing or unindexed ordinary-Git ray payload")
+    from .facet_witnesses import FacetWitnessCatalog
+
+    witness_payloads, witness_expected = [], set()
+    for relative in sorted(path for path in known if re.fullmatch(r"data/n=[1-9][0-9]*/facet-witnesses.json", path)):
+        path = safe_path(root, relative)
+        n = int(path.parent.name[2:])
+        catalog = FacetWitnessCatalog(path, n)
+        for key, shard in catalog.shards.items():
+            item = f"data/n={n}/witness-shards/{key}.witnesspack"
+            witness_expected.add(item)
+            witness_payloads.append({"path": item, "sha256": key, "bytes": shard["bytes"], "n": n})
+    if witness_expected != {path for path in known if "/witness-shards/" in path}:
+        raise ValueError("missing or unindexed ordinary-Git facet witness payload")
     return {
         "format": "hec-git-storage-plan",
         "proofs": count,
@@ -146,6 +160,8 @@ def make_plan(root):
         "graph_payload_bytes": sum(row["bytes"] for row in graph_payloads),
         "ray_payloads": ray_payloads,
         "ray_payload_bytes": sum(row["bytes"] for row in ray_payloads),
+        "witness_payloads": witness_payloads,
+        "witness_payload_bytes": sum(row["bytes"] for row in witness_payloads),
         "content_verified": False,
         "mathematical_acceptance": False,
     }
@@ -154,7 +170,10 @@ def make_plan(root):
 def inventory_document(root):
     root = Path(root).resolve()
     plan = make_plan(root)
-    required = {row["path"]: row for row in [*plan["payloads"], *plan["graph_payloads"], *plan["ray_payloads"]]}
+    required = {
+        row["path"]: row
+        for row in [*plan["payloads"], *plan["graph_payloads"], *plan["ray_payloads"], *plan["witness_payloads"]]
+    }
     paths = repository_paths(root)
     paths.discard(INVENTORY)
     entries = []
