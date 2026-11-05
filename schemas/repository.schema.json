@@ -9,9 +9,84 @@
     {"$ref":"#/$defs/inequalityCatalog"},
     {"$ref":"#/$defs/storage"},
     {"$ref":"#/$defs/graphCatalog"},
-    {"$ref":"#/$defs/rayCatalog"}
+    {"$ref":"#/$defs/rayCatalog"},
+    {"$ref":"#/$defs/facetWitnessCatalog"},
+    {"$ref":"#/$defs/graphEntropyWitness"}
   ],
   "$defs": {
+    "facetWitnessCatalog": {
+      "type":"object", "additionalProperties":false,
+      "required":["format","n","facets","models","shards"],
+      "properties": {
+        "format":{"const":"hec-facet-rank-witnesses"},
+        "n":{"type":"integer","minimum":1,"maximum":6},
+        "facets": {
+          "type":"array", "minItems":1,
+          "items": {
+            "type":"object", "additionalProperties":false,
+            "required":["inequality_id","basis"],
+            "properties": {
+              "inequality_id":{"$ref":"#/$defs/hash"},
+              "basis":{"type":"array","maxItems":62,"items":{"$ref":"#/$defs/facetWitnessReference"}}
+            }
+          }
+        },
+        "models": {
+          "type":"object", "minProperties":1, "additionalProperties":false,
+          "patternProperties": {
+            "^[0-9a-f]{64}$": {
+              "type":"object", "additionalProperties":false,
+              "required":["shard","offset","bytes"],
+              "properties": {
+                "shard":{"$ref":"#/$defs/hash"},
+                "offset":{"$ref":"#/$defs/index"},
+                "bytes":{"type":"integer","minimum":1,"maximum":16777216}
+              }
+            }
+          }
+        },
+        "shards": {
+          "type":"object", "minProperties":1, "additionalProperties":false,
+          "patternProperties": {
+            "^[0-9a-f]{64}$": {
+              "type":"object", "additionalProperties":false, "required":["bytes"],
+              "properties":{"bytes":{"type":"integer","minimum":1,"maximum":16777216}}
+            }
+          }
+        }
+      }
+    },
+    "facetWitnessReference": {
+      "oneOf": [
+        {"type":"object","additionalProperties":false,"required":["ray","permutation","row_sha256"],
+         "properties":{"ray":{"$ref":"#/$defs/index"},"permutation":{"type":"integer","minimum":0,"maximum":5039},"row_sha256":{"$ref":"#/$defs/hash"}}},
+        {"type":"object","additionalProperties":false,"required":["model","permutation"],
+         "properties":{"model":{"$ref":"#/$defs/hash"},"permutation":{"type":"integer","minimum":0,"maximum":5039}}}
+      ]
+    },
+    "graphEntropyWitness": {
+      "type":"object", "additionalProperties":false,
+      "required":["format","n","vertices","edges","capacities","cuts"],
+      "properties": {
+        "format":{"const":"hec-exact-graph-entropy"},
+        "n":{"type":"integer","minimum":1,"maximum":6},
+        "vertices":{"type":"integer","minimum":2,"maximum":65536},
+        "edges":{"type":"array","minItems":1,"maxItems":262144,"items":{"type":"array","minItems":2,"maxItems":2,"items":{"type":"integer","minimum":0,"maximum":65535}}},
+        "capacities":{"type":"array","minItems":1,"maxItems":262144,"items":{"$ref":"#/$defs/natural"}},
+        "cuts": {
+          "type":"array", "minItems":1, "maxItems":63,
+          "items": {
+            "type":"object", "additionalProperties":false, "required":["mask","value","shore","flows"],
+            "properties": {
+              "mask":{"type":"integer","minimum":1,"maximum":63},
+              "value":{"$ref":"#/$defs/natural"},
+              "shore":{"type":"string","maxLength":16384,"pattern":"^(0|[1-9a-f][0-9a-f]*)$"},
+              "flows":{"type":"array","minItems":1,"maxItems":262144,"items":{"type":"string","pattern":"^(0|-?[1-9][0-9]*)$"}}
+            }
+          }
+        }
+      }
+    },
     "graphCatalog": {
       "type": "object",
       "additionalProperties": false,
@@ -194,7 +269,7 @@
             "properties": {
               "path": {
                 "type": "string",
-                "pattern": "^data/n=[1-9][0-9]*/((facets|rays|graphs|inequalities|proofs)\\.json|proof-shards/[0-9a-f]{64}\\.proofpack|graph-shards/[0-9a-f]{64}\\.json|ray-shards/[0-9a-f]{64}\\.json)$"
+                "pattern": "^data/n=[1-9][0-9]*/((facets|rays|graphs|inequalities|proofs|facet-witnesses)\\.json|proof-shards/[0-9a-f]{64}\\.proofpack|graph-shards/[0-9a-f]{64}\\.json|ray-shards/[0-9a-f]{64}\\.json|witness-shards/[0-9a-f]{64}\\.witnesspack)$"
               },
               "sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
               "bytes": {"type":"integer","minimum":0,"maximum":104857600}

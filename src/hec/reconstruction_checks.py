@@ -80,6 +80,11 @@ def check_stored_database_bindings(root=None, *, n=None, shard_index=0, shard_co
         facet_ids = {inequality_id(geometry(current_n, tuple(row))) for row in facets}
         if len(facet_ids) != len(facets) or facet_ids != inequalities.entries.keys():
             raise ValueError("known facets and proof inequalities must have exactly the same unique identities")
+        from .facet_witnesses import FacetWitnessCatalog
+
+        witnesses = FacetWitnessCatalog.optional(data_path(current_n, "facets", root=root).parent, current_n)
+        if witnesses is not None:
+            witnesses.check_bindings(facet_ids)
         yield (
             f"n={current_n}: {len(inequalities.entries)} inequality/{len(proofs)} proof index bindings; "
             f"{len(facets)} facets in exact one-to-one correspondence; "
@@ -290,6 +295,16 @@ def ci_matrix(root=None):
                     )
                     if kind == "graphs":
                         paths |= _catalogue_payload_paths(graphs, current_n, selected.start, selected.stop)
+                    if kind == "facets":
+                        from .facet_witnesses import FacetWitnessCatalog
+
+                        witnesses = FacetWitnessCatalog.optional(
+                            data_path(current_n, "facets", root=root).parent, current_n
+                        )
+                        if witnesses is not None:
+                            paths |= {
+                                f"/data/n={current_n}/witness-shards/{key}.witnesspack" for key in witnesses.shards
+                            }
                     task["checkout_paths"] = "\n".join(sorted(paths))
                 tasks.append(task)
                 # Measured ray ranks dominate the current critical path; graph
