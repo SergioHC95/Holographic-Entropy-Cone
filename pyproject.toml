@@ -34,7 +34,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-hec = ["_native/*.cpp"]
+hec = ["_native/*.cpp", "_ci_ray_costs.json"]
 
 [tool.setuptools.exclude-package-data]
 hec = ["clause_*.c"]

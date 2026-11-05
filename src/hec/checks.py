@@ -9,6 +9,7 @@ from concurrent.futures import FIRST_COMPLETED, Executor, Future, ProcessPoolExe
 from pathlib import Path
 from typing import TypeVar
 
+from ._ci_partitions import balanced_boundaries, ray_costs
 from ._graph_validation import canonical_primitive_ray_graph
 from .data import available_ns, data_path, load_hec_data
 from .graph_store import GraphCatalog
@@ -47,7 +48,9 @@ def _selected_ns(root: str | Path | None, n: int | None) -> list[int]:
     return [n]
 
 
-def _shard_indices(length: int, shard_index: int, shard_count: int, partition_mode: str = "round-robin") -> range:
+def _shard_indices(
+    length: int, shard_index: int, shard_count: int, partition_mode: str = "round-robin", *, costs=None
+) -> range:
     """Exact row ownership; the default preserves the public round-robin API."""
 
     if type(length) is not int or length < 0:
@@ -60,7 +63,10 @@ def _shard_indices(length: int, shard_index: int, shard_count: int, partition_mo
         return range(shard_index, length, shard_count)
     if partition_mode == "contiguous":
         return range(length * shard_index // shard_count, length * (shard_index + 1) // shard_count)
-    raise ValueError("partition mode must be 'round-robin' or 'contiguous'")
+    if partition_mode == "balanced":
+        boundaries = balanced_boundaries(length, shard_count, costs)
+        return range(boundaries[shard_index], boundaries[shard_index + 1])
+    raise ValueError("partition mode must be 'round-robin', 'contiguous' or 'balanced'")
 
 
 def _check_expected_rows(selected: range, expect_rows: int | None) -> None:
@@ -160,8 +166,20 @@ def _check_stored_rank(
     for current_n, fixed_rows, candidate_rows in _stored(root, fixed_kind, candidate_kind, n=n):
         if not len(fixed_rows) or not len(candidate_rows):
             raise ValueError("empty rank catalogue is not acceptance")
-        selected = _shard_indices(len(fixed_rows), shard_index, shard_count, partition_mode)
+        costs = (
+            ray_costs(data_path(current_n, "rays", root=root), len(fixed_rows))
+            if fixed_kind == "rays" and partition_mode == "balanced"
+            else None
+        )
+        selected = _shard_indices(len(fixed_rows), shard_index, shard_count, partition_mode, costs=costs)
         _check_expected_rows(selected, expect_rows)
+        if partition_mode == "balanced":
+            print(
+                f"n={current_n}{_shard_label(shard_index, shard_count)}: owned rows "
+                f"[{selected.start}, {selected.stop}); "
+                f"costs={'measured' if costs is not None else 'equal-row fallback'}",
+                flush=True,
+            )
         selected_count = len(selected)
         coverage = _RowCoverage(selected)
         label = _shard_label(shard_index, shard_count)
