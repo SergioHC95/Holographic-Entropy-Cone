@@ -174,10 +174,10 @@ class StoredRankCheckTests(unittest.TestCase):
 
 
 class RowCoverageTests(unittest.TestCase):
-    def test_both_partition_modes_are_disjoint_and_complete(self):
+    def test_all_partition_modes_are_disjoint_and_complete(self):
         for length in (0, 1, 2, 7, 32, 101):
             for groups in (1, 2, 3, 16):
-                for mode in ("round-robin", "contiguous"):
+                for mode in ("round-robin", "contiguous", "balanced"):
                     rows = [
                         index
                         for group in range(groups)
@@ -221,6 +221,32 @@ class RowCoverageTests(unittest.TestCase):
                         )
                     )
             self.assertEqual(sorted(call.args[0][0] for call in work.call_args_list), list(range(7)))
+
+    def test_weighted_ray_ranges_execute_every_row_and_preserve_expected_count_failures(self):
+        with TemporaryDirectory() as temporary, patch.dict(os.environ, {"HEC_CHECK_WORKERS": "1"}):
+            self.stage(Path(temporary), 7)
+            segments = ((4, 1), (7, 8))
+            with (
+                patch.object(row_checks, "ray_costs", return_value=segments),
+                patch.object(
+                    row_checks, "check_support_rank_prepared", wraps=row_checks.check_support_rank_prepared
+                ) as work,
+            ):
+                for group in range(3):
+                    selected = row_checks._shard_indices(7, group, 3, "balanced", costs=segments)
+                    list(
+                        check_stored_rays(
+                            temporary,
+                            n=1,
+                            shard_index=group,
+                            shard_count=3,
+                            partition_mode="balanced",
+                            expect_rows=len(selected),
+                        )
+                    )
+                self.assertEqual(work.call_count, 7)
+                with self.assertRaisesRegex(ValueError, "planned row coverage"):
+                    list(check_stored_rays(temporary, n=1, shard_count=3, partition_mode="balanced", expect_rows=99))
 
     def test_missing_duplicate_and_out_of_partition_results_fail_closed(self):
         with TemporaryDirectory() as temporary, patch.dict(os.environ, {"HEC_CHECK_WORKERS": "2"}):

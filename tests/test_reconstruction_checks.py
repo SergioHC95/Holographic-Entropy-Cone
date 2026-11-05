@@ -63,6 +63,59 @@ class ReconstructionChecksTests(unittest.TestCase):
             self.assertEqual(sorted(coverage), list(range(count)))
             self.assertEqual(sum(task["expect_rows"] for task in tasks), count)
 
+    def test_large_ray_plan_is_finer_than_graphs_without_payload_reads(self):
+        self.stage(self.documents[:1])
+        count = 3_763_751
+        for kind, format_name in (("graphs", GRAPH_FORMAT), ("rays", RAY_FORMAT)):
+            (self.directory / f"{kind}.json").write_text(
+                json.dumps(
+                    {
+                        "format": format_name,
+                        "count": count,
+                        "shards": [{"sha256": "0" * 64, "bytes": 10, "count": count}],
+                    }
+                )
+            )
+        with (
+            patch.object(GraphCatalog, "_load", side_effect=AssertionError("planner read graph payload")),
+            patch.object(RayCatalog, "_load", side_effect=AssertionError("planner read ray payload")),
+        ):
+            tasks = checks.ci_matrix(self.root)["include"]
+        for kind, expected in (("rays", 128), ("graphs", 16)):
+            selected = [row for row in tasks if row["kind"] == kind]
+            self.assertEqual(len(selected), expected)
+            ranges = [
+                _shard_indices(count, row["shard_index"], row["shard_count"], row["partition_mode"])
+                for row in sorted(selected, key=lambda row: row["shard_index"])
+            ]
+            self.assertEqual((ranges[0].start, ranges[-1].stop), (0, count))
+            self.assertTrue(all(a.stop == b.start for a, b in zip(ranges[:-1], ranges[1:], strict=True)))
+            self.assertEqual(sum(row["expect_rows"] for row in selected), count)
+        self.assertLessEqual(len(tasks), 256)
+        self.assertEqual([row["kind"] for row in tasks[:128]], ["rays"] * 128)
+
+    def test_weighted_plan_and_rank_executor_select_the_same_sparse_ranges(self):
+        self.stage(self.documents[:1])
+        count, costs = 12, ((3, 9), (8, 1), (12, 2))
+        for kind, format_name in (("graphs", GRAPH_FORMAT), ("rays", RAY_FORMAT)):
+            records = [{"sha256": f"{i + 1:064x}", "bytes": 10, "count": 3} for i in range(4)]
+            (self.directory / f"{kind}.json").write_text(
+                json.dumps({"format": format_name, "count": count, "shards": records})
+            )
+        with patch.object(checks, "ray_costs", return_value=costs), patch.object(checks, "ROW_TARGET", 4):
+            jobs = [row for row in checks.ci_matrix(self.root)["include"] if row["kind"] == "rays"]
+        rays = RayCatalog(self.directory / "rays.json", 2)
+        coverage = []
+        for task in jobs:
+            selected = _shard_indices(count, task["shard_index"], task["shard_count"], "balanced", costs=costs)
+            self.assertEqual(task["expect_rows"], len(selected))
+            self.assertEqual(
+                set(task["checkout_paths"].splitlines()),
+                checks._catalogue_payload_paths(rays, 2, selected.start, selected.stop),
+            )
+            coverage.extend(selected)
+        self.assertEqual(coverage, list(range(count)))
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="hec-exact-ci-")
         self.addCleanup(self.temporary.cleanup)

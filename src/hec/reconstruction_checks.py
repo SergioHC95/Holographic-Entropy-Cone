@@ -15,6 +15,7 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from multiprocessing.util import Finalize
 from pathlib import Path
 
+from ._ci_partitions import ray_costs
 from ._proof_partitions import partition_entries, proof_groups, proof_work
 from .checks import _bounded_parallel_map, _check_facet_structure, _shard_indices, check_worker_count, run_check
 from .count_proofs import canonical_json, decimal, geometry, inequality_id
@@ -26,6 +27,7 @@ from .reconstruction_verify import ReconstructionVerifier
 
 PROOF_TARGET, PROOF_JOB_LIMIT = 1024, 64
 ROW_TARGET, ROW_JOB_LIMIT = 25_000, 16
+RAY_JOB_LIMIT = 128
 _process_catalog = _process_verifier = None
 
 
@@ -232,6 +234,7 @@ def ci_matrix(root=None):
         counts["facets"] = len(load_hec_data(current_n, "facets", root=root))
         if counts["graphs"] != counts["rays"]:
             raise ValueError("CI graph/ray coverage counts disagree")
+        costs = ray_costs(data_path(current_n, "rays", root=root), counts["rays"])
         counts.update(contractions=len(catalog), **{"database-bindings": len(inequalities.entries)})
         audit_count = min(PROOF_JOB_LIMIT, max(1, math.ceil(len(catalog) / PROOF_TARGET)), len(catalog))
         owned_entries = proof_groups(catalog, inequalities, audit_count)
@@ -240,7 +243,8 @@ def ci_matrix(root=None):
             if kind == "facets":
                 groups = min(8, max(1, math.ceil(counts[kind] / 10_000)))
             elif kind in ("graphs", "rays"):
-                groups = min(ROW_JOB_LIMIT, max(1, math.ceil(counts[kind] / ROW_TARGET)))
+                limit = RAY_JOB_LIMIT if kind == "rays" else ROW_JOB_LIMIT
+                groups = min(limit, max(1, math.ceil(counts[kind] / ROW_TARGET)))
             for group in range(groups):
                 task = {
                     "kind": kind,
@@ -278,8 +282,11 @@ def ci_matrix(root=None):
                 else:
                     priority = 0
                 if kind in ("graphs", "rays", "facets"):
-                    selected = _shard_indices(counts[kind], group, groups, "contiguous")
-                    task["partition_mode"] = "contiguous"
+                    mode = "balanced" if kind == "rays" else "contiguous"
+                    selected = _shard_indices(
+                        counts[kind], group, groups, mode, costs=costs if kind == "rays" else None
+                    )
+                    task["partition_mode"] = mode
                     task["expect_rows"] = len(selected)
                     paths = (
                         _catalogue_payload_paths(rays, current_n)
@@ -300,12 +307,22 @@ def ci_matrix(root=None):
                             }
                     task["checkout_paths"] = "\n".join(sorted(paths))
                 tasks.append(task)
-                priorities.append(priority)
+                # Measured ray ranks dominate the current critical path; graph
+                # checks also outlast most complete-map jobs. Start both early
+                # so the bounded runner pool can consume their finer ranges.
+                queue = (
+                    2
+                    if kind == "rays" and counts[kind] > ROW_TARGET
+                    else 1
+                    if kind == "graphs" and counts[kind] > ROW_TARGET
+                    else 0
+                )
+                priorities.append((queue, priority))
     if len(tasks) > 256:
         raise ValueError("complete CI plan exceeds the matrix limit; repartition without dropping proofs")
-    # Queue the longest estimated complete-map jobs before smaller work. The
-    # executor can interleave jobs; the final gate still requires every row.
-    ordered = sorted(zip(priorities, tasks, strict=True), key=lambda item: -item[0])
+    # This is a queue preference, not an assumption about GitHub's execution
+    # order. The final gate still requires every row and every complete map.
+    ordered = sorted(zip(priorities, tasks, strict=True), key=lambda item: item[0], reverse=True)
     return {"include": [task for _, task in ordered]}
 
 
@@ -321,7 +338,7 @@ def main(argv=None):
     parser.add_argument("--expect-proofs", type=int)
     parser.add_argument("--expect-edges", type=int)
     parser.add_argument("--expect-rows", type=int)
-    parser.add_argument("--partition-mode", choices=("round-robin", "contiguous"), default="round-robin")
+    parser.add_argument("--partition-mode", choices=("round-robin", "contiguous", "balanced"), default="round-robin")
     parser.add_argument("--github-output", type=Path)
     args = parser.parse_args(argv)
     row_options = args.expect_rows is not None or args.partition_mode != "round-robin"

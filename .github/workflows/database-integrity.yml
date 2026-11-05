@@ -155,6 +155,8 @@ jobs:
       fail-fast: false
       # Every complete proof belongs to one full-cube audit partition.
       # Metadata jobs confer no validity; the gate requires ALL audit partitions.
+      # Ray ranks use finer, measured-cost contiguous ranges. The planner and
+      # executor bind those hints to the same ordered ray catalogue bytes.
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
