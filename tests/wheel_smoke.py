@@ -49,7 +49,7 @@ def main():
         # Exercise the installed exact rank implementation in both directions,
         # not just the source checkout's rank jobs.
         list(check_stored_facets(repository / "data", n=n))
-        list(check_stored_rays(repository / "data", n=n))
+        list(check_stored_rays(repository / "data", n=n, partition_mode="balanced"))
     search = hec.find_contraction((1, 1, -1), 2)
     if search["status"] != "proved" or search["audit"]["checked_edges"] != 4 or "images" in search:
         raise ValueError("installed-wheel search did not return an audited standard proof")
