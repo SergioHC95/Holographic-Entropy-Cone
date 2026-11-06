@@ -68,13 +68,21 @@ def materialize_payloads(repository, paths):
     if not requested:
         return
     tree = GitTree(repository)
+    if "/data/" in requested:
+        # A directory pattern does not override exclusions for its descendants
+        # in non-cone sparse checkout. Select every exact tracked file instead.
+        requested = sorted(
+            (set(requested) - {"/data/"}) | {"/" + name for name in tree.files if name.startswith("data/")}
+        )
     for path in requested:
-        if path == "/data/":
-            continue
         name = path.removeprefix("/")
         if not path.startswith("/") or DATA_FILE.fullmatch(name) is None or tree.oid(name) is None:
             raise ValueError("unplanned or unsafe payload materialization path")
     tree.git("sparse-checkout", "add", "--stdin", input=("\n".join(requested) + "\n").encode())
+    for path in requested:
+        materialized = Path(repository) / path.removeprefix("/")
+        if materialized.is_symlink() or not materialized.is_file():
+            raise ValueError("required Git payload was not materialized: " + path)
 
 
 def run_task(plan, task_id, repository):

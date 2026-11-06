@@ -32,7 +32,7 @@ from hec.incremental_ci import IntegrityPlan
 from hec.inequality_records import inequality_catalog
 from hec.proof_store import ProofCatalog
 from hec.ray_store import write_ray_catalog
-from hec.storage import history_audit, snapshot
+from hec.storage import audit_inventory, history_audit, snapshot
 from hec.symmetry import permutation_array
 
 
@@ -506,6 +506,34 @@ class ChangedResultTests(IncrementalFixtures):
         for unsafe in ("/src/hec/ci_checks.py", "/data/../src/entry.py", "/data/n=2/unknown.json"):
             with self.assertRaises(ValueError):
                 materialize_payloads(self.root, unsafe)
+
+    def test_full_materialization_restores_nested_sparse_exclusions(self):
+        write_ray_catalog(self.data / "rays.json", self.doc("rays.json"), self.n)
+        self.commit("sharded ray fixture")
+        tree = GitTree(self.root)
+        payloads = {name: tree.read(name) for name in tree.files if name.startswith("data/") and "-shards/" in name}
+        self.assertTrue(any("ray-shards/" in name for name in payloads))
+        self.assertTrue(any("graph-shards/" in name for name in payloads))
+        self.assertTrue(any("proof-shards/" in name for name in payloads))
+        self.git("sparse-checkout", "init", "--no-cone")
+        patterns = (
+            "/*",
+            "!/data/n=*/graph-shards/*.json",
+            "!/data/n=*/ray-shards/*.json",
+            "!/data/n=*/proof-shards/*.proofpack",
+            "!/data/n=*/witness-shards/*.witnesspack",
+        )
+        self.git("sparse-checkout", "set", "--no-cone", *patterns)
+        self.assertTrue(all(not (self.root / name).exists() for name in payloads))
+        plan = IntegrityPlan(GitTree(self.root), full=True)
+        self.addCleanup(plan.close)
+        for purpose in (plan.catalogue_paths, plan.storage_paths):
+            with self.subTest(purpose=purpose.__name__):
+                self.git("sparse-checkout", "set", "--no-cone", *patterns)
+                self.assertTrue(all(not (self.root / name).exists() for name in payloads))
+                materialize_payloads(self.root, purpose())
+                self.assertEqual({name: (self.root / name).read_bytes() for name in payloads}, payloads)
+                self.assertTrue(audit_inventory(self.root)["content_verified"])
 
     def test_stale_readme_and_forged_task_are_not_acceptance(self):
         self.add_facet()
