@@ -443,7 +443,7 @@ class ChangedResultTests(IncrementalFixtures):
         self.base = self.commit("accepted two-pair fixture")
         tree = GitTree(self.root)
         self.evidence = VerifiedBaseline(self.base, tree.tree, self.base, self.base, 77, 1, 900, tree.fingerprint())
-        graphs[1] = {"edges": [["A", "x1"], ["O", "x1"]], "weights": [1, 1]}
+        graphs[1] = {"edges": [["A", "x1"], ["x1", "O"]], "weights": [1, 1]}
         write_graph_catalog(self.data / "graphs.json", graphs)
         self.commit("edit just the second realization")
         plan = self.plan()
