@@ -83,13 +83,25 @@ jobs:
             !/data/n=*/proof-shards/*.proofpack
             !/data/n=*/witness-shards/*.witnesspack
             /data/n=[1-5]/proof-shards/*.proofpack
-            ${{ needs.discover.outputs.catalogue_paths }}
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           version: "0.11.28"
           python-version: "3.13.14"
           enable-cache: true
       - run: uv sync --locked --dev --python 3.13.14
+      - name: Materialize the complete catalogue only when full integration is required
+        if: ${{ needs.discover.outputs.catalogue_mode == 'full' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUDIT_BASE: ${{ needs.discover.outputs.base }}
+          AUDIT_MODE: ${{ needs.discover.outputs.mode }}
+          BASELINE_RUN: ${{ needs.discover.outputs.baseline_run }}
+          BASELINE_GATE: ${{ needs.discover.outputs.baseline_gate }}
+          AUDIT_PLAN: ${{ needs.discover.outputs.plan_sha256 }}
+        run: |
+          uv run --no-sync python -m hec.ci_checks materialize --purpose catalogue \
+            --base "$AUDIT_BASE" --mode "$AUDIT_MODE" --baseline-run "$BASELINE_RUN" \
+            --baseline-gate "$BASELINE_GATE" --expected-plan "$AUDIT_PLAN"
       - name: Build installed-package exact primitives
         if: ${{ needs.discover.outputs.catalogue_mode == 'full' }}
         run: |
@@ -125,8 +137,6 @@ jobs:
       base: ${{ steps.datasets.outputs.base }}
       baseline_run: ${{ steps.datasets.outputs.baseline_run }}
       baseline_gate: ${{ steps.datasets.outputs.baseline_gate }}
-      storage_paths: ${{ steps.datasets.outputs.storage_paths }}
-      catalogue_paths: ${{ steps.datasets.outputs.catalogue_paths }}
       tested_commit: ${{ steps.datasets.outputs.tested_commit }}
       tested_tree: ${{ steps.datasets.outputs.tested_tree }}
       verifier: ${{ steps.datasets.outputs.verifier }}
@@ -170,25 +180,13 @@ jobs:
             !/data/n=*/ray-shards/*.json
             !/data/n=*/witness-shards/*.witnesspack
             !/data/n=*/proof-shards/*.proofpack
-            ${{ needs.discover.outputs.storage_paths }}
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           version: "0.11.28"
           python-version: "3.13.14"
           enable-cache: true
       - run: uv sync --locked --no-dev --python 3.13.14
-      - name: Verify every current data and proof byte
-        if: ${{ needs.discover.outputs.mode == 'full' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          uv run --no-sync python -c 'from pathlib import Path; from hec.ci_baseline import GitTree, prepare_history; prepare_history(Path.cwd(), GitTree(Path.cwd()).commit)'
-          uv run --no-sync hec storage audit
-      - name: Reject pointers, retired filters and oversize blobs throughout ancestry
-        if: ${{ needs.discover.outputs.mode == 'full' }}
-        run: uv run --no-sync hec storage history
-      - name: Verify changed bytes and all history not covered by the authenticated baseline
-        if: ${{ needs.discover.outputs.mode == 'incremental' }}
+      - name: Verify current bytes and history, reusing only authenticated prior coverage
         env:
           GH_TOKEN: ${{ github.token }}
           AUDIT_BASE: ${{ needs.discover.outputs.base }}
@@ -225,7 +223,6 @@ jobs:
             !/data/n=*/ray-shards/*.json
             !/data/n=*/witness-shards/*.witnesspack
             !/data/n=*/proof-shards/*.proofpack
-            ${{ matrix.checkout_paths }}
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           version: "0.11.28"

@@ -26,6 +26,9 @@ Executors authenticate the same pinned baseline and recompute the discovery
 plan. They require the exact plan digest and task identity. Changed tasks use
 the existing full-cube, rank and graph validators; planned counts never
 substitute for actual complete, unique, in-selection results.
+Executors then materialize their exact payload ownership through sparse Git
+checkout. Long selection/payload lists are not passed through GitHub's limited
+job outputs, and unmodified archives need not be downloaded for unrelated jobs.
 
 ## Change dependencies
 
@@ -64,12 +67,15 @@ README counts, verifies changed data bytes, and audits uncovered Git history.
 Unchanged byte identities are bound both to Git objects and the prior SHA256
 inventory; declarations alone are never new byte acceptance.
 
-Append-only changes retain prior whole-catalogue regression inputs. Their
+Proof/facet append-only changes retain prior whole-catalogue regression inputs. Their
 catalogue jobs explicitly report authenticated integration reuse and execute
 fresh current bindings, ordering, primitive/symmetry checks and exact
 baseline-plus-delta orbit/storage counts. They do not pretend to have rerun
-the old exhaustive tests. Changes to existing regression inputs require the
-original full catalogue integration suite on both platforms.
+the old exhaustive tests. Ray changes also affect global uniqueness lookups
+for catalogue controls, even when they only append rows. Those changes and
+edits to existing regression inputs retain the original full catalogue
+integration suite on both platforms, while mathematical jobs remain scoped
+to changed/dependent results.
 
 An explicit acceptance-plan task is always present, even when no mathematical
 row changed. Metadata-only success does not certify a new proof or rank; the

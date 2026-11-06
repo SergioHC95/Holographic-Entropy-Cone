@@ -62,6 +62,21 @@ def check_materialized_metadata(plan, repository):
                 raise ValueError("materialized CI metadata differs from the immutable checkout: " + name)
 
 
+def materialize_payloads(repository, paths):
+    """Populate exact owned Git paths after authenticating the plan, not refs."""
+    requested = sorted(set(path for path in paths.splitlines() if path))
+    if not requested:
+        return
+    tree = GitTree(repository)
+    for path in requested:
+        if path == "/data/":
+            continue
+        name = path.removeprefix("/")
+        if not path.startswith("/") or DATA_FILE.fullmatch(name) is None or tree.oid(name) is None:
+            raise ValueError("unplanned or unsafe payload materialization path")
+    tree.git("sparse-checkout", "add", "--stdin", input=("\n".join(requested) + "\n").encode())
+
+
 def run_task(plan, task_id, repository):
     from .checks import check_stored_facets, check_stored_graphs, check_stored_rays
     from .reconstruction_checks import audit_partition, check_stored_database_bindings
@@ -283,7 +298,7 @@ def _output(path, key, value):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("plan", "run", "catalogue", "storage"))
+    parser.add_argument("command", choices=("plan", "run", "catalogue", "storage", "materialize"))
     parser.add_argument("--repository", type=Path, default=Path.cwd())
     parser.add_argument("--base")
     parser.add_argument("--mode", choices=("auto", "full", "incremental"), default="auto")
@@ -291,6 +306,7 @@ def main(argv=None):
     parser.add_argument("--baseline-gate", type=int, default=0)
     parser.add_argument("--expected-plan")
     parser.add_argument("--task")
+    parser.add_argument("--purpose", choices=("catalogue", "storage"))
     parser.add_argument("--github-output", type=Path)
     args = parser.parse_args(argv)
     repository = args.repository.resolve()
@@ -324,8 +340,6 @@ def main(argv=None):
                     "tested_commit": current.commit,
                     "tested_tree": current.tree,
                     "verifier": current.fingerprint(),
-                    "storage_paths": plan.storage_paths(),
-                    "catalogue_paths": plan.catalogue_paths(),
                 }
                 for key, value in values.items():
                     _output(args.github_output, key, value)
@@ -342,18 +356,33 @@ def main(argv=None):
         elif args.command == "run":
             if not args.expected_plan or not args.task:
                 parser.error("execution requires the exact plan digest and task identity")
+            matches = [task for task in plan.tasks if task["task_id"] == args.task]
+            if len(matches) != 1:
+                raise ValueError("task is not part of the discovered plan")
+            materialize_payloads(repository, matches[0]["checkout_paths"])
             print(canonical_json(run_task(plan, args.task, repository)).decode())
         elif args.command == "catalogue":
             if not args.expected_plan:
                 parser.error("catalogue verification requires the exact plan digest")
             print(canonical_json(check_catalogue_delta(plan, repository)).decode())
+        elif args.command == "materialize":
+            if not args.expected_plan or not args.purpose:
+                parser.error("materialization requires an exact plan and purpose")
+            paths = plan.catalogue_paths() if args.purpose == "catalogue" else plan.storage_paths()
+            materialize_payloads(repository, paths)
+            print(canonical_json({"materialized": True, "mathematical_acceptance": False}).decode())
         else:
             if not args.expected_plan:
                 parser.error("storage verification requires the exact plan digest")
-            result = check_storage_delta(plan, repository)
-            from .storage import history_audit
+            from .storage import audit_inventory, history_audit
 
-            result["history"] = history_audit(repository, trusted_ancestor=plan.baseline.accepted_commit)
+            materialize_payloads(repository, plan.storage_paths())
+            result = (
+                check_storage_delta(plan, repository) if plan.mode == "incremental" else audit_inventory(repository)
+            )
+            result["history"] = history_audit(
+                repository, trusted_ancestor=plan.baseline.accepted_commit if plan.baseline else None
+            )
             print(canonical_json(result).decode())
     finally:
         plan.close()

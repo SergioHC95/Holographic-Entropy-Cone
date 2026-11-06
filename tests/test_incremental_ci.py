@@ -17,7 +17,14 @@ import numpy as np
 from proof_fixtures import document, write_frames
 
 from hec.ci_baseline import GitHub, GitTree, VerifiedBaseline, acceptance_receipt, checkout_commit, verify_baseline
-from hec.ci_checks import check_catalogue_delta, check_storage_delta, orbit_sum, resolve_plan, run_task
+from hec.ci_checks import (
+    check_catalogue_delta,
+    check_storage_delta,
+    materialize_payloads,
+    orbit_sum,
+    resolve_plan,
+    run_task,
+)
 from hec.count_proofs import geometry, inequality_id, proof_id
 from hec.data import default_data_root
 from hec.graph_store import GraphCatalog, write_graph_catalog
@@ -417,7 +424,22 @@ class ChangedResultTests(IncrementalFixtures):
         self.assertEqual(plan.selected[2], {"contractions": [], "facets": [], "rays": [1], "graphs": [1]})
         for task in plan.tasks:
             self.assertTrue(run_task(plan, task["task_id"], self.root)["ok"])
-        self.assertTrue(check_catalogue_delta(plan, self.root)["ok"])
+        # Ray additions can affect global control-ray uniqueness lookups, so
+        # retain the full catalogue integration suite while scoping math rows.
+        self.assertEqual(plan.catalogue_mode, "full")
+
+    def test_appending_an_existing_control_ray_cannot_reuse_global_uniqueness_regression(self):
+        from catalogue_fixtures import ray_fingerprint, select_rays
+
+        rays = self.doc("rays.json")
+        graphs = list(GraphCatalog(self.data / "graphs.json"))
+        self.write("rays.json", rays + rays)
+        write_graph_catalog(self.data / "graphs.json", graphs + graphs)
+        self.commit("duplicate a known control ray")
+        plan = self.plan()
+        self.assertEqual(plan.catalogue_mode, "full")
+        with self.assertRaisesRegex(ValueError, "duplicate selected ray"):
+            select_rays(rays + rays, [ray_fingerprint(rays[0])], unique=True)
 
     def test_old_graph_edit_is_checked_but_does_not_repeat_proofs_or_ranks(self):
         graph = list(GraphCatalog(self.data / "graphs.json"))[0]
@@ -466,6 +488,24 @@ class ChangedResultTests(IncrementalFixtures):
         (self.data / "proof-shards" / (new + ".proofpack")).write_bytes(b"bad")
         with self.assertRaises(ValueError):
             check_storage_delta(plan, self.root)
+
+    def test_owned_payload_materialization_preserves_sparsity(self):
+        self.add_facet()
+        self.commit("new proof")
+        plan = self.plan()
+        task = next(task for task in plan.tasks if task["kind"] == "contractions")
+        self.git("sparse-checkout", "init", "--no-cone")
+        self.git("sparse-checkout", "set", "--no-cone", "/*", "!/data/n=*/proof-shards/*.proofpack")
+        self.assertFalse(any((self.data / "proof-shards").glob("*.proofpack")))
+        materialize_payloads(self.root, task["checkout_paths"])
+        present = list((self.data / "proof-shards").glob("*.proofpack"))
+        self.assertEqual(len(present), 1)
+        expected = self.doc("proofs.json")["entries"][1]["shard"]
+        self.assertEqual(present[0].stem, expected)
+        self.assertTrue(all("checkout_paths" not in row and "indices" not in row for row in plan.matrix()["include"]))
+        for unsafe in ("/src/hec/ci_checks.py", "/data/../src/entry.py", "/data/n=2/unknown.json"):
+            with self.assertRaises(ValueError):
+                materialize_payloads(self.root, unsafe)
 
     def test_stale_readme_and_forged_task_are_not_acceptance(self):
         self.add_facet()

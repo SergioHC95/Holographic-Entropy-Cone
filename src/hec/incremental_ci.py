@@ -402,6 +402,7 @@ class IntegrityPlan:
             self.selected[n] = selected
             if (
                 not literal_facets_retained
+                or bool(rays.added)
                 or bool(rays.removed)
                 or any(i < len(a.catalogue(n, "rays")) for i in rays.positions)
                 or any(i < len(a.catalogue(n, "graphs")) for i in graphs.positions)
@@ -489,7 +490,14 @@ class IntegrityPlan:
                         raise ValueError("missing, duplicate or foreign changed-result ownership")
 
     def matrix(self):
-        return {"include": [{key: value for key, value in task.items() if key != "indices"} for task in self.tasks]}
+        # Row selections and potentially long payload lists are recomputed by
+        # executors, never transported through GitHub's limited job outputs.
+        return {
+            "include": [
+                {key: value for key, value in task.items() if key not in ("indices", "checkout_paths")}
+                for task in self.tasks
+            ]
+        }
 
     def storage_paths(self):
         if self.mode == "full":
