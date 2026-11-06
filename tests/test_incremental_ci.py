@@ -598,6 +598,18 @@ class DependencyTests(IncrementalFixtures):
 
 
 class ExplicitCoverageTests(unittest.TestCase):
+    def test_selected_complete_proofs_are_cost_balanced_without_missing_or_duplicate_ownership(self):
+        from hec.incremental_ci import proof_batches
+
+        catalog = SimpleNamespace(entries=[{"inequality_id": str(i), "proof_id": str(i)} for i in range(12)])
+        inequalities = SimpleNamespace(entries={str(i): {"weight": (1 << 29) if i % 2 else 1} for i in range(12)})
+        selected = [1, 3, 4, 5, 7, 8, 9, 11]
+        with patch("hec.incremental_ci.proof_work", side_effect=lambda entry: entry["weight"]):
+            batches = proof_batches(catalog, inequalities, selected)
+        self.assertEqual(sorted(index for batch in batches for index in batch), selected)
+        self.assertTrue(all(batches))
+        self.assertGreater(len(batches), 1)
+
     def test_explicit_row_coverage_rejects_duplicates_missing_and_foreign_rows(self):
         from hec.checks import _RowCoverage, _selected_rows
 

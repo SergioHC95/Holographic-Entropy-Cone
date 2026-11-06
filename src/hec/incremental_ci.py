@@ -8,15 +8,17 @@ results still execute the standard exact validators with actual coverage.
 from __future__ import annotations
 
 import hashlib
+import heapq
 import json
 import math
 import re
 import tempfile
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
+from ._proof_partitions import proof_work
 from .ci_baseline import GitTree
 from .count_proofs import geometry, inequality_id
 from .data import load_hec_data
@@ -253,6 +255,26 @@ def proof_changes(old, current, n):
     return result
 
 
+def proof_batches(catalog, inequalities, indices):
+    """Balance only selected complete maps; never split or omit a proof."""
+    weights = {i: proof_work(inequalities.entries[catalog.entries[i]["inequality_id"]]) for i in indices}
+    target = 1024 * (1 << 18)
+    # One job already audits four complete maps in parallel. Avoid redundant
+    # startup/downloads for tiny batches, even if one indivisible map is large.
+    groups = min(
+        64,
+        max(1, (len(indices) + 3) // 4),
+        max(1, (len(indices) + 1023) // 1024, (sum(weights.values()) + target - 1) // target),
+    )
+    batches = [[] for _ in range(groups)]
+    heap = [(0, 0, group) for group in range(groups)]
+    for index in sorted(indices, key=lambda i: (-weights[i], catalog.entries[i]["proof_id"])):
+        cost, count, group = heapq.heappop(heap)
+        batches[group].append(index)
+        heapq.heappush(heap, (cost + weights[index], count + 1, group))
+    return [sorted(batch) for batch in batches]
+
+
 def _payload_paths(snapshot, kind, n, indices):
     if kind == "contractions":
         catalog, _ = snapshot.proofs(n)
@@ -266,9 +288,9 @@ def _payload_paths(snapshot, kind, n, indices):
         return result
     result = set()
     for catalog in [rays, snapshot.catalogue(n, "graphs")] if kind == "graphs" else [rays]:
-        wanted = set(indices)
         for start, stop, _, path in catalog.segments:
-            if any(start <= index < stop for index in wanted):
+            position = bisect_left(indices, start)
+            if position < len(indices) and indices[position] < stop:
                 result.add("/" + path)
     return result
 
@@ -405,16 +427,24 @@ class IntegrityPlan:
                     ]
                     continue
                 size = 1024 if kind == "contractions" else 10000 if kind == "facets" else 25000
-                groups = max(1, min(64 if kind == "contractions" else 128, math.ceil(len(indices) / size)))
-                for group in range(groups):
-                    owned = indices[len(indices) * group // groups : len(indices) * (group + 1) // groups]
+                limit = {"contractions": 64, "facets": 8, "graphs": 16, "rays": 128}[kind]
+                groups = max(1, min(limit, math.ceil(len(indices) / size)))
+                batches = (
+                    proof_batches(catalog, inequalities, indices)
+                    if kind == "contractions"
+                    else [
+                        indices[len(indices) * group // groups : len(indices) * (group + 1) // groups]
+                        for group in range(groups)
+                    ]
+                )
+                for group, owned in enumerate(batches):
                     task = {
                         "kind": kind,
                         "n": n,
                         "indices": owned,
                         "shard_index": 0,
                         "shard_count": 1,
-                        "label": f"{kind} (n={n}, changed partition {group + 1}/{groups})",
+                        "label": f"{kind} (n={n}, changed partition {group + 1}/{len(batches)})",
                         "checkout_paths": "\n".join(sorted(_payload_paths(b, kind, n, owned))),
                     }
                     if kind == "contractions":

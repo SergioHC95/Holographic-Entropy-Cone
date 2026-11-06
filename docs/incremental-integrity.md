@@ -46,6 +46,11 @@ editing ray rows cannot silently reuse a different paired graph. Symmetry
 orbit retention preserves rank-support monotonicity, while explicitly stored
 witness row/frame bindings still require their own dependency checks.
 
+Selected proof batches are balanced by estimated complete-map work, not just
+row count. Scheduling weights never split a proof or change its full-cube
+acceptance. Planned ownership must be complete, disjoint and within the
+workflow matrix limit before any task can run.
+
 Adding valid constraints cannot reduce an already-certified ray's support
 rank. Adding realized rays cannot reduce an already-certified facet's support
 rank. Every new proof and realization establishing those premises remains a
