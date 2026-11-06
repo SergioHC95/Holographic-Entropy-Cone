@@ -96,11 +96,18 @@ def _geometry(entry):
     return geometry(entry["n"], tuple(map(decimal, entry["coefficients"])))
 
 
-def audit_partition(current_n, root=None, *, shard_index=0, shard_count=1, expect_proofs=None, expect_edges=None):
+def audit_partition(
+    current_n, root=None, *, shard_index=0, shard_count=1, expect_proofs=None, expect_edges=None, indices=None
+):
     """Actually audit one disjoint complete-map partition; never cached flags."""
     selected_ns(root, current_n)
     catalog, inequalities = bound_catalog(current_n, root)
-    selected = partition_entries(catalog, inequalities, shard_index, shard_count)
+    if indices is None:
+        selected = partition_entries(catalog, inequalities, shard_index, shard_count)
+    else:
+        from .checks import _selected_rows
+
+        selected = list(_selected_rows(len(catalog), shard_index, shard_count, "round-robin", indices))
     # Start expensive complete maps first, so one late map cannot strand the
     # other bounded workers. This changes order only, never proof ownership.
     selected.sort(

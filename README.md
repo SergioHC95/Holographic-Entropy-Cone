@@ -142,6 +142,12 @@ CI recomputes this table and the proof-storage totals from the data; stale
 README counts fail the tests. These documentation checks do not replace
 independent mathematical verification.
 
+[Incremental integrity CI](docs/incremental-integrity.md) audits new or edited
+results and their affected dependencies. Reuse requires a successful integrity
+run for the exact baseline tree with unchanged validators; otherwise CI runs
+the complete audit. Current bindings, counts, changed bytes and new Git history
+are always checked.
+
 The 205 source facets from `HEC6_207_expanded_evidence` have current-standard
 full-map proofs and exact rank-62 bases. Fourteen are already in the parent IC
 facet batch; this change adds the remaining 191. Of all 205, 64 use additional graph models;
