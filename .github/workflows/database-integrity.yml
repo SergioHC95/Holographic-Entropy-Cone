@@ -9,6 +9,8 @@ on:
 
 permissions:
   contents: read
+  actions: read
+  checks: read
 
 env:
   HEC_CHECK_WORKERS: "2"
@@ -76,6 +78,8 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /*
+            !/data/n=*/graph-shards/*.json
+            !/data/n=*/ray-shards/*.json
             !/data/n=*/proof-shards/*.proofpack
             !/data/n=*/witness-shards/*.witnesspack
             /data/n=[1-5]/proof-shards/*.proofpack
@@ -85,14 +89,41 @@ jobs:
           python-version: "3.13.14"
           enable-cache: true
       - run: uv sync --locked --dev --python 3.13.14
+      - name: Materialize the complete catalogue only when full integration is required
+        if: ${{ needs.discover.outputs.catalogue_mode == 'full' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUDIT_BASE: ${{ needs.discover.outputs.base }}
+          AUDIT_MODE: ${{ needs.discover.outputs.mode }}
+          BASELINE_RUN: ${{ needs.discover.outputs.baseline_run }}
+          BASELINE_GATE: ${{ needs.discover.outputs.baseline_gate }}
+          AUDIT_PLAN: ${{ needs.discover.outputs.plan_sha256 }}
+        run: |
+          uv run --no-sync python -m hec.ci_checks materialize --purpose catalogue \
+            --base "$AUDIT_BASE" --mode "$AUDIT_MODE" --baseline-run "$BASELINE_RUN" \
+            --baseline-gate "$BASELINE_GATE" --expected-plan "$AUDIT_PLAN"
       - name: Build installed-package exact primitives
+        if: ${{ needs.discover.outputs.catalogue_mode == 'full' }}
         run: |
           uv run --no-sync hec native build --directory "$RUNNER_TEMP/hec-native"
           echo "HEC_NATIVE_DIR=$RUNNER_TEMP/hec-native" >> "$GITHUB_ENV"
       - name: Run every catalogue test in the same complete test plan
+        if: ${{ needs.discover.outputs.catalogue_mode == 'full' }}
         env:
           EXPECTED_TEST_PLAN: ${{ needs.discover.outputs.test_plan_sha256 }}
         run: uv run --no-sync python tests/ci_tests.py --partition catalogue --expected-plan "$EXPECTED_TEST_PLAN"
+      - name: Verify affected metadata and counts with authenticated prior integration reuse
+        if: ${{ needs.discover.outputs.catalogue_mode == 'incremental' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUDIT_BASE: ${{ needs.discover.outputs.base }}
+          AUDIT_MODE: ${{ needs.discover.outputs.mode }}
+          BASELINE_RUN: ${{ needs.discover.outputs.baseline_run }}
+          BASELINE_GATE: ${{ needs.discover.outputs.baseline_gate }}
+          AUDIT_PLAN: ${{ needs.discover.outputs.plan_sha256 }}
+        run: |
+          uv run --no-sync python -m hec.ci_checks catalogue --base "$AUDIT_BASE" --mode "$AUDIT_MODE" \
+            --baseline-run "$BASELINE_RUN" --baseline-gate "$BASELINE_GATE" --expected-plan "$AUDIT_PLAN"
 
   discover:
     name: discover datasets
@@ -100,6 +131,15 @@ jobs:
     outputs:
       matrix: ${{ steps.datasets.outputs.matrix }}
       test_plan_sha256: ${{ steps.tests.outputs.test_plan_sha256 }}
+      plan_sha256: ${{ steps.datasets.outputs.plan_sha256 }}
+      mode: ${{ steps.datasets.outputs.mode }}
+      catalogue_mode: ${{ steps.datasets.outputs.catalogue_mode }}
+      base: ${{ steps.datasets.outputs.base }}
+      baseline_run: ${{ steps.datasets.outputs.baseline_run }}
+      baseline_gate: ${{ steps.datasets.outputs.baseline_gate }}
+      tested_commit: ${{ steps.datasets.outputs.tested_commit }}
+      tested_tree: ${{ steps.datasets.outputs.tested_tree }}
+      verifier: ${{ steps.datasets.outputs.verifier }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -117,33 +157,46 @@ jobs:
           enable-cache: true
       - run: uv sync --locked --dev --python 3.13.14
       - id: datasets
-        name: Plan complete disjoint mathematical audits and exact payload ownership
-        run: uv run --no-sync hec plan --github-output "$GITHUB_OUTPUT"
+        name: Authenticate baseline and plan exact affected mathematical audits
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run --no-sync python -m hec.ci_checks plan --github-output "$GITHUB_OUTPUT"
       - id: tests
         name: Discover the complete disjoint unittest plan without executing cases
         run: uv run --no-sync python tests/ci_tests.py --github-output "$GITHUB_OUTPUT"
 
   storage:
     name: ordinary Git data and complete main-ancestry hygiene
+    needs: discover
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - name: Fetch only the checked-out commit ancestry
-        run: |
-          if [[ "$(git rev-parse --is-shallow-repository)" == "true" ]]; then
-            git fetch --no-tags --unshallow origin "$GITHUB_SHA"
-          fi
+        with:
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/data/n=*/graph-shards/*.json
+            !/data/n=*/ray-shards/*.json
+            !/data/n=*/witness-shards/*.witnesspack
+            !/data/n=*/proof-shards/*.proofpack
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           version: "0.11.28"
           python-version: "3.13.14"
           enable-cache: true
       - run: uv sync --locked --no-dev --python 3.13.14
-      - name: Verify every current data and proof byte
-        run: uv run --no-sync hec storage audit
-      - name: Reject pointers, retired filters and oversize blobs throughout ancestry
-        run: uv run --no-sync hec storage history
+      - name: Verify current bytes and history, reusing only authenticated prior coverage
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUDIT_BASE: ${{ needs.discover.outputs.base }}
+          AUDIT_MODE: ${{ needs.discover.outputs.mode }}
+          BASELINE_RUN: ${{ needs.discover.outputs.baseline_run }}
+          BASELINE_GATE: ${{ needs.discover.outputs.baseline_gate }}
+          AUDIT_PLAN: ${{ needs.discover.outputs.plan_sha256 }}
+        run: |
+          uv run --no-sync python -m hec.ci_checks storage --base "$AUDIT_BASE" --mode "$AUDIT_MODE" \
+            --baseline-run "$BASELINE_RUN" --baseline-gate "$BASELINE_GATE" --expected-plan "$AUDIT_PLAN"
 
   validate:
     # Complete both portable platforms before queuing the expensive audit
@@ -170,7 +223,6 @@ jobs:
             !/data/n=*/ray-shards/*.json
             !/data/n=*/witness-shards/*.witnesspack
             !/data/n=*/proof-shards/*.proofpack
-            ${{ matrix.checkout_paths }}
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           version: "0.11.28"
@@ -183,32 +235,23 @@ jobs:
           uv run --no-sync hec native build --directory "$RUNNER_TEMP/hec-native"
           echo "HEC_NATIVE_DIR=$RUNNER_TEMP/hec-native" >> "$GITHUB_ENV"
           echo "HEC_RECONSTRUCTION_WORKING_BYTES=268435456" >> "$GITHUB_ENV"
-      - name: Validate ${{ matrix.kind }} for n=${{ matrix.n }}
+      - name: Execute the exact planned mathematical selection or verify authenticated reuse
         env:
           HEC_CHECK_WORKERS: "4"
           OPENBLAS_NUM_THREADS: "1"
           OMP_NUM_THREADS: "1"
           NUMBA_NUM_THREADS: "1"
-          CHECK_KIND: ${{ matrix.kind }}
-          CHECK_N: ${{ matrix.n }}
-          CHECK_SHARD_INDEX: ${{ matrix.shard_index }}
-          CHECK_SHARD_COUNT: ${{ matrix.shard_count }}
-          EXPECT_PROOFS: ${{ matrix.expect_proofs }}
-          EXPECT_EDGES: ${{ matrix.expect_edges }}
-          EXPECT_ROWS: ${{ matrix.expect_rows }}
-          CHECK_PARTITION_MODE: ${{ matrix.partition_mode }}
+          GH_TOKEN: ${{ github.token }}
+          AUDIT_BASE: ${{ needs.discover.outputs.base }}
+          AUDIT_MODE: ${{ needs.discover.outputs.mode }}
+          BASELINE_RUN: ${{ needs.discover.outputs.baseline_run }}
+          BASELINE_GATE: ${{ needs.discover.outputs.baseline_gate }}
+          AUDIT_PLAN: ${{ needs.discover.outputs.plan_sha256 }}
+          AUDIT_TASK: ${{ matrix.task_id }}
         run: |
-          if [[ "$CHECK_KIND" == "contractions" ]]; then
-            uv run --no-sync hec check contractions --n "$CHECK_N" \
-              --shard-index "$CHECK_SHARD_INDEX" --shard-count "$CHECK_SHARD_COUNT" \
-              --expect-proofs "$EXPECT_PROOFS" --expect-edges "$EXPECT_EDGES"
-          elif [[ "$CHECK_KIND" == "database-bindings" ]]; then
-            uv run --no-sync hec check database-bindings --n "$CHECK_N"
-          else
-            uv run --no-sync hec check "$CHECK_KIND" --n "$CHECK_N" \
-              --shard-index "$CHECK_SHARD_INDEX" --shard-count "$CHECK_SHARD_COUNT" \
-              --partition-mode "$CHECK_PARTITION_MODE" --expect-rows "$EXPECT_ROWS"
-          fi
+          uv run --no-sync python -m hec.ci_checks run --base "$AUDIT_BASE" --mode "$AUDIT_MODE" \
+            --baseline-run "$BASELINE_RUN" --baseline-gate "$BASELINE_GATE" \
+            --expected-plan "$AUDIT_PLAN" --task "$AUDIT_TASK"
 
   distribution:
     name: installed wheel and exact small-corpus acceptance
@@ -267,3 +310,25 @@ jobs:
             echo "required checks failed: distribution=$DISTRIBUTION_RESULT quality=$QUALITY_RESULT, catalogue=$CATALOGUE_RESULT, discovery=$DISCOVER_RESULT, validation=$VALIDATE_RESULT, storage=$STORAGE_RESULT"
             exit 1
           fi
+      - name: Record the immutable successful integrity context
+        env:
+          TESTED_COMMIT: ${{ needs.discover.outputs.tested_commit }}
+          TESTED_TREE: ${{ needs.discover.outputs.tested_tree }}
+          VERIFIER: ${{ needs.discover.outputs.verifier }}
+          AUDIT_PLAN: ${{ needs.discover.outputs.plan_sha256 }}
+          AUDIT_MODE: ${{ needs.discover.outputs.mode }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          fields = {"tested_commit": ("TESTED_COMMIT", 40), "tree": ("TESTED_TREE", 40),
+                    "verifier": ("VERIFIER", 64), "plan_sha256": ("AUDIT_PLAN", 64)}
+          document = {"format": "hec-integrity-acceptance-v1", "mode": os.environ["AUDIT_MODE"]}
+          for key, (variable, length) in fields.items():
+              value = os.environ[variable]
+              if re.fullmatch("[0-9a-f]{" + str(length) + "}", value) is None:
+                  raise SystemExit("invalid immutable integrity context: " + key)
+              document[key] = value
+          if document["mode"] not in ("full", "incremental"):
+              raise SystemExit("invalid integrity acceptance mode")
+          print("::notice title=HEC integrity acceptance v1::" + json.dumps(document, separators=(",", ":")))
+          PY
