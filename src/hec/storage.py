@@ -223,19 +223,31 @@ def audit_inventory(root):
     return {"files": len(document["entries"]), "content_verified": True, "mathematical_acceptance": False}
 
 
-def history_audit(root, *, all_refs=False):
-    """Read every reachable blob: no pointers, large artifacts or LFS filters.
+def history_audit(root, *, all_refs=False, trusted_ancestor=None):
+    """Read reachable blobs: no pointers, large artifacts or LFS filters.
 
     A complete history is required. This never deletes objects, rewrites refs,
-    fetches artifacts, or accepts a mathematical proof.
+    fetches artifacts, or accepts a mathematical proof. The default audits all
+    history. CI alone supplies an authenticated ancestor to audit everything
+    not covered by its earlier successful history check.
     """
     root = Path(root).resolve()
     if run_git(root, "rev-parse", "--is-shallow-repository").strip() != b"false":
         raise ValueError("complete Git history is required for the history hygiene audit")
     revision = "--all" if all_refs else "HEAD"
-    records = run_git(root, "rev-list", "--objects", revision).decode().splitlines()
+    revisions = [revision]
+    if trusted_ancestor is not None:
+        if all_refs or not isinstance(trusted_ancestor, str) or re.fullmatch(r"[0-9a-f]{40}", trusted_ancestor) is None:
+            raise ValueError("incremental history requires one exact authenticated ancestor")
+        relation = subprocess.run(
+            ["git", "-C", str(root), "merge-base", "--is-ancestor", trusted_ancestor, "HEAD"], capture_output=True
+        )
+        if relation.returncode:
+            raise ValueError("trusted history commit is not in current ancestry")
+        revisions.append("^" + trusted_ancestor)
+    records = run_git(root, "rev-list", "--objects", *revisions).decode().splitlines()
     ids, attributes = [], set()
-    if run_git(root, "log", "--format=%H", "-1", revision, "--", ".lfsconfig", ":(glob)**/.lfsconfig").strip():
+    if run_git(root, "log", "--format=%H", "-1", *revisions, "--", ".lfsconfig", ":(glob)**/.lfsconfig").strip():
         raise ValueError("retired LFS configuration remains in reachable history")
     changes = (
         run_git(
@@ -246,7 +258,7 @@ def history_audit(root, *, all_refs=False):
             "--no-abbrev",
             "-m",
             "--no-renames",
-            revision,
+            *revisions,
             "--",
             ".gitattributes",
             ":(glob)**/.gitattributes",
@@ -321,10 +333,11 @@ def history_audit(root, *, all_refs=False):
             process.stdin.close()
         process.stdout.close()
     return {
-        "commits": int(run_git(root, "rev-list", "--count", revision)),
+        "commits": int(run_git(root, "rev-list", "--count", *revisions)),
         "blobs": len(blobs),
         "reachable_blob_bytes": total,
         "largest_blob_bytes": largest,
+        "trusted_history_ancestor": trusted_ancestor,
         "LFS_pointers": 0,
         "LFS_filters": 0,
         "mathematical_acceptance": False,

@@ -309,9 +309,11 @@ class GitStorageTests(unittest.TestCase):
         text = (Path(__file__).parents[1] / ".github/workflows/database-integrity.yml").read_text()
         for obsolete in ("git lfs", "prepare_lfs", ".hec-ci-lfs", "GIT_LFS_SKIP_SMUDGE", "actions/cache/"):
             self.assertNotIn(obsolete, text)
-        self.assertIn("matrix.checkout_paths", text)
-        self.assertIn("hec storage history", text)
-        self.assertIn("hec storage audit", text)
+        self.assertNotIn("matrix.checkout_paths", text)
+        self.assertIn("AUDIT_TASK: ${{ matrix.task_id }}", text)
+        self.assertIn("python -m hec.ci_checks run", text)
+        self.assertIn("python -m hec.ci_checks storage", text)
+        self.assertIn('--expected-plan "$AUDIT_PLAN"', text)
         self.assertIn('"$STORAGE_RESULT" != "success"', text)
 
     def test_history_cutover_candidate_can_run_the_complete_gate_without_a_pr_merge(self):

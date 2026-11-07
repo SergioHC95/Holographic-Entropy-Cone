@@ -74,18 +74,36 @@ def _check_expected_rows(selected: range, expect_rows: int | None) -> None:
         raise ValueError("planned row coverage differs from the selected partition")
 
 
+def _selected_rows(length, shard_index, shard_count, partition_mode, indices, *, costs=None):
+    if indices is None:
+        return _shard_indices(length, shard_index, shard_count, partition_mode, costs=costs)
+    if (shard_index, shard_count, partition_mode) != (0, 1, "round-robin"):
+        raise ValueError("explicit rows cannot be combined with another partition")
+    selected = tuple(indices)
+    if not selected or any(type(index) is not int or not 0 <= index < length for index in selected):
+        raise ValueError("explicit audit rows must be nonempty exact in-range integers")
+    if selected != tuple(sorted(set(selected))):
+        raise ValueError("explicit audit rows must be sorted and unique")
+    return selected
+
+
 class _RowCoverage:
     """One byte per owned row; completion is not inferred from a plan."""
 
     def __init__(self, selected: range):
         self.selected = selected
+        self.positions = None if isinstance(selected, range) else {index: at for at, index in enumerate(selected)}
+        if self.positions is not None and len(self.positions) != len(selected):
+            raise ValueError("duplicate planned audit row")
         self.seen = bytearray(len(selected))
         self.count = 0
 
     def add(self, index: int) -> None:
-        if type(index) is not int or index not in self.selected:
+        if type(index) is not int or index not in (self.selected if self.positions is None else self.positions):
             raise ValueError("out-of-partition actual row result")
-        position = (index - self.selected.start) // self.selected.step
+        position = (
+            (index - self.selected.start) // self.selected.step if self.positions is None else self.positions[index]
+        )
         if self.seen[position]:
             raise ValueError("duplicate actual row result")
         self.seen[position] = 1
@@ -162,6 +180,7 @@ def _check_stored_rank(
     shard_count: int = 1,
     partition_mode: str = "round-robin",
     expect_rows: int | None = None,
+    indices=None,
 ) -> Iterator[str]:
     for current_n, fixed_rows, candidate_rows in _stored(root, fixed_kind, candidate_kind, n=n):
         if not len(fixed_rows) or not len(candidate_rows):
@@ -171,7 +190,7 @@ def _check_stored_rank(
             if fixed_kind == "rays" and partition_mode == "balanced"
             else None
         )
-        selected = _shard_indices(len(fixed_rows), shard_index, shard_count, partition_mode, costs=costs)
+        selected = _selected_rows(len(fixed_rows), shard_index, shard_count, partition_mode, indices, costs=costs)
         _check_expected_rows(selected, expect_rows)
         if partition_mode == "balanced":
             print(
@@ -256,6 +275,7 @@ def check_stored_facets(
     shard_count: int = 1,
     partition_mode: str = "round-robin",
     expect_rows: int | None = None,
+    indices=None,
 ) -> Iterator[str]:
     yield from _check_stored_rank(
         root,
@@ -266,6 +286,7 @@ def check_stored_facets(
         shard_count=shard_count,
         partition_mode=partition_mode,
         expect_rows=expect_rows,
+        indices=indices,
     )
 
 
@@ -277,6 +298,7 @@ def check_stored_rays(
     shard_count: int = 1,
     partition_mode: str = "round-robin",
     expect_rows: int | None = None,
+    indices=None,
 ) -> Iterator[str]:
     yield from _check_stored_rank(
         root,
@@ -287,6 +309,7 @@ def check_stored_rays(
         shard_count=shard_count,
         partition_mode=partition_mode,
         expect_rows=expect_rows,
+        indices=indices,
     )
 
 
@@ -365,6 +388,7 @@ def check_stored_graphs(
     shard_count: int = 1,
     partition_mode: str = "round-robin",
     expect_rows: int | None = None,
+    indices=None,
 ) -> Iterator[str]:
     for current_n in _selected_ns(root, n):
         rays = load_hec_data(current_n, "rays", root=root)
@@ -373,7 +397,7 @@ def check_stored_graphs(
             raise ValueError(f"n={current_n}: {len(rays)} rays but {len(graphs)} graphs")
         if not len(rays):
             raise ValueError("empty graph/ray catalogue is not acceptance")
-        selected = _shard_indices(len(rays), shard_index, shard_count, partition_mode)
+        selected = _selected_rows(len(rays), shard_index, shard_count, partition_mode, indices)
         _check_expected_rows(selected, expect_rows)
         selected_count = len(selected)
         coverage = _RowCoverage(selected)
