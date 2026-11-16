@@ -7,8 +7,8 @@ complete for $n\leq5$; the six-party catalogues are partial.
 ## Setup and checks
 
 Python dependencies are locked in `uv.lock`. Native exact verification needs
-GCC/Clang-compatible C++17 with unsigned 128-bit integers. CI covers Linux and
-macOS.
+GCC/Clang-compatible C++17 with unsigned 128-bit integers. CI covers Ubuntu 24.04
+(x86-64) and macOS 26 (ARM64).
 
 ```bash
 uv sync --locked --dev --python 3.13.14
