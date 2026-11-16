@@ -300,9 +300,9 @@ def verify_baseline(current, base, github, *, run_id=None, gate_id=None):
                     "installed wheel and exact small-corpus acceptance",
                     "database integrity",
                     "code quality and tests (ubuntu-24.04)",
-                    "code quality and tests (macos-15)",
+                    "code quality and tests (macos-26)",
                     "catalogue integration (ubuntu-24.04)",
-                    "catalogue integration (macos-15)",
+                    "catalogue integration (macos-26)",
                 }
                 if not required <= {job["name"] for job in jobs} or any(
                     job.get("status") != "completed" or job.get("conclusion") != "success" for job in jobs
