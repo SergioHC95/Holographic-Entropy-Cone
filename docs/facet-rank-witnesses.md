@@ -14,6 +14,9 @@ requires rank 62 modulo the fixed prime 2147483647. Modular independence implies
 independence over the rationals. Missing, repeated or dependent directions
 cannot complete a basis.
 
+Ray catalogue insertions or reorderings must remap the ray ordinals in these
+bases while preserving the coefficient digests and S7 permutations.
+
 Each graph model records nonnegative integer edge capacities and one signed
 feasible flow with a matching cut for every nonempty physical subsystem. Vertex
 IDs 0 through 5 are A through F, and ID 6 is the purifier. For every coordinate,

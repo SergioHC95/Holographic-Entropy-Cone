@@ -62,6 +62,11 @@ Git. Readers check every shard's hash, byte length, and row count; CI still
 independently checks every graph realization and exact ray rank. No stored hash
 or catalogue metadata substitutes for mathematical verification.
 
+The [realization ledger](research/ray-graph-realizations-through-14-vertices.json)
+retains exact graph witnesses with at most 14 vertices, including alternative
+realizations of catalogue rays. Vertex counts are witnessed upper bounds,
+not claims of global minimality.
+
 Across all party counts, **86,662 full-map proofs** occupy **71 proof shards**
 totalling **188,584,281 bytes**. Git LFS is not required.
 
@@ -136,7 +141,7 @@ proof coverage does not mean the six-party cone is fully known.
 | 3 | 2 | 7 | 2 | 7 | 2 | complete |
 | 4 | 2 | 20 | 3 | 20 | 2 | complete |
 | 5 | 8 | 372 | 19 | 2,267 | 8 | complete |
-| 6 | 86,648 | 430,126,718 | 3,763,751 | 18,807,044,308 | 86,648 | partial |
+| 6 | 86,648 | 430,126,718 | 3,763,975 | 18,808,157,728 | 86,648 | partial |
 
 CI recomputes this table and the proof-storage totals from the data; stale
 README counts fail the tests. These documentation checks do not replace
