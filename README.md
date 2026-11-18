@@ -67,6 +67,11 @@ retains exact graph witnesses with at most 14 vertices, including alternative
 realizations of catalogue rays. Vertex counts are witnessed upper bounds,
 not claims of global minimality.
 
+The [minimal 15-vertex ledger](research/ray-graph-minimal-15-vertex-realizations.json)
+records 14,797 six-party rays whose stored graphs have exactly 15 vertices. For
+these rays 15 is the minimum: a completed exhaustive search found no graph
+realization with at most 14 vertices.
+
 Across all party counts, **86,971 full-map proofs** occupy **75 proof shards**
 totalling **190,485,474 bytes**. Git LFS is not required.
 
@@ -141,7 +146,7 @@ proof coverage does not mean the six-party cone is fully known.
 | 3 | 2 | 7 | 2 | 7 | 2 | complete |
 | 4 | 2 | 20 | 3 | 20 | 2 | complete |
 | 5 | 8 | 372 | 19 | 2,267 | 8 | complete |
-| 6 | 86,957 | 431,679,038 | 3,763,975 | 18,808,157,728 | 86,957 | partial |
+| 6 | 86,957 | 431,679,038 | 3,778,772 | 18,882,500,248 | 86,957 | partial |
 
 CI recomputes this table and the proof-storage totals from the data; stale
 README counts fail the tests. These documentation checks do not replace
