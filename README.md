@@ -53,7 +53,7 @@ the two catalogues cover exactly the same listed representatives.
 Rows use cardinality-then-lexicographic subset order. Non-lift facet rows are
 row-lexicographically sorted. There is exactly one full-map proof per listed facet,
 bound by content rather than facet-row position. The six-party data has
-**87,013 listed facet representatives**, with exactly matching inequality
+**87,056 listed facet representatives**, with exactly matching inequality
 and proof catalogues. Candidates without facet certification do not belong
 in the accepted data tree.
 `data/storage.json` binds every payload to its byte length and SHA256. Ray and
@@ -72,8 +72,8 @@ records 14,797 six-party rays whose stored graphs have exactly 15 vertices. For
 these rays 15 is the minimum: a completed exhaustive search found no graph
 realization with at most 14 vertices.
 
-Across all party counts, **87,027 full-map proofs** occupy **76 proof shards**
-totalling **190,853,103 bytes**. Git LFS is not required.
+Across all party counts, **87,070 full-map proofs** occupy **77 proof shards**
+totalling **191,138,179 bytes**. Git LFS is not required.
 
 One [mathematical specification](docs/proofs.md) defines the reconstruction
 contract. One [schema](schemas/repository.schema.json) describes proofs,
@@ -146,7 +146,7 @@ proof coverage does not mean the six-party cone is fully known.
 | 3 | 2 | 7 | 2 | 7 | 2 | complete |
 | 4 | 2 | 20 | 3 | 20 | 2 | complete |
 | 5 | 8 | 372 | 19 | 2,267 | 8 | complete |
-| 6 | 87,013 | 431,958,758 | 3,778,772 | 18,882,500,248 | 87,013 | partial |
+| 6 | 87,056 | 432,172,958 | 3,778,772 | 18,882,500,248 | 87,056 | partial |
 
 CI recomputes this table and the proof-storage totals from the data; stale
 README counts fail the tests. These documentation checks do not replace
