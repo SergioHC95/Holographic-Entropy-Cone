@@ -53,7 +53,7 @@ the two catalogues cover exactly the same listed representatives.
 Rows use cardinality-then-lexicographic subset order. Non-lift facet rows are
 row-lexicographically sorted. There is exactly one full-map proof per listed facet,
 bound by content rather than facet-row position. The six-party data has
-**87,112 listed facet representatives**, with exactly matching inequality
+**87,113 listed facet representatives**, with exactly matching inequality
 and proof catalogues. Candidates without facet certification do not belong
 in the accepted data tree.
 `data/storage.json` binds every payload to its byte length and SHA256. Ray and
@@ -72,8 +72,12 @@ records 14,797 six-party rays whose stored graphs have exactly 15 vertices. For
 these rays 15 is the minimum: a completed exhaustive search found no graph
 realization with at most 14 vertices.
 
-Across all party counts, **87,126 full-map proofs** occupy **80 proof shards**
-totalling **191,455,739 bytes**. Git LFS is not required.
+Four additional six-party extreme-ray orbits have [graph and rank certificates](research/six-party-large-graph-ray-certificates.json).
+Their graph witnesses exceed the paired catalogue's 15-vertex limit. They are
+not counted in the table below; no minimum graph size is claimed.
+
+Across all party counts, **87,127 full-map proofs** occupy **80 proof shards**
+totalling **191,468,198 bytes**. Git LFS is not required.
 
 One [mathematical specification](docs/proofs.md) defines the reconstruction
 contract. One [schema](schemas/repository.schema.json) describes proofs,
@@ -146,7 +150,7 @@ proof coverage does not mean the six-party cone is fully known.
 | 3 | 2 | 7 | 2 | 7 | 2 | complete |
 | 4 | 2 | 20 | 3 | 20 | 2 | complete |
 | 5 | 8 | 372 | 19 | 2,267 | 8 | complete |
-| 6 | 87,112 | 432,452,678 | 3,778,772 | 18,882,500,248 | 87,112 | partial |
+| 6 | 87,113 | 432,457,718 | 3,778,774 | 18,882,510,328 | 87,113 | partial |
 
 CI recomputes this table and the proof-storage totals from the data; stale
 README counts fail the tests. These documentation checks do not replace
