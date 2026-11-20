@@ -53,7 +53,7 @@ the two catalogues cover exactly the same listed representatives.
 Rows use cardinality-then-lexicographic subset order. Non-lift facet rows are
 row-lexicographically sorted. There is exactly one full-map proof per listed facet,
 bound by content rather than facet-row position. The six-party data has
-**87,211 listed facet representatives**, with exactly matching inequality
+**87,212 listed facet representatives**, with exactly matching inequality
 and proof catalogues. Candidates without facet certification do not belong
 in the accepted data tree.
 `data/storage.json` binds every payload to its byte length and SHA256. Ray and
@@ -76,8 +76,13 @@ The [second minimal 15-vertex ledger](research/ray-graph-minimal-15-vertex-reali
 adds 19,066 six-party ray/graph pairs and retains 1,676 distinct alternate
 realizations with the same exact 15-vertex minimality evidence.
 
-Across all party counts, **87,225 full-map proofs** occupy **83 proof shards**
-totalling **192,085,886 bytes**. Git LFS is not required.
+The [six-party section certificates](research/six-party-section-ray-certificates.json)
+record exact graph realizations and rank-62 bases for additional extreme rays.
+Graphs above the 15-vertex catalogue limit, or without a matching vertex lower
+bound, are supplemental and are not counted in the paired catalogue.
+
+Across all party counts, **87,226 full-map proofs** occupy **84 proof shards**
+totalling **192,098,345 bytes**. Git LFS is not required.
 
 One [mathematical specification](docs/proofs.md) defines the reconstruction
 contract. One [schema](schemas/repository.schema.json) describes proofs,
@@ -150,7 +155,7 @@ proof coverage does not mean the six-party cone is fully known.
 | 3 | 2 | 7 | 2 | 7 | 2 | complete |
 | 4 | 2 | 20 | 3 | 20 | 2 | complete |
 | 5 | 8 | 372 | 19 | 2,267 | 8 | complete |
-| 6 | 87,211 | 432,951,638 | 3,797,838 | 18,978,390,028 | 87,211 | partial |
+| 6 | 87,212 | 432,956,678 | 3,797,838 | 18,978,390,028 | 87,212 | partial |
 
 CI recomputes this table and the proof-storage totals from the data; stale
 README counts fail the tests. These documentation checks do not replace
