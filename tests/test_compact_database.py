@@ -17,6 +17,7 @@ from hec.contractions import read_contractions
 from hec.count_proofs import geometry
 from hec.data import load_hec_data
 from hec.graph_store import GraphCatalog
+from hec.incremental_ci import CERTIFIED_RAY_N6
 from hec.inequality_records import inequality_catalog, write_inequality_catalog
 from hec.proof_store import write_proof_catalog
 from hec.rank import check_support_rank
@@ -110,8 +111,7 @@ class ReadmeDataTests(unittest.TestCase):
 
     def _certified_facet_ray_pair(self):
         data = dict(self.datasets)[6]
-        ray_id = "39484b4dc968ef126c6fa47184797b727397c291fb831c2105dee3ba703cad8f"
-        index, ray = select_rays(data["rays"], [ray_id], unique=True)[ray_id]
+        index, ray = select_rays(data["rays"], [CERTIFIED_RAY_N6], unique=True)[CERTIFIED_RAY_N6]
         pair = (ray, data["graphs"][index])
         identity = "e7b8a988f55d1418c78bfc1e2e1580952fcfbc2d418d37b7097480e021eb1e10"
         entry = next(row for row in data["inequalities"]["entries"] if row["id"] == identity)

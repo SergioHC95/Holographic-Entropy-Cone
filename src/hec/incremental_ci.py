@@ -14,7 +14,6 @@ import math
 import re
 import tempfile
 from bisect import bisect_left, bisect_right
-from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,6 +29,17 @@ from .proof_store import ProofCatalog
 from .ray_store import RayCatalog
 from .ray_store import _exact_payload as ray_payload
 from .reconstruction_checks import ci_matrix
+
+# The complete catalogue tests also pin these literal regression inputs. A
+# membership change needs that test (including uniqueness), not a count delta.
+CERTIFIED_RAY_N6 = "39484b4dc968ef126c6fa47184797b727397c291fb831c2105dee3ba703cad8f"
+GRAPH_FINDER_CASES_N6 = (
+    ("c5cb8bf65b3ad299ab6a4ca307b6d3cbbd449da30b9c80590fd017fa5e3e76aa", 11),
+    ("6b9933a923d299a26d6c12e6089ad29186dabb16b498a9617d9c8da49769ccd1", 9),
+    ("4388ecb359d4478911f81ced52c033368d3753ac941657edace90389956525fd", 11),
+    ("ea49fdcd8e0d15ca4e5686fedbf14ae935863894b9d6b89d34c99a7ca52b6756", 10),
+)
+_CATALOGUE_RAY_CONTROLS = frozenset((6, key) for key in (CERTIFIED_RAY_N6, *(key for key, _ in GRAPH_FINDER_CASES_N6)))
 
 METADATA = re.compile(r"data/n=([1-9][0-9]*)/(facets|rays|graphs|inequalities|proofs|facet-witnesses)\.json\Z")
 DATA_FILE = re.compile(
@@ -97,9 +107,12 @@ class Catalogue:
         if self.rows is not None:
             return self.rows[index]
         ordinal = bisect_right(self.ends, index)
+        return self.segment_rows(ordinal)[index - self.segments[ordinal][0]]
+
+    def segment_rows(self, ordinal):
         if self.cached is None or self.cached[0] != ordinal:
             self.cached = ordinal, self.values(self.segments[ordinal])
-        return self.cached[1][index - self.segments[ordinal][0]]
+        return self.cached[1]
 
     def location(self, index):
         if not 0 <= index < len(self):
@@ -110,54 +123,97 @@ class Catalogue:
         segment = self.segments[ordinal]
         return segment[2], index - segment[0]
 
-    def changed_records(self, common):
-        if self.rows is not None:
-            yield from enumerate(self.rows)
-        else:
-            for segment in self.segments:
-                if segment[2] not in common:
-                    yield from ((segment[0] + i, row) for i, row in enumerate(self.values(segment)))
+    def blocks(self):
+        if self.rows is None:
+            return self.segments
+        path = f"data/n={self.n}/rays.json"
+        return [(0, len(self), ("inline", self.snapshot.tree.oid(path)), path)]
+
+    def block_rows(self, block):
+        return self.rows if self.rows is not None else self.values(block)
 
 
 @dataclass
 class RowDelta:
-    new: list[int]
-    positions: list[int]
+    graphs: list[int]
     added: list[int]
     removed: list[int]
     retained: bool
 
 
-def row_delta(old, current):
-    """Only changed shards are decoded; hashes bind exact normalized rows."""
-    old_tokens = {segment[2] for segment in old.segments}
-    new_tokens = {segment[2] for segment in current.segments}
-    common = old_tokens & new_tokens
-    before = Counter(identity(row) for _, row in old.changed_records(common))
-    after = Counter(identity(row) for _, row in current.changed_records(common))
-    additions, removals = after - before, before - after
-    new, positions, added, removed = [], [], [], []
-    seen = Counter()
-    for index, row in current.changed_records(common):
-        key = identity(row)
-        if key not in before:
-            new.append(index)
-        seen[key] += 1
-        if seen[key] <= additions[key]:
-            added.append(index)
-        if index >= len(old) or identity(old.at(index)) != key:
-            positions.append(index)
-    seen.clear()
-    for index, row in old.changed_records(common):
-        key = identity(row)
-        seen[key] += 1
-        if seen[key] <= removals[key]:
-            removed.append(index)
-    offsets = {token: start for start, _, token, _ in old.segments}
-    for start, stop, token, _ in current.segments:
-        if token in common and offsets[token] != start:
-            positions.extend(range(start, stop))
-    return RowDelta(sorted(new), sorted(set(positions)), added, removed, not removals)
+def _changed_graph_rows(old, current, start, stop, previous):
+    """Compare graphs only after identifying the old row for the exact same ray."""
+    while start < stop:
+        a = bisect_right(old.ends, previous)
+        b = bisect_right(current.ends, start)
+        a_start, a_stop, a_token, _ = old.segments[a]
+        b_start, b_stop, b_token, _ = current.segments[b]
+        count = min(stop - start, a_stop - previous, b_stop - start)
+        a_offset, b_offset = previous - a_start, start - b_start
+        if a_token != b_token or a_offset != b_offset:
+            left, right = old.segment_rows(a), current.segment_rows(b)
+            for offset in range(count):
+                # Python treats True == 1. An accepted graph has only string
+                # endpoints and integer weights; bool is not an int here.
+                a_row, b_row = left[a_offset + offset], right[b_offset + offset]
+                if a_row != b_row or any(type(weight) is not int for weight in b_row["weights"]):
+                    yield start + offset
+        start += count
+        previous += count
+
+
+def paired_delta(old_rays, rays, old_graphs, graphs):
+    """Bind retained results to the exact ray AND graph, independent of row position."""
+    if len(old_rays) != len(old_graphs) or len(rays) != len(graphs):
+        raise ValueError("graph/ray coverage differs")
+    old_blocks, blocks = old_rays.blocks(), rays.blocks()
+    old_offsets = {token: start for start, _, token, _ in old_blocks}
+    common = old_offsets.keys() & {token for _, _, token, _ in blocks}
+    previous_rows, repeats = {}, {}
+    for block in old_blocks:
+        if block[2] in common:
+            continue
+        for index, row in enumerate(old_rays.block_rows(block), start=block[0]):
+            key = identity(row)
+            if key in previous_rows:
+                repeats.setdefault(key, []).append(index)
+            else:
+                previous_rows[key] = index
+
+    added, changed = [], []
+    for block in blocks:
+        start, stop, token, _ = block
+        if token in common:
+            changed.extend(_changed_graph_rows(old_graphs, graphs, start, stop, old_offsets[token]))
+            continue
+        run = None
+        for index, row in enumerate(rays.block_rows(block), start=start):
+            key = identity(row)
+            extras = repeats.get(key)
+            previous = extras.pop() if extras else previous_rows.pop(key, None)
+            if previous is not None and run is not None and previous - run[1] == index - run[0]:
+                continue
+            if run is not None:
+                changed.extend(_changed_graph_rows(old_graphs, graphs, run[0], index, run[1]))
+                run = None
+            if previous is None:
+                added.append(index)
+                changed.append(index)
+            else:
+                run = index, previous
+        if run is not None:
+            changed.extend(_changed_graph_rows(old_graphs, graphs, run[0], stop, run[1]))
+    removed = sorted([*previous_rows.values(), *(i for rows in repeats.values() for i in rows)])
+    return RowDelta(changed, added, removed, not removed)
+
+
+def _catalogue_controls_changed(old, current, delta):
+    n = current.n
+    return (
+        any((n, identity(old.at(i))) in _CATALOGUE_RAY_CONTROLS for i in delta.removed)
+        or any((n, identity(current.at(i))) in _CATALOGUE_RAY_CONTROLS for i in delta.added)
+        or (n == 6 and any(identity(current.at(i)) == CERTIFIED_RAY_N6 for i in delta.graphs))
+    )
 
 
 class Snapshot:
@@ -223,16 +279,21 @@ def witness_changes(old, current, n):
     old_entries, new_entries = ({} if item is None else item.facets for item in (before, after))
     changed = set()
     for key in old_entries.keys() | new_entries.keys():
-        if old_entries.get(key) != new_entries.get(key):
+        prior, present = old_entries.get(key), new_entries.get(key)
+        if prior is None or present is None or len(prior) != len(present):
             changed.add(key)
             continue
-        for ref in new_entries[key]:
-            if "ray" in ref:
+        for previous, ref in zip(prior, present, strict=True):
+            if "ray" in ref and "ray" in previous:
+                if (ref["permutation"], ref["row_sha256"]) != (previous["permutation"], previous["row_sha256"]):
+                    changed.add(key)
+                    continue
                 a, b = old.catalogue(n, "rays"), current.catalogue(n, "rays")
-                index = ref["ray"]
-                if a.location(index) != b.location(index):
-                    if index >= min(len(a), len(b)) or identity(a.at(index)) != identity(b.at(index)):
-                        changed.add(key)
+                i, j = previous["ray"], ref["ray"]
+                if i >= len(a) or j >= len(b) or (a.location(i) != b.location(j) and a.at(i) != b.at(j)):
+                    changed.add(key)
+            elif ref != previous:
+                changed.add(key)
             else:
                 model = ref["model"]
                 a, b = before.models[model], after.models[model]
@@ -369,15 +430,13 @@ class IntegrityPlan:
             old_set = set(old_facets)
             if len(set(facets)) != len(facets):
                 raise ValueError("duplicate current facet rows")
-            rays = row_delta(a.catalogue(n, "rays"), b.catalogue(n, "rays"))
-            graphs = row_delta(a.catalogue(n, "graphs"), b.catalogue(n, "graphs"))
+            before, after = a.catalogue(n, "rays"), b.catalogue(n, "rays")
+            rays = paired_delta(before, after, a.catalogue(n, "graphs"), b.catalogue(n, "graphs"))
             if not rays.retained:
-                removed_orbits = {orbit_key(a.catalogue(n, "rays").at(i), n) for i in rays.removed}
-                added_orbits = {orbit_key(b.catalogue(n, "rays").at(i), n) for i in rays.added}
+                removed_orbits = {orbit_key(before.at(i), n) for i in rays.removed}
+                added_orbits = {orbit_key(after.at(i), n) for i in rays.added}
                 rays.retained = removed_orbits <= added_orbits
-            self.deltas[n] = rays, graphs
-            if len(b.catalogue(n, "rays")) != len(b.catalogue(n, "graphs")):
-                raise ValueError("current graph/ray coverage differs")
+            self.deltas[n] = rays
             rank_facets = (
                 set(range(len(facets)))
                 if not rays.retained
@@ -392,21 +451,15 @@ class IntegrityPlan:
             facets_retained = literal_facets_retained or {orbit_key(row, n) for row in old_set - set(facets)} <= {
                 orbit_key(row, n) for row in set(facets) - old_set
             }
-            rank_rays = rays.new if facets_retained else list(range(len(b.catalogue(n, "rays"))))
+            rank_rays = rays.added if facets_retained else list(range(len(after)))
             selected = {
                 "contractions": proof_changes(a, b, n),
                 "facets": sorted(rank_facets),
                 "rays": rank_rays,
-                "graphs": sorted(set(graphs.positions) | set(rays.positions)),
+                "graphs": rays.graphs,
             }
             self.selected[n] = selected
-            if (
-                not literal_facets_retained
-                or bool(rays.added)
-                or bool(rays.removed)
-                or any(i < len(a.catalogue(n, "rays")) for i in rays.positions)
-                or any(i < len(a.catalogue(n, "graphs")) for i in graphs.positions)
-            ):
+            if not literal_facets_retained or not rays.retained or _catalogue_controls_changed(before, after, rays):
                 self.catalogue_mode = "full"
             catalog, inequalities = b.proofs(n)
             counts = {

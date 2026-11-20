@@ -43,11 +43,12 @@ job outputs, and unmodified archives need not be downloaded for unrelated jobs.
 | Changed witness basis, referenced ray or model frame | Recheck the dependent facet certificates. |
 | Pure repacking with identical decoded graph/ray rows | Check changed bytes/indexes; reuse the unchanged mathematical facts. |
 
-The planner compares immutable shard identities first and decodes only changed
-ray/graph shards. It preserves coordinate frames and pairing: reordering or
-editing ray rows cannot silently reuse a different paired graph. Symmetry
-orbit retention preserves rank-support monotonicity, while explicitly stored
-witness row/frame bindings still require their own dependency checks.
+The planner first matches literal rays across immutable shards and compares
+each graph with the graph paired to that same ray. Moving a pair to a different
+row or repacking identical pairs does not trigger exact graph replay. A changed
+pair does, even if its ray and graph are both present separately in the baseline.
+Facet-witness row moves reuse prior rank only if the row coefficients, digest,
+and permutation are unchanged after rebinding.
 
 Selected proof batches are balanced by estimated complete-map work, not just
 row count. Scheduling weights never split a proof or change its full-cube
@@ -67,15 +68,12 @@ README counts, verifies changed data bytes, and audits uncovered Git history.
 Unchanged byte identities are bound both to Git objects and the prior SHA256
 inventory; declarations alone are never new byte acceptance.
 
-Proof/facet append-only changes retain prior whole-catalogue regression inputs. Their
-catalogue jobs explicitly report authenticated integration reuse and execute
-fresh current bindings, ordering, primitive/symmetry checks and exact
-baseline-plus-delta orbit/storage counts. They do not pretend to have rerun
-the old exhaustive tests. Ray changes also affect global uniqueness lookups
-for catalogue controls, even when they only append rows. Those changes and
-edits to existing regression inputs retain the original full catalogue
-integration suite on both platforms, while mathematical jobs remain scoped
-to changed/dependent results.
+Graph and ray additions or replacements can reuse the authenticated catalogue
+integration results that they do not affect. Current metadata and README orbit
+totals are checked against the baseline plus exact row deltas. The full suite
+still runs when a protected regression ray's membership changes, the protected
+ray/graph regression pair changes, or removal of supporting data invalidates
+that evidence. Reuse does not pretend to have rerun the exhaustive tests.
 
 An explicit acceptance-plan task is always present, even when no mathematical
 row changed. Metadata-only success does not certify a new proof or rank; the
