@@ -659,6 +659,20 @@ class ChangedResultTests(IncrementalFixtures):
                 "shards": [{"sha256": key, "bytes": len(raw), "count": len(graphs)}],
             },
         )
+        rays = self.doc("rays.json")
+        raw = json.dumps(rays, indent=1).encode()
+        key = sha256(raw).hexdigest()
+        directory = self.data / "ray-shards"
+        directory.mkdir(exist_ok=True)
+        (directory / (key + ".json")).write_bytes(raw)
+        self.write(
+            "rays.json",
+            {
+                "format": "hec-ray-catalogue",
+                "count": len(rays),
+                "shards": [{"sha256": key, "bytes": len(raw), "count": len(rays)}],
+            },
+        )
         self.commit("same graph records in a new byte encoding")
         plan = self.plan()
         self.assertEqual([task["kind"] for task in plan.tasks], ["acceptance"])

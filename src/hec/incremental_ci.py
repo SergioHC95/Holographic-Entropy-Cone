@@ -63,6 +63,21 @@ def orbit_key(row, n):
     return tuple(int(value) for value in canonical_vector(tuple(value // divisor for value in row), n))
 
 
+def _framed_ray_rows(raw, count, n):
+    """Recognize only the writer's canonical integer spelling and row width."""
+    if not raw.startswith(b"[\n[") or not raw.endswith(b"]\n]\n"):
+        return None
+    rows = raw[2:-3].split(b",\n")
+    if len(rows) != count:
+        return None
+    integer = rb"(?:0|-?[1-9][0-9]*)"
+    width = str((1 << n) - 2).encode()
+    canonical_ray = re.compile(rb"\[" + integer + rb"(?:," + integer + rb"){" + width + rb"}\]")
+    if any(canonical_ray.fullmatch(row) is None for row in rows):
+        return None
+    return rows
+
+
 def _framed_graph_rows(raw, count):
     """Find writer record boundaries without building millions of graph objects."""
     if not raw.startswith(b"[\n  {") or not raw.endswith(b"}\n]\n") or raw.count(b"\n") != count + 2:
@@ -111,25 +126,16 @@ class Catalogue:
                 start += shard.count
                 self.ends.append(start)
         self.cached = None
-        self.comparison_cache = None
 
     def __len__(self):
         return self.count
 
-    def shard_bytes(self, segment):
+    def _shard_bytes(self, segment):
         _, _, token, path = segment
         raw = self.snapshot.tree.read(path)
         if len(raw) != token[1] or hashlib.sha256(raw).hexdigest() != token[0]:
             raise ValueError("changed catalogue shard differs from its declared content identity")
         return raw
-
-    def values(self, segment):
-        start, stop, _, _ = segment
-        raw = self.shard_bytes(segment)
-        rows = ray_payload(raw, self.n) if self.kind == "rays" else graph_payload(raw)
-        if len(rows) != stop - start:
-            raise ValueError("changed shard lost declared row coverage")
-        return rows
 
     def at(self, index):
         if not 0 <= index < len(self):
@@ -137,25 +143,29 @@ class Catalogue:
         if self.rows is not None:
             return self.rows[index]
         ordinal = bisect_right(self.ends, index)
-        return self.segment_rows(ordinal)[index - self.segments[ordinal][0]]
+        row = self.segment_rows(ordinal)[index - self.segments[ordinal][0]]
+        if isinstance(row, bytes):
+            payload = b"[" + row + b"]"
+            return (ray_payload(payload, self.n) if self.kind == "rays" else graph_payload(payload))[0]
+        return row
 
     def segment_rows(self, ordinal):
         if self.cached is None or self.cached[0] != ordinal:
-            self.cached = ordinal, self.values(self.segments[ordinal])
-        return self.cached[1]
-
-    def graph_comparison_rows(self, ordinal):
-        if self.comparison_cache is None or self.comparison_cache[0] != ordinal:
             segment = self.segments[ordinal]
             count = segment[1] - segment[0]
-            raw = self.shard_bytes(segment)
-            rows = _framed_graph_rows(raw, count)
-            if rows is None:
-                rows = graph_payload(raw)
-                if len(rows) != count:
-                    raise ValueError("changed shard lost declared row coverage")
-            self.comparison_cache = ordinal, rows
-        return self.comparison_cache[1]
+            raw = self._shard_bytes(segment)
+            if self.kind == "rays":
+                rows = _framed_ray_rows(raw, count, self.n)
+                if rows is None:
+                    rows = ray_payload(raw, self.n)
+            else:
+                rows = _framed_graph_rows(raw, count)
+                if rows is None:
+                    rows = graph_payload(raw)
+            if len(rows) != count:
+                raise ValueError("changed shard lost declared row coverage")
+            self.cached = ordinal, rows
+        return self.cached[1]
 
     def location(self, index):
         if not 0 <= index < len(self):
@@ -172,8 +182,12 @@ class Catalogue:
         path = f"data/n={self.n}/rays.json"
         return [(0, len(self), ("inline", self.snapshot.tree.oid(path)), path)]
 
-    def block_rows(self, block):
-        return self.rows if self.rows is not None else self.values(block)
+    def ray_keys(self, ordinal):
+        rows = self.rows if self.rows is not None else self.segment_rows(ordinal)
+        # Writer bytes and the exact decoder's canonical spelling must match.
+        # Store 32-byte identities rather than retaining the full ray catalogue.
+        for row in rows:
+            yield hashlib.sha256(row).digest() if isinstance(row, bytes) else bytes.fromhex(identity(row))
 
 
 @dataclass
@@ -194,7 +208,7 @@ def _changed_graph_rows(old, current, start, stop, previous):
         count = min(stop - start, a_stop - previous, b_stop - start)
         a_offset, b_offset = previous - a_start, start - b_start
         if a_token != b_token or a_offset != b_offset:
-            left, right = old.graph_comparison_rows(a), current.graph_comparison_rows(b)
+            left, right = old.segment_rows(a), current.segment_rows(b)
             for offset in range(count):
                 if not _same_graph(left[a_offset + offset], right[b_offset + offset]):
                     yield start + offset
@@ -210,25 +224,23 @@ def paired_delta(old_rays, rays, old_graphs, graphs):
     old_offsets = {token: start for start, _, token, _ in old_blocks}
     common = old_offsets.keys() & {token for _, _, token, _ in blocks}
     previous_rows, repeats = {}, {}
-    for block in old_blocks:
+    for ordinal, block in enumerate(old_blocks):
         if block[2] in common:
             continue
-        for index, row in enumerate(old_rays.block_rows(block), start=block[0]):
-            key = identity(row)
+        for index, key in enumerate(old_rays.ray_keys(ordinal), start=block[0]):
             if key in previous_rows:
                 repeats.setdefault(key, []).append(index)
             else:
                 previous_rows[key] = index
 
     added, changed = [], []
-    for block in blocks:
+    for ordinal, block in enumerate(blocks):
         start, stop, token, _ = block
         if token in common:
             changed.extend(_changed_graph_rows(old_graphs, graphs, start, stop, old_offsets[token]))
             continue
         run = None
-        for index, row in enumerate(rays.block_rows(block), start=start):
-            key = identity(row)
+        for index, key in enumerate(rays.ray_keys(ordinal), start=start):
             extras = repeats.get(key)
             previous = extras.pop() if extras else previous_rows.pop(key, None)
             if previous is not None and run is not None and previous - run[1] == index - run[0]:
@@ -249,11 +261,14 @@ def paired_delta(old_rays, rays, old_graphs, graphs):
 
 def _catalogue_controls_changed(old, current, delta):
     n = current.n
-    return (
-        any((n, identity(old.at(i))) in _CATALOGUE_RAY_CONTROLS for i in delta.removed)
-        or any((n, identity(current.at(i))) in _CATALOGUE_RAY_CONTROLS for i in delta.added)
-        or (n == 6 and any(identity(current.at(i)) == CERTIFIED_RAY_N6 for i in delta.graphs))
-    )
+    if any((n, identity(old.at(i))) in _CATALOGUE_RAY_CONTROLS for i in delta.removed):
+        return True
+    added = set(delta.added)
+    for i in delta.graphs if n == 6 else delta.added:
+        key = identity(current.at(i))
+        if (i in added and (n, key) in _CATALOGUE_RAY_CONTROLS) or (n == 6 and key == CERTIFIED_RAY_N6):
+            return True
+    return False
 
 
 class Snapshot:
@@ -318,6 +333,7 @@ def witness_changes(old, current, n):
     before, after = old.witnesses(n), current.witnesses(n)
     old_entries, new_entries = ({} if item is None else item.facets for item in (before, after))
     changed = set()
+    compare = {}
     for key in old_entries.keys() | new_entries.keys():
         prior, present = old_entries.get(key), new_entries.get(key)
         if prior is None or present is None or len(prior) != len(present):
@@ -330,8 +346,10 @@ def witness_changes(old, current, n):
                     continue
                 a, b = old.catalogue(n, "rays"), current.catalogue(n, "rays")
                 i, j = previous["ray"], ref["ray"]
-                if i >= len(a) or j >= len(b) or (a.location(i) != b.location(j) and a.at(i) != b.at(j)):
+                if i >= len(a) or j >= len(b):
                     changed.add(key)
+                elif a.location(i) != b.location(j):
+                    compare.setdefault((i, j), set()).add(key)
             elif ref != previous:
                 changed.add(key)
             else:
@@ -341,6 +359,15 @@ def witness_changes(old, current, n):
                 new_path = f"data/n={n}/witness-shards/{b['shard']}.witnesspack"
                 if a != b or old.tree.oid(old_path) != current.tree.oid(new_path):
                     changed.add(key)
+    if compare:
+        a, b = old.catalogue(n, "rays"), current.catalogue(n, "rays")
+        # Many facet proofs reference the same small set of rays. Read each
+        # relevant shard in order instead of following facet iteration order.
+        old_rows = {i: a.at(i) for i in sorted({i for i, _ in compare})}
+        new_rows = {j: b.at(j) for j in sorted({j for _, j in compare})}
+        for (i, j), facets in compare.items():
+            if old_rows[i] != new_rows[j]:
+                changed.update(facets)
     return changed
 
 
