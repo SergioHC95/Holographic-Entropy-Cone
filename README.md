@@ -62,14 +62,14 @@ Git. Readers check every shard's hash, byte length, and row count; CI still
 independently checks every graph realization and exact ray rank. No stored hash
 or catalogue metadata substitutes for mathematical verification.
 
-New ray realizations must attain a certified minimum total vertex count.
-An exact entropy match alone gives an upper bound; a lower bound is also
-required. Distinct realizations may appear in provenance only when they tie
-the certified minimum. The paired catalogue stores one graph per ray.
+The catalogue publishes one graph per ray: fewest total vertices first, then
+fewest edges among the verified graphs at that order. New ray publications
+require a vertex lower bound as well as an exact entropy match. Provenance
+binds the selected catalogue graph without storing any graph payloads.
 
 The [realization ledger](research/ray-graph-realizations-through-14-vertices.json)
-retains historical exact graph witnesses with at most 14 vertices. A vertex
-count in that ledger does not by itself claim minimality. Two corrected
+records the provenance of historical exact graph witnesses with at most
+14 vertices. A vertex count alone does not establish minimality. Two corrected
 catalogue graphs there attain 12 vertices, with exhaustive 11-vertex exclusions.
 
 The [minimal 15-vertex ledger](research/ray-graph-minimal-15-vertex-realizations.json)
@@ -78,24 +78,19 @@ these rays 15 is the minimum: a completed exhaustive search found no graph
 realization with at most 14 vertices.
 
 The [second minimal 15-vertex ledger](research/ray-graph-minimal-15-vertex-realizations-followup.json)
-adds 19,066 six-party ray/graph pairs and retains 1,676 distinct alternate
-realizations with the same exact 15-vertex minimality evidence.
+records 19,066 six-party ray/graph pairs with exact 15-vertex minimality evidence.
 
 The [third minimal 15-vertex ledger](research/ray-graph-minimal-15-vertex-realizations-structural.json)
-adds 2,588 six-party ray/graph pairs and retains 23 distinct realizations
-tied for the certified 15-vertex minimum. It includes the exact witnesses
-collected since the second ledger.
+records 2,588 six-party ray/graph pairs collected since the second ledger.
 
 The [fourth minimal 15-vertex ledger](research/ray-graph-minimal-15-vertex-realizations-adaptive.json)
-adds 523 six-party ray/graph pairs and retains three distinct alternate
-realizations.
+records 523 six-party ray/graph pairs.
 
 The [fifth minimal 15-vertex ledger](research/ray-graph-minimal-15-vertex-realizations-frontier.json)
 adds 1,183 six-party ray/graph pairs with exact 15-vertex minimality evidence.
 
 The [sixth minimal 15-vertex ledger](research/ray-graph-minimal-15-vertex-realizations-continuation.json)
-adds 829 six-party ray/graph pairs and retains one distinct alternate
-realization, each with exact 15-vertex minimality evidence.
+records 829 six-party ray/graph pairs with exact 15-vertex minimality evidence.
 
 The [seventh minimal 15-vertex ledger](research/ray-graph-minimal-15-vertex-realizations-recombined.json)
 adds 534 six-party ray/graph pairs with exact 15-vertex minimality evidence.
@@ -107,8 +102,7 @@ The [ninth minimal 15-vertex ledger](research/ray-graph-minimal-15-vertex-realiz
 adds seven six-party ray/graph pairs from completed native searches.
 
 The [tenth minimal 15-vertex ledger](research/ray-graph-minimal-15-vertex-realizations-projection.json)
-adds 132 six-party ray/graph pairs and retains two distinct alternate
-realizations with the same exact 15-vertex minimality evidence.
+records 132 six-party ray/graph pairs with exact 15-vertex minimality evidence.
 
 Across all party counts, **87,143 full-map proofs** occupy **82 proof shards**
 totalling **191,567,820 bytes**. Git LFS is not required.
