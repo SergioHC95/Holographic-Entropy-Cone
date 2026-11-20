@@ -38,6 +38,7 @@ from hec._graph_search import (
 )
 from hec._graph_validation import graph_total_vertices
 from hec.graphs import DEFAULT_MAX_VERTICES, check_graph, find_graph, find_graph_fixed_n, read_graphs, write_graphs
+from hec.incremental_ci import GRAPH_FINDER_CASES_N6
 
 
 def _orbit_plan(*selected_cuts: tuple[tuple[int, int], ...]) -> OrbitSearchPlan:
@@ -554,17 +555,9 @@ class GraphFinderModelTests(unittest.TestCase):
 class PublicGraphFinderTests(unittest.TestCase):
     def test_n6_pathological_incumbents_are_polished_to_small_exact_graphs(self) -> None:
         rays = load_hec_data(6, "rays")
-        # Use content fingerprints instead of row positions: the database is
-        # row-lexicographic, so adding a new representative must not silently
-        # retarget this solver regression test to another ray.
-        cases = (
-            ("c5cb8bf65b3ad299ab6a4ca307b6d3cbbd449da30b9c80590fd017fa5e3e76aa", 11),
-            ("6b9933a923d299a26d6c12e6089ad29186dabb16b498a9617d9c8da49769ccd1", 9),
-            ("4388ecb359d4478911f81ced52c033368d3753ac941657edace90389956525fd", 11),
-            ("ea49fdcd8e0d15ca4e5686fedbf14ae935863894b9d6b89d34c99a7ca52b6756", 10),
-        )
-        by_fingerprint = select_rays(rays, (fingerprint for fingerprint, _ in cases))
-        for fingerprint, total_vertices in cases:
+        # Literal ray identity survives insertions and row moves.
+        by_fingerprint = select_rays(rays, (fingerprint for fingerprint, _ in GRAPH_FINDER_CASES_N6))
+        for fingerprint, total_vertices in GRAPH_FINDER_CASES_N6:
             with self.subTest(fingerprint=fingerprint):
                 self.assertIn(fingerprint, by_fingerprint)
                 result = find_graph_fixed_n(by_fingerprint[fingerprint][1], total_vertices)

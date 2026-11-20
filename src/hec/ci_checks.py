@@ -205,7 +205,7 @@ def check_catalogue_delta(plan, repository):
             witnesses.check_bindings(facet_ids)
         if int(match[2].replace(",", "")) != len(old_facets):
             raise ValueError("baseline facet count disagrees with README")
-        rays, _graphs = plan.deltas[n]
+        rays = plan.deltas[n]
         old_rays, current_rays = plan.old.catalogue(n, "rays"), plan.current.catalogue(n, "rays")
         if int(match[4].replace(",", "")) != len(old_rays):
             raise ValueError("baseline ray count disagrees with README")

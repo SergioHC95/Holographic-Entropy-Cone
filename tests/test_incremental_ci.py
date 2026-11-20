@@ -424,9 +424,66 @@ class ChangedResultTests(IncrementalFixtures):
         self.assertEqual(plan.selected[2], {"contractions": [], "facets": [], "rays": [1], "graphs": [1]})
         for task in plan.tasks:
             self.assertTrue(run_task(plan, task["task_id"], self.root)["ok"])
-        # Ray additions can affect global control-ray uniqueness lookups, so
-        # retain the full catalogue integration suite while scoping math rows.
-        self.assertEqual(plan.catalogue_mode, "full")
+        self.assertEqual(plan.catalogue_mode, "incremental")
+        self.assertTrue(check_catalogue_delta(plan, self.root)["ok"])
+
+    def test_insert_before_repacked_pairs_checks_only_the_inserted_pair(self):
+        from hec.checks import _check_graph_pair
+
+        rays = self.doc("rays.json")
+        graphs = list(GraphCatalog(self.data / "graphs.json"))
+        write_ray_catalog(self.data / "rays.json", [[1, 0, 1], *rays], 2)
+        write_graph_catalog(self.data / "graphs.json", [{"edges": [["A", "O"]], "weights": [1]}, *graphs])
+        self.commit("insert without changing the shifted pair")
+        plan = self.plan()
+        self.assertEqual(plan.selected[2], {"contractions": [], "facets": [], "rays": [0], "graphs": [0]})
+        self.assertTrue(check_catalogue_delta(plan, self.root)["ok"])
+        task = next(task for task in plan.tasks if task["kind"] == "graphs")
+        with patch("hec.checks._check_graph_pair", wraps=_check_graph_pair) as exact:
+            self.assertTrue(run_task(plan, task["task_id"], self.root)["ok"])
+        self.assertEqual([call.args[0][0] for call in exact.call_args_list], [0])
+
+    def test_shifted_immutable_pair_does_not_read_either_old_shard(self):
+        rays = self.doc("rays.json")
+        graphs = list(GraphCatalog(self.data / "graphs.json"))
+        ray_path, graph_path = self.data / "rays.json", self.data / "graphs.json"
+        write_ray_catalog(ray_path, rays, 2, shard_bytes=16)
+        write_graph_catalog(graph_path, graphs, shard_bytes=65)
+        self.base = self.commit("accepted immutable pair")
+        tree = GitTree(self.root)
+        self.evidence = VerifiedBaseline(self.base, tree.tree, self.base, self.base, 77, 1, 900, tree.fingerprint())
+        retained = {self.doc(kind)["shards"][0]["sha256"] for kind in ("rays.json", "graphs.json")}
+        write_ray_catalog(ray_path, [[1, 0, 1], *rays], 2, shard_bytes=16)
+        write_graph_catalog(graph_path, [{"edges": [["A", "O"]], "weights": [1]}, *graphs], shard_bytes=65)
+        self.commit("prepend without rewriting either accepted shard")
+        original = GitTree.read
+
+        def disallow_retained_payload(tree, path):
+            if Path(path).stem in retained:
+                raise AssertionError(f"read a shifted immutable payload: {path}")
+            return original(tree, path)
+
+        with patch.object(GitTree, "read", disallow_retained_payload):
+            plan = self.plan()
+            self.assertTrue(check_catalogue_delta(plan, self.root)["ok"])
+        self.assertEqual(plan.selected[2]["graphs"], [0])
+
+    def test_moving_rays_without_their_graphs_does_not_reuse_either_pair(self):
+        rays = self.doc("rays.json") + [[1, 0, 1]]
+        graphs = list(GraphCatalog(self.data / "graphs.json")) + [{"edges": [["A", "O"]], "weights": [1]}]
+        self.write("rays.json", rays)
+        write_graph_catalog(self.data / "graphs.json", graphs)
+        self.base = self.commit("accepted two distinct pairs")
+        tree = GitTree(self.root)
+        self.evidence = VerifiedBaseline(self.base, tree.tree, self.base, self.base, 77, 1, 900, tree.fingerprint())
+        self.write("rays.json", list(reversed(rays)))
+        self.commit("move eligible rays without moving paired graphs")
+        plan = self.plan()
+        self.assertEqual(plan.selected[2]["rays"], [])
+        self.assertEqual(plan.selected[2]["graphs"], [0, 1])
+        task = next(task for task in plan.tasks if task["kind"] == "graphs")
+        with self.assertRaisesRegex(ValueError, "mismatch"):
+            run_task(plan, task["task_id"], self.root)
 
     def test_appending_an_existing_control_ray_cannot_reuse_global_uniqueness_regression(self):
         from catalogue_fixtures import ray_fingerprint, select_rays
@@ -436,7 +493,8 @@ class ChangedResultTests(IncrementalFixtures):
         self.write("rays.json", rays + rays)
         write_graph_catalog(self.data / "graphs.json", graphs + graphs)
         self.commit("duplicate a known control ray")
-        plan = self.plan()
+        with patch("hec.incremental_ci._CATALOGUE_RAY_CONTROLS", {(2, ray_fingerprint(rays[0]))}):
+            plan = self.plan()
         self.assertEqual(plan.catalogue_mode, "full")
         with self.assertRaisesRegex(ValueError, "duplicate selected ray"):
             select_rays(rays + rays, [ray_fingerprint(rays[0])], unique=True)
@@ -450,13 +508,34 @@ class ChangedResultTests(IncrementalFixtures):
         self.assertEqual(plan.selected[2]["graphs"], [0])
         self.assertEqual(plan.selected[2]["contractions"], [])
         self.assertEqual(plan.selected[2]["rays"], [])
-        self.assertEqual(plan.catalogue_mode, "full")
+        self.assertEqual(plan.catalogue_mode, "incremental")
+        self.assertTrue(check_catalogue_delta(plan, self.root)["ok"])
         task = next(task for task in plan.tasks if task["kind"] == "graphs")
         with self.assertRaisesRegex(ValueError, "canonical"):
             run_task(plan, task["task_id"], self.root)
 
+    def test_boolean_weight_cannot_reuse_an_integer_graph(self):
+        from hashlib import sha256
+
+        graph = list(GraphCatalog(self.data / "graphs.json"))[0]
+        graph["weights"] = [True]
+        raw = b"[\n  " + json.dumps(graph).encode() + b"\n]\n"
+        key = sha256(raw).hexdigest()
+        (self.data / "graph-shards" / (key + ".json")).write_bytes(raw)
+        self.write(
+            "graphs.json",
+            {"format": "hec-graph-catalogue", "count": 1, "shards": [{"sha256": key, "bytes": len(raw), "count": 1}]},
+        )
+        self.commit("replace an accepted integer edge weight by true")
+        plan = self.plan()
+        self.assertEqual(plan.selected[2]["graphs"], [0])
+        task = next(task for task in plan.tasks if task["kind"] == "graphs")
+        with self.assertRaisesRegex(TypeError, "boolean graph weights"):
+            run_task(plan, task["task_id"], self.root)
+
     def test_one_edited_graph_inside_a_repacked_shard_does_not_recheck_its_neighbors(self):
         from hec.checks import _check_graph_pair
+        from hec.graph_store import _exact_payload
 
         rays = self.doc("rays.json") + [[1, 0, 1]]
         graphs = list(GraphCatalog(self.data / "graphs.json")) + [{"edges": [["A", "O"]], "weights": [1]}]
@@ -468,7 +547,15 @@ class ChangedResultTests(IncrementalFixtures):
         graphs[1] = {"edges": [["A", "x1"], ["x1", "O"]], "weights": [1, 1]}
         write_graph_catalog(self.data / "graphs.json", graphs)
         self.commit("edit just the second realization")
-        plan = self.plan()
+        with patch("hec.incremental_ci.graph_payload", wraps=_exact_payload) as decode:
+            plan = self.plan()
+        self.assertEqual(
+            [_exact_payload(call.args[0]) for call in decode.call_args_list],
+            [
+                [{"edges": [["A", "O"]], "weights": [1]}],
+                [graphs[1]],
+            ],
+        )
         self.assertEqual(plan.selected[2]["graphs"], [1])
         task = next(task for task in plan.tasks if task["kind"] == "graphs")
         with patch("hec.checks._check_graph_pair", wraps=_check_graph_pair) as exact:
@@ -572,6 +659,20 @@ class ChangedResultTests(IncrementalFixtures):
                 "shards": [{"sha256": key, "bytes": len(raw), "count": len(graphs)}],
             },
         )
+        rays = self.doc("rays.json")
+        raw = json.dumps(rays, indent=1).encode()
+        key = sha256(raw).hexdigest()
+        directory = self.data / "ray-shards"
+        directory.mkdir(exist_ok=True)
+        (directory / (key + ".json")).write_bytes(raw)
+        self.write(
+            "rays.json",
+            {
+                "format": "hec-ray-catalogue",
+                "count": len(rays),
+                "shards": [{"sha256": key, "bytes": len(raw), "count": len(rays)}],
+            },
+        )
         self.commit("same graph records in a new byte encoding")
         plan = self.plan()
         self.assertEqual([task["kind"] for task in plan.tasks], ["acceptance"])
@@ -612,6 +713,34 @@ class ChangedResultTests(IncrementalFixtures):
         self.assertEqual(plan.selected[2]["contractions"], [])
         task = next(task for task in plan.tasks if task["kind"] == "facets")
         with self.assertRaises(ValueError):
+            run_task(plan, task["task_id"], self.root)
+
+    def test_shifted_witness_reuses_only_the_same_bound_ray(self):
+        from test_facet_witnesses import write
+
+        ao = {"edges": [["A", "O"]], "weights": [1]}
+        ab = {"edges": [["A", "B"]], "weights": [1]}
+        self.write("rays.json", [[1, 0, 1]])
+        write_graph_catalog(self.data / "graphs.json", [ao])
+        write(self.data)
+        self.base = self.commit("accepted witness")
+        tree = GitTree(self.root)
+        self.evidence = VerifiedBaseline(self.base, tree.tree, self.base, self.base, 77, 1, 900, tree.fingerprint())
+        self.write("rays.json", [[1, 1, 0], [1, 0, 1]])
+        write_graph_catalog(self.data / "graphs.json", [ab, ao])
+        witnesses = self.doc("facet-witnesses.json")
+        witnesses["facets"][0]["basis"][0]["ray"] = 1
+        self.write("facet-witnesses.json", witnesses)
+        self.commit("rebind the same witness to its shifted row")
+        self.assertEqual(self.plan().selected[2]["facets"], [])
+
+        witnesses["facets"][0]["basis"][0]["ray"] = 0
+        self.write("facet-witnesses.json", witnesses)
+        self.commit("reuse the old digest with an unrelated ray")
+        plan = self.plan()
+        self.assertEqual(plan.selected[2]["facets"], [0])
+        task = next(task for task in plan.tasks if task["kind"] == "facets")
+        with self.assertRaisesRegex(ValueError, "ray witness identity changed"):
             run_task(plan, task["task_id"], self.root)
 
     def test_hashed_payload_edits_without_updating_index_fail_closed(self):
