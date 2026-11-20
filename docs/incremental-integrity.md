@@ -47,6 +47,9 @@ The planner first matches literal rays across immutable shards and compares
 each graph with the graph paired to that same ray. Moving a pair to a different
 row or repacking identical pairs does not trigger exact graph replay. A changed
 pair does, even if its ray and graph are both present separately in the baseline.
+For the writer's one-record-per-line shards, byte-identical accepted graph
+records are compared without decoding them. Changed records and other JSON
+layouts still use the exact catalogue decoder.
 Facet-witness row moves reuse prior rank only if the row coefficients, digest,
 and permutation are unchanged after rebinding.
 

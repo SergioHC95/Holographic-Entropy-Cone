@@ -519,7 +519,7 @@ class ChangedResultTests(IncrementalFixtures):
 
         graph = list(GraphCatalog(self.data / "graphs.json"))[0]
         graph["weights"] = [True]
-        raw = json.dumps([graph]).encode()
+        raw = b"[\n  " + json.dumps(graph).encode() + b"\n]\n"
         key = sha256(raw).hexdigest()
         (self.data / "graph-shards" / (key + ".json")).write_bytes(raw)
         self.write(
@@ -535,6 +535,7 @@ class ChangedResultTests(IncrementalFixtures):
 
     def test_one_edited_graph_inside_a_repacked_shard_does_not_recheck_its_neighbors(self):
         from hec.checks import _check_graph_pair
+        from hec.graph_store import _exact_payload
 
         rays = self.doc("rays.json") + [[1, 0, 1]]
         graphs = list(GraphCatalog(self.data / "graphs.json")) + [{"edges": [["A", "O"]], "weights": [1]}]
@@ -546,7 +547,15 @@ class ChangedResultTests(IncrementalFixtures):
         graphs[1] = {"edges": [["A", "x1"], ["x1", "O"]], "weights": [1, 1]}
         write_graph_catalog(self.data / "graphs.json", graphs)
         self.commit("edit just the second realization")
-        plan = self.plan()
+        with patch("hec.incremental_ci.graph_payload", wraps=_exact_payload) as decode:
+            plan = self.plan()
+        self.assertEqual(
+            [_exact_payload(call.args[0]) for call in decode.call_args_list],
+            [
+                [{"edges": [["A", "O"]], "weights": [1]}],
+                [graphs[1]],
+            ],
+        )
         self.assertEqual(plan.selected[2]["graphs"], [1])
         task = next(task for task in plan.tasks if task["kind"] == "graphs")
         with patch("hec.checks._check_graph_pair", wraps=_check_graph_pair) as exact:

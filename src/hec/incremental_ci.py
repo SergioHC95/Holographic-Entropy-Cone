@@ -63,6 +63,30 @@ def orbit_key(row, n):
     return tuple(int(value) for value in canonical_vector(tuple(value // divisor for value in row), n))
 
 
+def _framed_graph_rows(raw, count):
+    """Find writer record boundaries without building millions of graph objects."""
+    if not raw.startswith(b"[\n  {") or not raw.endswith(b"}\n]\n") or raw.count(b"\n") != count + 2:
+        return None
+    rows = raw[4:-3].split(b",\n  ")
+    if len(rows) != count or any(
+        row[:1] != b"{" or row[-1:] != b"}" or row.count(b"{") != 1 or row.count(b"}") != 1 for row in rows
+    ):
+        return None
+    return rows
+
+
+def _same_graph(before, after):
+    if isinstance(before, bytes) and isinstance(after, bytes) and before == after:
+        # Both are isolated records, and the baseline's bytes were accepted.
+        return True
+    if isinstance(before, bytes):
+        before = graph_payload(b"[" + before + b"]")[0]
+    if isinstance(after, bytes):
+        after = graph_payload(b"[" + after + b"]")[0]
+    # Python treats True == 1; only the exact integer is an accepted weight.
+    return before == after and all(type(weight) is int for weight in after["weights"])
+
+
 class Catalogue:
     def __init__(self, snapshot, n, kind):
         self.snapshot, self.n, self.kind = snapshot, n, kind
@@ -87,15 +111,21 @@ class Catalogue:
                 start += shard.count
                 self.ends.append(start)
         self.cached = None
+        self.comparison_cache = None
 
     def __len__(self):
         return self.count
 
-    def values(self, segment):
-        start, stop, token, path = segment
+    def shard_bytes(self, segment):
+        _, _, token, path = segment
         raw = self.snapshot.tree.read(path)
         if len(raw) != token[1] or hashlib.sha256(raw).hexdigest() != token[0]:
             raise ValueError("changed catalogue shard differs from its declared content identity")
+        return raw
+
+    def values(self, segment):
+        start, stop, _, _ = segment
+        raw = self.shard_bytes(segment)
         rows = ray_payload(raw, self.n) if self.kind == "rays" else graph_payload(raw)
         if len(rows) != stop - start:
             raise ValueError("changed shard lost declared row coverage")
@@ -113,6 +143,19 @@ class Catalogue:
         if self.cached is None or self.cached[0] != ordinal:
             self.cached = ordinal, self.values(self.segments[ordinal])
         return self.cached[1]
+
+    def graph_comparison_rows(self, ordinal):
+        if self.comparison_cache is None or self.comparison_cache[0] != ordinal:
+            segment = self.segments[ordinal]
+            count = segment[1] - segment[0]
+            raw = self.shard_bytes(segment)
+            rows = _framed_graph_rows(raw, count)
+            if rows is None:
+                rows = graph_payload(raw)
+                if len(rows) != count:
+                    raise ValueError("changed shard lost declared row coverage")
+            self.comparison_cache = ordinal, rows
+        return self.comparison_cache[1]
 
     def location(self, index):
         if not 0 <= index < len(self):
@@ -151,12 +194,9 @@ def _changed_graph_rows(old, current, start, stop, previous):
         count = min(stop - start, a_stop - previous, b_stop - start)
         a_offset, b_offset = previous - a_start, start - b_start
         if a_token != b_token or a_offset != b_offset:
-            left, right = old.segment_rows(a), current.segment_rows(b)
+            left, right = old.graph_comparison_rows(a), current.graph_comparison_rows(b)
             for offset in range(count):
-                # Python treats True == 1. An accepted graph has only string
-                # endpoints and integer weights; bool is not an int here.
-                a_row, b_row = left[a_offset + offset], right[b_offset + offset]
-                if a_row != b_row or any(type(weight) is not int for weight in b_row["weights"]):
+                if not _same_graph(left[a_offset + offset], right[b_offset + offset]):
                     yield start + offset
         start += count
         previous += count
