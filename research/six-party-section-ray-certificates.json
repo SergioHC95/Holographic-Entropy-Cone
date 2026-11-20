@@ -1546,119 +1546,18 @@
         4,
         3
       ],
-      "graph": {
-        "edges": [
-          [
-            "A",
-            "x7"
-          ],
-          [
-            "B",
-            "x4"
-          ],
-          [
-            "B",
-            "x5"
-          ],
-          [
-            "C",
-            "x1"
-          ],
-          [
-            "C",
-            "x4"
-          ],
-          [
-            "D",
-            "x1"
-          ],
-          [
-            "D",
-            "x3"
-          ],
-          [
-            "E",
-            "x1"
-          ],
-          [
-            "E",
-            "x3"
-          ],
-          [
-            "E",
-            "x5"
-          ],
-          [
-            "F",
-            "x3"
-          ],
-          [
-            "F",
-            "x4"
-          ],
-          [
-            "x1",
-            "x2"
-          ],
-          [
-            "x1",
-            "O"
-          ],
-          [
-            "x2",
-            "x3"
-          ],
-          [
-            "x2",
-            "x4"
-          ],
-          [
-            "x2",
-            "x5"
-          ],
-          [
-            "x4",
-            "O"
-          ],
-          [
-            "x5",
-            "x6"
-          ],
-          [
-            "x6",
-            "x7"
-          ]
-        ],
-        "weights": [
-          1,
-          1,
-          1,
-          1,
-          1,
-          1,
-          1,
-          1,
-          1,
-          1,
-          1,
-          2,
-          1,
-          2,
-          1,
-          1,
-          1,
-          1,
-          1,
-          1
-        ]
-      },
-      "total_vertices": 14,
-      "edge_count": 20,
+      "total_vertices": 12,
+      "edge_count": 18,
       "entropy_scale": "1",
       "orbit_size": 5040,
-      "minimum_total_vertices": null,
-      "lower_bound": null,
-      "exclusion": null,
+      "minimum_total_vertices": 12,
+      "lower_bound": 12,
+      "exclusion": {
+        "exact_total_vertices": 11,
+        "status": "UNSAT",
+        "target_sha256": "a4e9bede182f5f331e5276bbdd5ece81ef4e04f48d010ca1e47c2ee08e2c875d",
+        "result_sha256": "92cdf09495c7cfb9e1f0ddf8f35a0ec385f5d6a9b49418a460aabf2ba1521ec3"
+      },
       "tight_facet_basis": [
         {
           "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
@@ -1908,7 +1807,10 @@
           "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
           "permutation": 1744
         }
-      ]
+      ],
+      "catalogue_index": 6306,
+      "ray_index_sha256": "a7ad8259216fd6fb42de8e94a0e9879cf9cc67b7bc88df52f19fd2a8dbf77eb2",
+      "graph_sha256": "6fb0d2d9d8d48b8faeede8edd011697648d6cd3cf908f07808e1be604f67f9a1"
     },
     {
       "key": "a31d22fc",
