@@ -87,6 +87,10 @@ realizations.
 The [fifth minimal 15-vertex ledger](research/ray-graph-minimal-15-vertex-realizations-frontier.json)
 adds 1,183 six-party ray/graph pairs with exact 15-vertex minimality evidence.
 
+The [sixth minimal 15-vertex ledger](research/ray-graph-minimal-15-vertex-realizations-continuation.json)
+adds 829 six-party ray/graph pairs and retains one distinct alternate
+realization, each with exact 15-vertex minimality evidence.
+
 Across all party counts, **87,132 full-map proofs** occupy **81 proof shards**
 totalling **191,497,801 bytes**. Git LFS is not required.
 
@@ -161,7 +165,7 @@ proof coverage does not mean the six-party cone is fully known.
 | 3 | 2 | 7 | 2 | 7 | 2 | complete |
 | 4 | 2 | 20 | 3 | 20 | 2 | complete |
 | 5 | 8 | 372 | 19 | 2,267 | 8 | complete |
-| 6 | 87,118 | 432,482,918 | 3,802,132 | 18,999,983,908 | 87,118 | partial |
+| 6 | 87,118 | 432,482,918 | 3,802,961 | 19,004,154,508 | 87,118 | partial |
 
 CI recomputes this table and the proof-storage totals from the data; stale
 README counts fail the tests. These documentation checks do not replace
