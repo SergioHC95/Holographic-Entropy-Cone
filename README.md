@@ -53,7 +53,7 @@ the two catalogues cover exactly the same listed representatives.
 Rows use cardinality-then-lexicographic subset order. Non-lift facet rows are
 row-lexicographically sorted. There is exactly one full-map proof per listed facet,
 bound by content rather than facet-row position. The six-party data has
-**87,211 listed facet representatives**, with exactly matching inequality
+**87,212 listed facet representatives**, with exactly matching inequality
 and proof catalogues. Candidates without facet certification do not belong
 in the accepted data tree.
 `data/storage.json` binds every payload to its byte length and SHA256. Ray and
@@ -116,8 +116,15 @@ The [relabeled frontier ledger](research/ray-graph-minimal-15-vertex-realization
 records six pairs found by changing the terminal order in the native search;
 each has an exhaustive 14-vertex exclusion.
 
-Across all party counts, **87,225 full-map proofs** occupy **83 proof shards**
-totalling **192,085,886 bytes**. Git LFS is not required.
+The [six-party section certificates](research/six-party-section-ray-certificates.json)
+record exact graph witnesses and rank-62 bases. `certified_minimal` means the
+witness attains a proved vertex lower bound. `minimality_unproven` marks an
+exact witness whose vertex count is only an upper bound. Graphs above 15
+vertices and graphs with unproven minimality are not counted in the paired
+catalogue.
+
+Across all party counts, **87,226 full-map proofs** occupy **84 proof shards**
+totalling **192,098,345 bytes**. Git LFS is not required.
 
 One [mathematical specification](docs/proofs.md) defines the reconstruction
 contract. One [schema](schemas/repository.schema.json) describes proofs,
@@ -190,7 +197,7 @@ proof coverage does not mean the six-party cone is fully known.
 | 3 | 2 | 7 | 2 | 7 | 2 | complete |
 | 4 | 2 | 20 | 3 | 20 | 2 | complete |
 | 5 | 8 | 372 | 19 | 2,267 | 8 | complete |
-| 6 | 87,211 | 432,951,638 | 3,804,403 | 19,011,402,028 | 87,211 | partial |
+| 6 | 87,212 | 432,956,678 | 3,804,405 | 19,011,412,108 | 87,212 | partial |
 
 CI recomputes this table and the proof-storage totals from the data; stale
 README counts fail the tests. These documentation checks do not replace
