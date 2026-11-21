@@ -137,6 +137,9 @@ The [native continuation ledger](research/ray-graph-minimal-15-vertex-realizatio
 adds one more pair from the native queue, also with an exhaustive
 14-vertex exclusion.
 
+The [queue continuation ledger](research/ray-graph-minimal-15-vertex-realizations-frontier-queue-continuation.json)
+adds two more native pairs with exhaustive 14-vertex exclusions.
+
 Across all party counts, **87,225 full-map proofs** occupy **83 proof shards**
 totalling **192,085,886 bytes**. Git LFS is not required.
 
@@ -211,7 +214,7 @@ proof coverage does not mean the six-party cone is fully known.
 | 3 | 2 | 7 | 2 | 7 | 2 | complete |
 | 4 | 2 | 20 | 3 | 20 | 2 | complete |
 | 5 | 8 | 372 | 19 | 2,267 | 8 | complete |
-| 6 | 87,211 | 432,951,638 | 3,804,429 | 19,011,533,068 | 87,211 | partial |
+| 6 | 87,211 | 432,951,638 | 3,804,431 | 19,011,543,148 | 87,211 | partial |
 
 CI recomputes this table and the proof-storage totals from the data; stale
 README counts fail the tests. These documentation checks do not replace
