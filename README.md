@@ -125,6 +125,10 @@ The [frontier continuation ledger](research/ray-graph-minimal-15-vertex-realizat
 adds five more pairs found by relabeling the terminals. Each has an exhaustive
 14-vertex exclusion.
 
+The [witness-tail ledger](research/ray-graph-minimal-15-vertex-realizations-witness-tail.json)
+adds five pairs from a disjoint terminal-relabeling sweep. Each has an
+exhaustive 14-vertex exclusion.
+
 Across all party counts, **87,225 full-map proofs** occupy **83 proof shards**
 totalling **192,085,886 bytes**. Git LFS is not required.
 
@@ -199,7 +203,7 @@ proof coverage does not mean the six-party cone is fully known.
 | 3 | 2 | 7 | 2 | 7 | 2 | complete |
 | 4 | 2 | 20 | 3 | 20 | 2 | complete |
 | 5 | 8 | 372 | 19 | 2,267 | 8 | complete |
-| 6 | 87,211 | 432,951,638 | 3,804,412 | 19,011,447,388 | 87,211 | partial |
+| 6 | 87,211 | 432,951,638 | 3,804,417 | 19,011,472,588 | 87,211 | partial |
 
 CI recomputes this table and the proof-storage totals from the data; stale
 README counts fail the tests. These documentation checks do not replace
