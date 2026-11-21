@@ -1092,144 +1092,18 @@
         6,
         4
       ],
-      "graph": {
-        "edges": [
-          [
-            "A",
-            "x3"
-          ],
-          [
-            "A",
-            "x6"
-          ],
-          [
-            "A",
-            "x7"
-          ],
-          [
-            "B",
-            "x2"
-          ],
-          [
-            "B",
-            "x3"
-          ],
-          [
-            "B",
-            "x6"
-          ],
-          [
-            "C",
-            "x4"
-          ],
-          [
-            "C",
-            "x7"
-          ],
-          [
-            "D",
-            "x4"
-          ],
-          [
-            "D",
-            "x5"
-          ],
-          [
-            "E",
-            "x3"
-          ],
-          [
-            "E",
-            "x4"
-          ],
-          [
-            "E",
-            "x5"
-          ],
-          [
-            "E",
-            "x6"
-          ],
-          [
-            "F",
-            "x2"
-          ],
-          [
-            "F",
-            "x5"
-          ],
-          [
-            "F",
-            "x7"
-          ],
-          [
-            "x1",
-            "x2"
-          ],
-          [
-            "x1",
-            "x4"
-          ],
-          [
-            "x1",
-            "x5"
-          ],
-          [
-            "x1",
-            "x7"
-          ],
-          [
-            "x2",
-            "x3"
-          ],
-          [
-            "x2",
-            "x6"
-          ],
-          [
-            "x2",
-            "O"
-          ],
-          [
-            "x4",
-            "O"
-          ]
-        ],
-        "weights": [
-          1,
-          1,
-          2,
-          2,
-          1,
-          1,
-          2,
-          2,
-          2,
-          2,
-          1,
-          2,
-          2,
-          1,
-          2,
-          2,
-          2,
-          2,
-          2,
-          2,
-          2,
-          1,
-          1,
-          4,
-          4
-        ]
-      },
-      "total_vertices": 14,
-      "edge_count": 25,
-      "entropy_scale": "2",
+      "total_vertices": 13,
+      "edge_count": 21,
+      "entropy_scale": "1",
       "orbit_size": 5040,
-      "minimum_total_vertices": null,
-      "lower_bound": null,
-      "exclusion": null,
+      "minimum_total_vertices": 13,
+      "lower_bound": 13,
+      "exclusion": {
+        "exact_total_vertices": 12,
+        "status": "UNSAT",
+        "target_sha256": "20244473882fcc2ccc2125468384231ee6b94d178de30a5f254f6fbec9d5c695",
+        "result_sha256": "44bd60fc9b3a8423ba7e6139530070d1238c9cc63a37646500c53e612a6a3d26"
+      },
       "tight_facet_basis": [
         {
           "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
@@ -1480,7 +1354,10 @@
           "permutation": 1744
         }
       ],
-      "minimality_status": "minimality_unproven"
+      "catalogue_index": 30964,
+      "ray_index_sha256": "bfbde7cbe61e9baaccfbc9582b1297b133ebf9a9eebfa9a29b53f55e5655e6d8",
+      "graph_sha256": "97b71e30fc6e9a335df11dd2a3509a78334730c82d9a9ecd9cefaf04cd1cd7c1",
+      "minimality_status": "certified_minimal"
     },
     {
       "key": "75742e5f",
@@ -1812,7 +1689,7 @@
         }
       ],
       "catalogue_index": 6306,
-      "ray_index_sha256": "ea12cc02ccb8ad40c128504d03e017889dd3baa0b0b93869a2ae6ec016e31275",
+      "ray_index_sha256": "bfbde7cbe61e9baaccfbc9582b1297b133ebf9a9eebfa9a29b53f55e5655e6d8",
       "graph_sha256": "6fb0d2d9d8d48b8faeede8edd011697648d6cd3cf908f07808e1be604f67f9a1",
       "minimality_status": "certified_minimal"
     },
