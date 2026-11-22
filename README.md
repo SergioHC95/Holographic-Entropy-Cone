@@ -53,7 +53,7 @@ the two catalogues cover exactly the same listed representatives.
 Rows use cardinality-then-lexicographic subset order. Non-lift facet rows are
 row-lexicographically sorted. There is exactly one full-map proof per listed facet,
 bound by content rather than facet-row position. The six-party data has
-**87,236 listed facet representatives**, with exactly matching inequality
+**87,237 listed facet representatives**, with exactly matching inequality
 and proof catalogues. Candidates without facet certification do not belong
 in the accepted data tree.
 `data/storage.json` binds every payload to its byte length and SHA256. Ray and
@@ -268,8 +268,22 @@ The [twentieth surge ledger](research/ray-graph-minimal-15-vertex-realizations-f
 adds 11 ray/graph pairs from the supplemental ARM64 wave, each with an
 exhaustive 14-vertex exclusion.
 
-Across all party counts, **87,250 full-map proofs** occupy **85 proof shards**
-totalling **192,258,450 bytes**. Git LFS is not required.
+The [six-party section certificates](research/six-party-section-ray-certificates.json)
+record exact graph witnesses and rank-62 bases for five rays. The minimum-12
+and minimum-13 witnesses enter the paired catalogue. The other three remain
+supplemental: their proven minima or lower bounds exceed the 15-vertex cap.
+The 16-vertex witness reuses a model in
+[`facet-witnesses.json`](data/n=6/facet-witnesses.json) rather than storing
+its graph twice. In `graph_reference`, `terminal_labels` maps model vertices
+0–6 to ledger labels, and `capacity_divisor` converts capacities to ledger weights.
+
+The pentagon ray (`+034`) needs exactly **20 vertices**. The
+[integer cut certificate](research/pentagon-minimum-20.json) excludes graphs
+on 19 or fewer vertices; the ledger's 39-edge graph attains 20. Replay both
+bounds with `python3 research/verify_pentagon_minimum.py`.
+
+Across all party counts, **87,251 full-map proofs** occupy **86 proof shards**
+totalling **192,270,909 bytes**. Git LFS is not required.
 
 One [mathematical specification](docs/proofs.md) defines the reconstruction
 contract. One [schema](schemas/repository.schema.json) describes proofs,
@@ -342,7 +356,7 @@ proof coverage does not mean the six-party cone is fully known.
 | 3 | 2 | 7 | 2 | 7 | 2 | complete |
 | 4 | 2 | 20 | 3 | 20 | 2 | complete |
 | 5 | 8 | 372 | 19 | 2,267 | 8 | complete |
-| 6 | 87,236 | 433,075,118 | 3,804,878 | 19,013,793,508 | 87,236 | partial |
+| 6 | 87,237 | 433,080,158 | 3,804,880 | 19,013,803,588 | 87,237 | partial |
 
 CI recomputes this table and the proof-storage totals from the data; stale
 README counts fail the tests. These documentation checks do not replace
