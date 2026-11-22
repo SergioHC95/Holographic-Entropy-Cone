@@ -180,6 +180,10 @@ The [post-#353 ledger](research/ray-graph-minimal-15-vertex-realizations-frontie
 adds ten portfolio witnesses and six native results, each with an exhaustive
 14-vertex exclusion.
 
+The [first ARM64 sweep ledger](research/ray-graph-minimal-15-vertex-realizations-frontier-post353-arm-first.json)
+adds eight independently checked ray/graph pairs, each with an exhaustive
+14-vertex exclusion.
+
 Across all party counts, **87,250 full-map proofs** occupy **85 proof shards**
 totalling **192,258,450 bytes**. Git LFS is not required.
 
@@ -254,7 +258,7 @@ proof coverage does not mean the six-party cone is fully known.
 | 3 | 2 | 7 | 2 | 7 | 2 | complete |
 | 4 | 2 | 20 | 3 | 20 | 2 | complete |
 | 5 | 8 | 372 | 19 | 2,267 | 8 | complete |
-| 6 | 87,236 | 433,075,118 | 3,804,535 | 19,012,067,308 | 87,236 | partial |
+| 6 | 87,236 | 433,075,118 | 3,804,543 | 19,012,107,628 | 87,236 | partial |
 
 CI recomputes this table and the proof-storage totals from the data; stale
 README counts fail the tests. These documentation checks do not replace
