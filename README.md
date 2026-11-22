@@ -268,6 +268,337 @@ The [twentieth surge ledger](research/ray-graph-minimal-15-vertex-realizations-f
 adds 11 ray/graph pairs from the supplemental ARM64 wave, each with an
 exhaustive 14-vertex exclusion.
 
+The [renewed native-search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-native.json)
+adds one ray/graph pair with an exact 15-vertex realization and an
+exhaustive 14-vertex exclusion.
+
+The [renewed ARM-search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-arm-first.json)
+adds 21 ray/graph pairs from the first three terminal-relabeling waves.
+Each has an exact 15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [second renewed ARM-search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-arm-second.json)
+adds 27 ray/graph pairs from the next three ARM64 waves and one from the
+native queue. Each has an exact 15-vertex realization and an exhaustive
+14-vertex exclusion.
+
+The [renewed AMD64-search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-amd-first.json)
+adds three ray/graph pairs from the combined capacity-closure and live cut-row
+search. Each has an exact 15-vertex realization and an exhaustive
+14-vertex exclusion.
+
+The [third renewed ARM-search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-arm-third.json)
+adds eight ray/graph pairs from the continuing ARM64 terminal-relabeling
+search, each with an exact 15-vertex realization and an exhaustive
+14-vertex exclusion.
+
+The [fourth renewed ARM-search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-arm-followup.json)
+adds five ray/graph pairs from the continuing ARM64 terminal-relabeling
+search, each with an exact 15-vertex realization and an exhaustive
+14-vertex exclusion.
+
+The [fifth renewed ARM-search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-arm-third-complete.json)
+adds five ray/graph pairs from the final wave of the third ARM64 round.
+Each has an exact 15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [fourth-round ARM-search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-arm-fourth.json)
+adds 20 ray/graph pairs from two waves of the fourth ARM64 round.
+Each has an exact 15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [fourth-round completion ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-fourth-complete.json)
+adds eight ray/graph pairs from the last ARM64 wave and seven from the AMD64
+capacity-closure and live cut-row search. Each has an exact 15-vertex
+realization and an exhaustive 14-vertex exclusion.
+
+The [fifth-round ARM-search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-arm-fifth.json)
+adds 16 ray/graph pairs from two waves of the fifth ARM64 round.
+Each has an exact 15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [fifth-round completion ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-fifth-complete.json)
+adds 14 ray/graph pairs from the last fifth-round ARM64 wave and four from
+the next round. Each has an exact 15-vertex realization and an exhaustive
+14-vertex exclusion.
+
+The [sixth-round search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-sixth.json)
+adds 12 ray/graph pairs from an ARM64 wave, four from the AMD64 capacity-closure
+and live cut-row search, and one from the native queue. Each has an exact
+15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [seventh-round search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-seventh.json)
+adds 14 ray/graph pairs from two ARM64 terminal-relabeling waves. Each has an
+exact 15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [eighth-round search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-eighth.json)
+adds 13 ray/graph pairs from two ARM64 terminal-relabeling waves. Each has an
+exact 15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [ninth-round search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-ninth.json)
+adds 23 ray/graph pairs from three ARM64 terminal-relabeling waves. Each has
+an exact 15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [tenth-round search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-tenth.json)
+adds 26 ray/graph pairs from two ARM64 waves, eight from the AMD64 capacity-closure
+and live cut-row search, and one from the native queue. Each has an exact
+15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [Mistral recovery ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-mistral-recovery.json)
+adds eight ray/graph pairs from a resumed ARM64 lane and eight from an
+additional ARM64 node. Each has an exact 15-vertex realization and an
+exhaustive 14-vertex exclusion.
+
+The [eleventh-round search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-eleventh.json)
+adds ten ray/graph pairs from an ARM64 terminal-relabeling wave. Each has an
+exact 15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [twelfth-round search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-twelfth.json)
+adds ten ray/graph pairs from a Mistral ARM64 terminal-relabeling wave. Each
+has an exact 15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [thirteenth-round search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-thirteenth.json)
+adds nine ray/graph pairs from the additional Mistral ARM64 lane. Each has
+an exact 15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [fourteenth-round search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-fourteenth.json)
+adds 16 ray/graph pairs from two ARM64 waves and nine from the AMD64
+capacity-closure and live cut-row search. Each has an exact 15-vertex
+realization and an exhaustive 14-vertex exclusion.
+
+The [fifteenth-round search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-fifteenth.json)
+adds three ray/graph pairs from a Mistral ARM64 wave. Each has an exact
+15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [sixteenth-round search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-sixteenth.json)
+adds 13 ray/graph pairs from two ARM64 waves. Each has an exact 15-vertex
+realization and an exhaustive 14-vertex exclusion.
+
+The [seventeenth-round search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-seventeenth.json)
+adds 19 ray/graph pairs from two ARM64 waves and one from the native queue.
+Each has an exact 15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [eighteenth-round search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-eighteenth.json)
+adds 12 ray/graph pairs from two ARM64 waves and 11 from the AMD64
+capacity-closure and live cut-row search. Each has an exact 15-vertex
+realization and an exhaustive 14-vertex exclusion.
+
+The [nineteenth-round search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-nineteenth.json)
+adds seven ray/graph pairs from a Mistral ARM64 wave. Each has an exact
+15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [twentieth-round search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-twentieth.json)
+adds 13 ray/graph pairs from an ARM64 wave. Each has an exact 15-vertex
+realization and an exhaustive 14-vertex exclusion.
+
+The [twenty-first-round search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-twenty-first.json)
+adds four ray/graph pairs from an ARM64 wave. Each has an exact 15-vertex
+realization and an exhaustive 14-vertex exclusion.
+
+The [twenty-second-round search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-twenty-second.json)
+adds 15 ray/graph pairs from a Mistral ARM64 wave and one from the native
+queue. Each has an exact 15-vertex realization and an exhaustive 14-vertex
+exclusion.
+
+The [twenty-third-round search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-twenty-third.json)
+adds nine ray/graph pairs from an ARM64 wave. Each has an exact 15-vertex
+realization and an exhaustive 14-vertex exclusion.
+
+The [twenty-fourth-round search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-twenty-fourth.json)
+adds three ray/graph pairs from a Mistral ARM64 wave. Each has an exact
+15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [twenty-fifth-round search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-twenty-fifth.json)
+adds eight ray/graph pairs from an ARM64 wave. Each has an exact 15-vertex
+realization and an exhaustive 14-vertex exclusion.
+
+The [twenty-sixth-round search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-twenty-sixth.json)
+adds 12 ray/graph pairs from a Mistral ARM64 wave. Each has an exact
+15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [twenty-seventh-round search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-twenty-seventh.json)
+adds nine ray/graph pairs from a Mistral ARM64 wave. Each has an exact
+15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [twenty-eighth-round search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-twenty-eighth.json)
+adds 12 ray/graph pairs from an ARM64 wave. Each has an exact 15-vertex
+realization and an exhaustive 14-vertex exclusion.
+
+The [twenty-ninth-round search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-twenty-ninth.json)
+adds six ray/graph pairs from a Mistral ARM64 wave. Each has an exact
+15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [thirtieth-round search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-thirtieth.json)
+adds nine ray/graph pairs from a Mistral ARM64 wave. Each has an exact
+15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [thirty-first-round search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-thirty-first.json)
+adds ten ray/graph pairs from a Mistral ARM64 wave and one from the native
+queue. Each has an exact 15-vertex realization and an exhaustive 14-vertex
+exclusion.
+
+The [native follow-up ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-native-followup.json)
+adds one ray/graph pair from the native queue, with an exact 15-vertex
+realization and an exhaustive 14-vertex exclusion.
+
+The [thirty-second-round search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-thirty-second.json)
+adds six ray/graph pairs from a Mistral ARM64 wave. Each has an exact
+15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [thirty-third-round search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-thirty-third.json)
+adds five ray/graph pairs from a Mistral ARM64 wave. Each has an exact
+15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [thirty-fourth-round search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-thirty-fourth.json)
+adds 12 ray/graph pairs from the final ARM64 wave. Each has an exact
+15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [renewed live-row ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-live-rows-first.json)
+adds 15 ray/graph pairs from three ARM64 waves with new terminal labelings
+and live original cut rows. Each has an exact 15-vertex realization and an
+exhaustive 14-vertex exclusion.
+
+The [second renewed live-row ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-live-rows-second.json)
+adds 11 ray/graph pairs from the remaining first-round ARM64 wave. Each has
+an exact 15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [renewed cross-platform ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-live-rows-and-controls.json)
+adds 29 ray/graph pairs from four ARM64 waves, four from the AMD64
+capacity-closure search, one from an AMD64 benchmark replay, and one from the
+native queue. Each has an exact 15-vertex realization and an exhaustive
+14-vertex exclusion.
+
+The [novel-root and lookahead ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-novel-roots-and-lookahead.json)
+adds 30 ray/graph pairs from four ARM64 waves, one from exact closure
+lookahead on AMD64, and one from the native queue. Each has an exact
+15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [third renewed ARM ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-third-arm-block.json)
+adds 31 ray/graph pairs from four live-row ARM64 waves. Each has an exact
+15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [fourth renewed ARM ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-fourth-arm-block.json)
+adds 29 ray/graph pairs from three live-row ARM64 waves. Each has an exact
+15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [renewed capacity and ARM ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-capacity-live-and-arm.json)
+adds nine ray/graph pairs from two ARM64 waves, four from AMD64
+capacity-closure search, and one from a matched AMD64 benchmark. Each has
+an exact 15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [first budget-trial ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-first-budget-wave.json)
+adds 17 ray/graph pairs from three ARM64 waves comparing two search budgets.
+Each has an exact 15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [second budget-trial ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-second-budget-block.json)
+adds 23 ray/graph pairs from four ARM64 waves comparing two search budgets,
+and one from the native queue. Each has an exact 15-vertex realization and
+an exhaustive 14-vertex exclusion.
+
+The [post-pilot ARM ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-after-budget-pilot.json)
+adds 14 ray/graph pairs from three subsequent ARM64 waves. Each has an exact
+15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [continuing ARM ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-continuing-arm.json)
+adds six ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [next verified ARM ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-next-verified-waves.json)
+adds four ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [continuing ARM and AMD ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-continuing-arm-and-amd.json)
+adds eleven ARM64 and four AMD64 ray/graph pairs. Each has an exact
+15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [later ARM wave ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-later-arm-waves.json)
+adds 19 ray/graph pairs from three ARM64 waves. Each has an exact 15-vertex
+realization and an exhaustive 14-vertex exclusion.
+
+The [development ARM wave ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-dev-arm-proof-block.json)
+adds 13 ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [next ARM block ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-next-arm-block.json)
+adds 17 ray/graph pairs from two ARM64 waves. Each has an exact 15-vertex
+realization and an exhaustive 14-vertex exclusion.
+
+The [AMD tail and ARM ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-amd-tail-and-arm.json)
+adds four AMD64 and eleven ARM64 ray/graph pairs. Each has an exact
+15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [follow-on ARM ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-follow-on-wave.json)
+adds six ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [ARM wave 344 ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-arm-wave-344.json)
+adds ten ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [ARM wave 343 ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-arm-wave-343.json)
+adds seven ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [resumed ARM lane ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-resumed-arm-wave.json)
+adds three ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [ARM wave 345 ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-arm-wave-345.json)
+adds eight ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [ARM wave 348 ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-arm-wave-348.json)
+adds two ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [ARM wave 347 ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-arm-wave-347.json)
+adds eleven ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [AMD wave 380 and ARM ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-amd-wave-380.json)
+adds three AMD64 and 15 ARM64 ray/graph pairs. Each has an exact 15-vertex
+realization and an exhaustive 14-vertex exclusion.
+
+The [ARM wave 352 ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-arm-wave-352.json)
+adds eight ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [ARM wave 351 ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-arm-wave-351.json)
+adds seven ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [ARM wave 354 ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-arm-wave-354.json)
+adds nine ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [ARM waves 353 and 356 ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-arm-wave-353.json)
+adds 14 ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [ARM wave 355 ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-arm-wave-355.json)
+adds 16 ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [ARM wave 358 ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-arm-wave-358.json)
+adds three ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [ARM wave 357 ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-arm-wave-357.json)
+adds four ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [ARM waves 359 and 360 ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-arm-wave-360.json)
+adds 12 ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [ARM wave 362 ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-arm-wave-362.json)
+adds four ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [ARM wave 361 ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-arm-wave-361.json)
+adds seven ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [ARM waves 363, 364, and 366 ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-arm-waves-363-364.json)
+adds 21 ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
 Across all party counts, **87,250 full-map proofs** occupy **85 proof shards**
 totalling **192,258,450 bytes**. Git LFS is not required.
 
@@ -342,7 +673,7 @@ proof coverage does not mean the six-party cone is fully known.
 | 3 | 2 | 7 | 2 | 7 | 2 | complete |
 | 4 | 2 | 20 | 3 | 20 | 2 | complete |
 | 5 | 8 | 372 | 19 | 2,267 | 8 | complete |
-| 6 | 87,236 | 433,075,118 | 3,804,878 | 19,013,793,508 | 87,236 | partial |
+| 6 | 87,236 | 433,075,118 | 3,805,873 | 19,018,800,748 | 87,236 | partial |
 
 CI recomputes this table and the proof-storage totals from the data; stale
 README counts fail the tests. These documentation checks do not replace
