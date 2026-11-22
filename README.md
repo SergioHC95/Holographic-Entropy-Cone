@@ -433,6 +433,10 @@ adds ten ray/graph pairs from a Mistral ARM64 wave and one from the native
 queue. Each has an exact 15-vertex realization and an exhaustive 14-vertex
 exclusion.
 
+The [native follow-up ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-native-followup.json)
+adds one ray/graph pair from the native queue, with an exact 15-vertex
+realization and an exhaustive 14-vertex exclusion.
+
 Across all party counts, **87,250 full-map proofs** occupy **85 proof shards**
 totalling **192,258,450 bytes**. Git LFS is not required.
 
@@ -507,7 +511,7 @@ proof coverage does not mean the six-party cone is fully known.
 | 3 | 2 | 7 | 2 | 7 | 2 | complete |
 | 4 | 2 | 20 | 3 | 20 | 2 | complete |
 | 5 | 8 | 372 | 19 | 2,267 | 8 | complete |
-| 6 | 87,236 | 433,075,118 | 3,805,368 | 19,016,258,068 | 87,236 | partial |
+| 6 | 87,236 | 433,075,118 | 3,805,369 | 19,016,263,108 | 87,236 | partial |
 
 CI recomputes this table and the proof-storage totals from the data; stale
 README counts fail the tests. These documentation checks do not replace
