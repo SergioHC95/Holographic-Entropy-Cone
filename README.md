@@ -123,6 +123,11 @@ exact witness whose vertex count is only an upper bound. Graphs above 15
 vertices and graphs with unproven minimality are not counted in the paired
 catalogue.
 
+The pentagon ray (`+034`) has a proven minimum of **20 vertices**: the
+[integer cut certificate](research/pentagon-minimum-20.json) excludes 19 or
+fewer, and the ledger's 39-edge witness attains 20. To replay both bounds
+without an external solver, run `python3 research/verify_pentagon_minimum.py`.
+
 Across all party counts, **87,226 full-map proofs** occupy **84 proof shards**
 totalling **192,098,345 bytes**. Git LFS is not required.
 

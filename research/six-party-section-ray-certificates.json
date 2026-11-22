@@ -4,7 +4,7 @@
   "coordinates": "Cardinality-then-lexicographic; terminal 6 is the purifier.",
   "permutations": "Lexicographic permutations g of the seven terminals; at new subset S use the old coefficient at g(S), folding by purity.",
   "rank_prime": 65521,
-  "vertex_bounds": "A completed unbounded search at N excludes smaller graphs: subdividing a positive edge preserves every terminal cut. minimality_unproven means the retained graph is an exact witness, but its upper bound is not matched by a proved lower bound. Minimum edge counts are not claimed.",
+  "vertex_bounds": "A completed unbounded search at N excludes smaller graphs: subdividing a positive edge preserves every terminal cut. A cut-support exclusion applies to all graphs through maximum_total_vertices. minimality_unproven means the retained graph is an exact witness, but its upper bound is not matched by a proved lower bound. Minimum edge counts are not claimed.",
   "rays": [
     {
       "key": "034",
@@ -278,13 +278,15 @@
       "edge_count": 39,
       "entropy_scale": "2",
       "orbit_size": 504,
-      "minimum_total_vertices": null,
-      "lower_bound": 16,
+      "minimum_total_vertices": 20,
+      "lower_bound": 20,
       "exclusion": {
-        "exact_total_vertices": 15,
+        "maximum_total_vertices": 19,
+        "method": "normalized_cut_support",
+        "certificate": "pentagon-minimum-20.json",
         "status": "UNSAT",
         "target_sha256": "4fe160a815c77ff79c5a8cbf5536f62d6172c060d52b57c14c8c548e084ebb19",
-        "result_sha256": "eadca6482fa94fce1f7eeea3cb76b79d6b8f6b7efc17642f40edf94109fe4e37"
+        "result_sha256": "5264f1e2fab25bea56e7872bdab4bf27649de7c57da6ed5f2f826e5229a61955"
       },
       "tight_facet_basis": [
         {
@@ -536,7 +538,7 @@
           "permutation": 1744
         }
       ],
-      "minimality_status": "minimality_unproven"
+      "minimality_status": "certified_minimal"
     },
     {
       "key": "11094326",
