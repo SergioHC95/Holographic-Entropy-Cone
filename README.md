@@ -704,6 +704,10 @@ The [renewed ARM wave 545 and native ledger](research/ray-graph-minimal-15-verte
 adds four ARM64 ray/graph pairs and one from the native queue. Each has an
 exact 15-vertex realization and an exhaustive 14-vertex exclusion.
 
+The [renewed ARM wave 549 and native ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-549.json)
+adds four ARM64 ray/graph pairs and two from the native queue. Each has an
+exact 15-vertex realization and an exhaustive 14-vertex exclusion.
+
 Across all party counts, **87,250 full-map proofs** occupy **85 proof shards**
 totalling **192,258,450 bytes**. Git LFS is not required.
 
@@ -778,7 +782,7 @@ proof coverage does not mean the six-party cone is fully known.
 | 3 | 2 | 7 | 2 | 7 | 2 | complete |
 | 4 | 2 | 20 | 3 | 20 | 2 | complete |
 | 5 | 8 | 372 | 19 | 2,267 | 8 | complete |
-| 6 | 87,236 | 433,075,118 | 3,806,017 | 19,019,526,508 | 87,236 | partial |
+| 6 | 87,236 | 433,075,118 | 3,806,023 | 19,019,556,748 | 87,236 | partial |
 
 CI recomputes this table and the proof-storage totals from the data; stale
 README counts fail the tests. These documentation checks do not replace
