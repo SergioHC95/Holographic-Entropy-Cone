@@ -296,6 +296,10 @@ adds five ray/graph pairs from the continuing ARM64 terminal-relabeling
 search, each with an exact 15-vertex realization and an exhaustive
 14-vertex exclusion.
 
+The [fifth renewed ARM-search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-arm-third-complete.json)
+adds five ray/graph pairs from the final wave of the third ARM64 round.
+Each has an exact 15-vertex realization and an exhaustive 14-vertex exclusion.
+
 Across all party counts, **87,250 full-map proofs** occupy **85 proof shards**
 totalling **192,258,450 bytes**. Git LFS is not required.
 
@@ -370,7 +374,7 @@ proof coverage does not mean the six-party cone is fully known.
 | 3 | 2 | 7 | 2 | 7 | 2 | complete |
 | 4 | 2 | 20 | 3 | 20 | 2 | complete |
 | 5 | 8 | 372 | 19 | 2,267 | 8 | complete |
-| 6 | 87,236 | 433,075,118 | 3,804,944 | 19,014,126,148 | 87,236 | partial |
+| 6 | 87,236 | 433,075,118 | 3,804,949 | 19,014,151,348 | 87,236 | partial |
 
 CI recomputes this table and the proof-storage totals from the data; stale
 README counts fail the tests. These documentation checks do not replace
