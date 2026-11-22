@@ -122,6 +122,10 @@ witness attains a proved vertex lower bound. `minimality_unproven` marks an
 exact witness whose vertex count is only an upper bound. Graphs above 15
 vertices and graphs with unproven minimality are not counted in the paired
 catalogue.
+The 16-vertex witness reuses a model in
+[`facet-witnesses.json`](data/n=6/facet-witnesses.json) rather than storing
+its graph twice. In `graph_reference`, `terminal_labels` maps model vertices
+0–6 to ledger labels, and `capacity_divisor` converts capacities to ledger weights.
 
 The pentagon ray (`+034`) has a proven minimum of **20 vertices**: the
 [integer cut certificate](research/pentagon-minimum-20.json) excludes 19 or
