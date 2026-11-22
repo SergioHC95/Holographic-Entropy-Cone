@@ -660,6 +660,10 @@ The [AMD residual wave 402 and native ledger](research/ray-graph-minimal-15-vert
 adds three AMD64 ray/graph pairs and one from the native queue. Each has an
 exact 15-vertex realization and an exhaustive 14-vertex exclusion.
 
+The [compact live-row wave 601 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-compact-wave-601.json)
+adds two ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
 Across all party counts, **87,250 full-map proofs** occupy **85 proof shards**
 totalling **192,258,450 bytes**. Git LFS is not required.
 
@@ -734,7 +738,7 @@ proof coverage does not mean the six-party cone is fully known.
 | 3 | 2 | 7 | 2 | 7 | 2 | complete |
 | 4 | 2 | 20 | 3 | 20 | 2 | complete |
 | 5 | 8 | 372 | 19 | 2,267 | 8 | complete |
-| 6 | 87,236 | 433,075,118 | 3,805,976 | 19,019,319,868 | 87,236 | partial |
+| 6 | 87,236 | 433,075,118 | 3,805,978 | 19,019,329,948 | 87,236 | partial |
 
 CI recomputes this table and the proof-storage totals from the data; stale
 README counts fail the tests. These documentation checks do not replace
