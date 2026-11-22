@@ -256,6 +256,10 @@ The [seventeenth surge ledger](research/ray-graph-minimal-15-vertex-realizations
 adds 15 ray/graph pairs from the next AMD64 wave, each with an
 exhaustive 14-vertex exclusion.
 
+The [eighteenth surge ledger](research/ray-graph-minimal-15-vertex-realizations-frontier-six-hour-surge-eighteenth.json)
+adds 12 ray/graph pairs from the final AMD64 wave, each with an
+exhaustive 14-vertex exclusion.
+
 Across all party counts, **87,250 full-map proofs** occupy **85 proof shards**
 totalling **192,258,450 bytes**. Git LFS is not required.
 
@@ -330,7 +334,7 @@ proof coverage does not mean the six-party cone is fully known.
 | 3 | 2 | 7 | 2 | 7 | 2 | complete |
 | 4 | 2 | 20 | 3 | 20 | 2 | complete |
 | 5 | 8 | 372 | 19 | 2,267 | 8 | complete |
-| 6 | 87,236 | 433,075,118 | 3,804,854 | 19,013,672,548 | 87,236 | partial |
+| 6 | 87,236 | 433,075,118 | 3,804,866 | 19,013,733,028 | 87,236 | partial |
 
 CI recomputes this table and the proof-storage totals from the data; stale
 README counts fail the tests. These documentation checks do not replace
