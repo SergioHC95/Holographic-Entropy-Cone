@@ -188,6 +188,86 @@ The [remaining ARM64 sweep ledger](research/ray-graph-minimal-15-vertex-realizat
 adds 21 ray/graph pairs from the second and third waves, each with an exhaustive
 14-vertex exclusion.
 
+The [first surge ledger](research/ray-graph-minimal-15-vertex-realizations-frontier-six-hour-surge-first.json)
+adds 19 ray/graph pairs from the ARM64 and AMD64 witness waves, each with an
+exhaustive 14-vertex exclusion.
+
+The [second surge ledger](research/ray-graph-minimal-15-vertex-realizations-frontier-six-hour-surge-second.json)
+adds another 24 ray/graph pairs from the next two waves, each with an exhaustive
+14-vertex exclusion.
+
+The [third surge ledger](research/ray-graph-minimal-15-vertex-realizations-frontier-six-hour-surge-third.json)
+adds 32 ray/graph pairs from two more waves and one from the native queue.
+Each has an exhaustive 14-vertex exclusion.
+
+The [fourth surge ledger](research/ray-graph-minimal-15-vertex-realizations-frontier-six-hour-surge-fourth.json)
+adds 26 ray/graph pairs from two more waves and one from the native queue.
+Each has an exhaustive 14-vertex exclusion.
+
+The [fifth surge ledger](research/ray-graph-minimal-15-vertex-realizations-frontier-six-hour-surge-fifth.json)
+adds six ray/graph pairs from the next ARM64 wave, each with an exhaustive
+14-vertex exclusion.
+
+The [sixth surge ledger](research/ray-graph-minimal-15-vertex-realizations-frontier-six-hour-surge-sixth.json)
+adds 21 ray/graph pairs from the next AMD64 wave, each with an exhaustive
+14-vertex exclusion.
+
+The [seventh surge ledger](research/ray-graph-minimal-15-vertex-realizations-frontier-six-hour-surge-seventh.json)
+adds 13 ray/graph pairs from the next ARM64 wave and one from the native queue.
+Each has an exhaustive 14-vertex exclusion.
+
+The [eighth surge ledger](research/ray-graph-minimal-15-vertex-realizations-frontier-six-hour-surge-eighth.json)
+adds 15 ray/graph pairs from the next AMD64 wave, each with an exhaustive
+14-vertex exclusion.
+
+The [ninth surge ledger](research/ray-graph-minimal-15-vertex-realizations-frontier-six-hour-surge-ninth.json)
+adds 19 ray/graph pairs from the next ARM64 and AMD64 waves, each with an
+exhaustive 14-vertex exclusion.
+
+The [tenth surge ledger](research/ray-graph-minimal-15-vertex-realizations-frontier-six-hour-surge-tenth.json)
+adds 22 ray/graph pairs from the next ARM64 and AMD64 waves, each with an
+exhaustive 14-vertex exclusion.
+
+The [eleventh surge ledger](research/ray-graph-minimal-15-vertex-realizations-frontier-six-hour-surge-eleventh.json)
+adds 20 ray/graph pairs from the next ARM64 and AMD64 waves, each with an
+exhaustive 14-vertex exclusion.
+
+The [twelfth surge ledger](research/ray-graph-minimal-15-vertex-realizations-frontier-six-hour-surge-twelfth.json)
+adds 19 ray/graph pairs from the next ARM64 and AMD64 waves, each with an
+exhaustive 14-vertex exclusion.
+
+The [thirteenth surge ledger](research/ray-graph-minimal-15-vertex-realizations-frontier-six-hour-surge-thirteenth.json)
+adds five ray/graph pairs from the last ARM64 wave, each with an
+exhaustive 14-vertex exclusion.
+
+The [fourteenth surge ledger](research/ray-graph-minimal-15-vertex-realizations-frontier-six-hour-surge-fourteenth.json)
+adds 10 ray/graph pairs from the next AMD64 wave, each with an
+exhaustive 14-vertex exclusion.
+
+The [fifteenth surge ledger](research/ray-graph-minimal-15-vertex-realizations-frontier-six-hour-surge-fifteenth.json)
+adds 15 ray/graph pairs from the next AMD64 wave, each with an
+exhaustive 14-vertex exclusion.
+
+The [sixteenth surge ledger](research/ray-graph-minimal-15-vertex-realizations-frontier-six-hour-surge-sixteenth.json)
+adds five ray/graph pairs from the next AMD64 wave and one from the native
+queue, each with an exhaustive 14-vertex exclusion.
+
+The [seventeenth surge ledger](research/ray-graph-minimal-15-vertex-realizations-frontier-six-hour-surge-seventeenth.json)
+adds 15 ray/graph pairs from the next AMD64 wave, each with an
+exhaustive 14-vertex exclusion.
+
+The [eighteenth surge ledger](research/ray-graph-minimal-15-vertex-realizations-frontier-six-hour-surge-eighteenth.json)
+adds 12 ray/graph pairs from the final AMD64 wave, each with an
+exhaustive 14-vertex exclusion.
+
+The [nineteenth surge ledger](research/ray-graph-minimal-15-vertex-realizations-frontier-six-hour-surge-nineteenth.json)
+adds one ray/graph pair from the native queue with an exhaustive 14-vertex
+exclusion.
+
+The [twentieth surge ledger](research/ray-graph-minimal-15-vertex-realizations-frontier-six-hour-surge-twentieth.json)
+adds 11 ray/graph pairs from the supplemental ARM64 wave, each with an
+exhaustive 14-vertex exclusion.
+
 Across all party counts, **87,250 full-map proofs** occupy **85 proof shards**
 totalling **192,258,450 bytes**. Git LFS is not required.
 
@@ -262,7 +342,7 @@ proof coverage does not mean the six-party cone is fully known.
 | 3 | 2 | 7 | 2 | 7 | 2 | complete |
 | 4 | 2 | 20 | 3 | 20 | 2 | complete |
 | 5 | 8 | 372 | 19 | 2,267 | 8 | complete |
-| 6 | 87,236 | 433,075,118 | 3,804,564 | 19,012,213,468 | 87,236 | partial |
+| 6 | 87,236 | 433,075,118 | 3,804,878 | 19,013,793,508 | 87,236 | partial |
 
 CI recomputes this table and the proof-storage totals from the data; stale
 README counts fail the tests. These documentation checks do not replace
