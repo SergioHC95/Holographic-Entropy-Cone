@@ -327,6 +327,10 @@ The [seventh-round search ledger](research/ray-graph-minimal-15-vertex-realizati
 adds 14 ray/graph pairs from two ARM64 terminal-relabeling waves. Each has an
 exact 15-vertex realization and an exhaustive 14-vertex exclusion.
 
+The [eighth-round search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-frontier-eighth.json)
+adds 13 ray/graph pairs from two ARM64 terminal-relabeling waves. Each has an
+exact 15-vertex realization and an exhaustive 14-vertex exclusion.
+
 Across all party counts, **87,250 full-map proofs** occupy **85 proof shards**
 totalling **192,258,450 bytes**. Git LFS is not required.
 
@@ -401,7 +405,7 @@ proof coverage does not mean the six-party cone is fully known.
 | 3 | 2 | 7 | 2 | 7 | 2 | complete |
 | 4 | 2 | 20 | 3 | 20 | 2 | complete |
 | 5 | 8 | 372 | 19 | 2,267 | 8 | complete |
-| 6 | 87,236 | 433,075,118 | 3,805,049 | 19,014,652,828 | 87,236 | partial |
+| 6 | 87,236 | 433,075,118 | 3,805,062 | 19,014,718,348 | 87,236 | partial |
 
 CI recomputes this table and the proof-storage totals from the data; stale
 README counts fail the tests. These documentation checks do not replace
