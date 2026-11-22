@@ -805,6 +805,10 @@ adds four ray/graph pairs with exact 15-vertex realizations and exhaustive
 14-vertex exclusions: two from DEV ARM wave 538 and two from AMD64 comparison
 wave 610.
 
+The [DEV ARM handoff wave 542 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-542.json)
+adds one ray/graph pair with an exact 15-vertex realization and an exhaustive
+14-vertex exclusion.
+
 Across all party counts, **87,250 full-map proofs** occupy **85 proof shards**
 totalling **192,258,450 bytes**. Git LFS is not required.
 
@@ -879,7 +883,7 @@ proof coverage does not mean the six-party cone is fully known.
 | 3 | 2 | 7 | 2 | 7 | 2 | complete |
 | 4 | 2 | 20 | 3 | 20 | 2 | complete |
 | 5 | 8 | 372 | 19 | 2,267 | 8 | complete |
-| 6 | 87,236 | 433,075,118 | 3,806,093 | 19,019,907,028 | 87,236 | partial |
+| 6 | 87,236 | 433,075,118 | 3,806,094 | 19,019,912,068 | 87,236 | partial |
 
 CI recomputes this table and the proof-storage totals from the data; stale
 README counts fail the tests. These documentation checks do not replace
