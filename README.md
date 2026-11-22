@@ -482,6 +482,10 @@ adds nine ray/graph pairs from two ARM64 waves, four from AMD64
 capacity-closure search, and one from a matched AMD64 benchmark. Each has
 an exact 15-vertex realization and an exhaustive 14-vertex exclusion.
 
+The [first budget-trial ledger](research/ray-graph-minimal-15-vertex-realizations-rechallenge-first-budget-wave.json)
+adds 17 ray/graph pairs from three ARM64 waves comparing two search budgets.
+Each has an exact 15-vertex realization and an exhaustive 14-vertex exclusion.
+
 Across all party counts, **87,250 full-map proofs** occupy **85 proof shards**
 totalling **192,258,450 bytes**. Git LFS is not required.
 
@@ -556,7 +560,7 @@ proof coverage does not mean the six-party cone is fully known.
 | 3 | 2 | 7 | 2 | 7 | 2 | complete |
 | 4 | 2 | 20 | 3 | 20 | 2 | complete |
 | 5 | 8 | 372 | 19 | 2,267 | 8 | complete |
-| 6 | 87,236 | 433,075,118 | 3,805,559 | 19,017,220,708 | 87,236 | partial |
+| 6 | 87,236 | 433,075,118 | 3,805,576 | 19,017,306,388 | 87,236 | partial |
 
 CI recomputes this table and the proof-storage totals from the data; stale
 README counts fail the tests. These documentation checks do not replace
