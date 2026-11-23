@@ -18,7 +18,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CATALOGUE_PREFIXES = ("test_compact_database.ReadmeDataTests.",)
 CATALOGUE_CASES = frozenset(
-    {"test_graph_finder.PublicGraphFinderTests.test_n6_pathological_incumbents_are_polished_to_small_exact_graphs"}
+    {
+        "test_graph_finder.PublicGraphFinderTests.test_n6_pathological_incumbents_are_polished_to_small_exact_graphs",
+        "test_pentagon_minimum.PentagonMinimumTests.test_changing_weights_without_scale_is_not_a_witness",
+        "test_pentagon_minimum.PentagonMinimumTests.test_published_lower_and_upper_bounds_meet",
+    }
 )
 
 

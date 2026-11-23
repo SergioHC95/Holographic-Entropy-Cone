@@ -95,13 +95,12 @@ class StoredContractionCheckTests(unittest.TestCase):
 
 
 class StoredGraphCheckTests(unittest.TestCase):
-    def test_generation_bound_is_enforced_before_exact_graph_work(self):
-        graph = {"edges": [["A", "x1"], ["x1", "O"]], "weights": [1, 1]}
-        with patch.object(row_checks, "DEFAULT_MAX_VERTICES", 2), patch.object(row_checks, "check_graph") as exact:
-            index, error = row_checks._check_graph_pair((7, (1,), graph, 1))
-        self.assertEqual(index, 7)
-        self.assertIn("uses 3 vertices", error)
-        exact.assert_not_called()
+    def test_large_stored_witness_must_still_match_its_ray(self):
+        # A path from A to O leaves B isolated: S(A), S(B), S(AB) = 1, 0, 1.
+        path = ["A", *(f"x{i}" for i in range(1, 15)), "O"]
+        graph = {"edges": [[u, v] for u, v in zip(path[:-1], path[1:], strict=True)], "weights": [1] * 15}
+        self.assertEqual(row_checks._check_graph_pair((7, (1, 0, 1), graph, 2)), (7, None))
+        self.assertEqual(row_checks._check_graph_pair((7, (0, 1, 1), graph, 2)), (7, "graph/ray mismatch"))
 
     def test_contiguous_jobs_need_only_their_own_ray_and_graph_payloads(self):
         with TemporaryDirectory() as temporary:

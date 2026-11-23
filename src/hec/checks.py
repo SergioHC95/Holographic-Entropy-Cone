@@ -13,7 +13,7 @@ from ._ci_partitions import balanced_boundaries, ray_costs
 from ._graph_validation import canonical_primitive_ray_graph
 from .data import available_ns, data_path, load_hec_data
 from .graph_store import GraphCatalog
-from .graphs import DEFAULT_MAX_VERTICES, check_graph
+from .graphs import check_graph
 from .rank import check_support_rank_prepared, prepare_rank_candidates
 from .symmetry import canonical_vector
 from .workers import generation_worker_count
@@ -370,11 +370,6 @@ def _check_graph_pair(pair: tuple[int, tuple[int, ...], dict, int]) -> tuple[int
     index, ray, graph, n = pair
     if graph != canonical_primitive_ray_graph(graph, n):
         return index, "graph is not in canonical stored form"
-    # Canonical equality has already established positive edges, exact integer
-    # weights and valid contiguous bulk labels. Do not parse/sort them again.
-    vertices = n + 1 + len({vertex for edge in graph["edges"] for vertex in edge if vertex.startswith("x")})
-    if vertices > DEFAULT_MAX_VERTICES:
-        return index, f"graph uses {vertices} vertices, above generation limit {DEFAULT_MAX_VERTICES}"
     if not check_graph(graph, ray, n, match="ray")["ok"]:
         return index, "graph/ray mismatch"
     return index, None
