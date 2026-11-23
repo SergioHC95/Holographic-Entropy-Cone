@@ -1,0 +1,1354 @@
+{
+  "n": 6,
+  "classification": "Extreme rays from the six-party section census. A certified vertex minimum qualifies for the paired catalogue regardless of order; unproven minima remain supplemental.",
+  "coordinates": "Cardinality-then-lexicographic; terminal 6 is the purifier.",
+  "permutations": "Lexicographic permutations g of the seven terminals; at new subset S use the old coefficient at g(S), folding by purity.",
+  "rank_prime": 65521,
+  "vertex_bounds": "A completed unbounded search at N excludes smaller graphs: subdividing a positive edge preserves every terminal cut. A cut-support exclusion applies to all graphs through maximum_total_vertices. minimality_unproven means the retained graph is an exact witness, but its upper bound is not matched by a proved lower bound. Minimum edge counts are not claimed.",
+  "rays": [
+    {
+      "key": "034",
+      "ray": [
+        1,
+        2,
+        2,
+        2,
+        2,
+        2,
+        3,
+        3,
+        3,
+        3,
+        3,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        5,
+        5,
+        7,
+        7,
+        5,
+        7,
+        7,
+        7,
+        5,
+        5,
+        6,
+        6,
+        6,
+        6,
+        6,
+        5,
+        5,
+        5,
+        5,
+        5,
+        4,
+        3
+      ],
+      "total_vertices": 20,
+      "edge_count": 39,
+      "entropy_scale": "2",
+      "orbit_size": 504,
+      "minimum_total_vertices": 20,
+      "lower_bound": 20,
+      "exclusion": {
+        "maximum_total_vertices": 19,
+        "method": "normalized_cut_support",
+        "certificate": "pentagon-minimum-20.json",
+        "status": "UNSAT",
+        "target_sha256": "4fe160a815c77ff79c5a8cbf5536f62d6172c060d52b57c14c8c548e084ebb19",
+        "result_sha256": "5264f1e2fab25bea56e7872bdab4bf27649de7c57da6ed5f2f826e5229a61955"
+      },
+      "tight_facet_basis": [
+        {
+          "inequality_id": "3b637a00a6891bb01b5d111c512cc7eff2d1287702b5cfa7590f83b9f7f7d0b9",
+          "permutation": 0
+        },
+        {
+          "inequality_id": "3b637a00a6891bb01b5d111c512cc7eff2d1287702b5cfa7590f83b9f7f7d0b9",
+          "permutation": 24
+        },
+        {
+          "inequality_id": "3b637a00a6891bb01b5d111c512cc7eff2d1287702b5cfa7590f83b9f7f7d0b9",
+          "permutation": 30
+        },
+        {
+          "inequality_id": "3b637a00a6891bb01b5d111c512cc7eff2d1287702b5cfa7590f83b9f7f7d0b9",
+          "permutation": 32
+        },
+        {
+          "inequality_id": "3b637a00a6891bb01b5d111c512cc7eff2d1287702b5cfa7590f83b9f7f7d0b9",
+          "permutation": 33
+        },
+        {
+          "inequality_id": "3b637a00a6891bb01b5d111c512cc7eff2d1287702b5cfa7590f83b9f7f7d0b9",
+          "permutation": 240
+        },
+        {
+          "inequality_id": "3b637a00a6891bb01b5d111c512cc7eff2d1287702b5cfa7590f83b9f7f7d0b9",
+          "permutation": 246
+        },
+        {
+          "inequality_id": "3b637a00a6891bb01b5d111c512cc7eff2d1287702b5cfa7590f83b9f7f7d0b9",
+          "permutation": 248
+        },
+        {
+          "inequality_id": "3b637a00a6891bb01b5d111c512cc7eff2d1287702b5cfa7590f83b9f7f7d0b9",
+          "permutation": 249
+        },
+        {
+          "inequality_id": "3b637a00a6891bb01b5d111c512cc7eff2d1287702b5cfa7590f83b9f7f7d0b9",
+          "permutation": 288
+        },
+        {
+          "inequality_id": "3b637a00a6891bb01b5d111c512cc7eff2d1287702b5cfa7590f83b9f7f7d0b9",
+          "permutation": 290
+        },
+        {
+          "inequality_id": "3b637a00a6891bb01b5d111c512cc7eff2d1287702b5cfa7590f83b9f7f7d0b9",
+          "permutation": 291
+        },
+        {
+          "inequality_id": "3b637a00a6891bb01b5d111c512cc7eff2d1287702b5cfa7590f83b9f7f7d0b9",
+          "permutation": 300
+        },
+        {
+          "inequality_id": "3b637a00a6891bb01b5d111c512cc7eff2d1287702b5cfa7590f83b9f7f7d0b9",
+          "permutation": 301
+        },
+        {
+          "inequality_id": "3b637a00a6891bb01b5d111c512cc7eff2d1287702b5cfa7590f83b9f7f7d0b9",
+          "permutation": 304
+        },
+        {
+          "inequality_id": "3b637a00a6891bb01b5d111c512cc7eff2d1287702b5cfa7590f83b9f7f7d0b9",
+          "permutation": 2160
+        },
+        {
+          "inequality_id": "3b637a00a6891bb01b5d111c512cc7eff2d1287702b5cfa7590f83b9f7f7d0b9",
+          "permutation": 2166
+        },
+        {
+          "inequality_id": "3b637a00a6891bb01b5d111c512cc7eff2d1287702b5cfa7590f83b9f7f7d0b9",
+          "permutation": 2168
+        },
+        {
+          "inequality_id": "3b637a00a6891bb01b5d111c512cc7eff2d1287702b5cfa7590f83b9f7f7d0b9",
+          "permutation": 2208
+        },
+        {
+          "inequality_id": "3b637a00a6891bb01b5d111c512cc7eff2d1287702b5cfa7590f83b9f7f7d0b9",
+          "permutation": 2210
+        },
+        {
+          "inequality_id": "3b637a00a6891bb01b5d111c512cc7eff2d1287702b5cfa7590f83b9f7f7d0b9",
+          "permutation": 2220
+        },
+        {
+          "inequality_id": "3b637a00a6891bb01b5d111c512cc7eff2d1287702b5cfa7590f83b9f7f7d0b9",
+          "permutation": 2221
+        },
+        {
+          "inequality_id": "3b637a00a6891bb01b5d111c512cc7eff2d1287702b5cfa7590f83b9f7f7d0b9",
+          "permutation": 2224
+        },
+        {
+          "inequality_id": "3b637a00a6891bb01b5d111c512cc7eff2d1287702b5cfa7590f83b9f7f7d0b9",
+          "permutation": 2520
+        },
+        {
+          "inequality_id": "3b637a00a6891bb01b5d111c512cc7eff2d1287702b5cfa7590f83b9f7f7d0b9",
+          "permutation": 2522
+        },
+        {
+          "inequality_id": "3b637a00a6891bb01b5d111c512cc7eff2d1287702b5cfa7590f83b9f7f7d0b9",
+          "permutation": 2523
+        },
+        {
+          "inequality_id": "3b637a00a6891bb01b5d111c512cc7eff2d1287702b5cfa7590f83b9f7f7d0b9",
+          "permutation": 2532
+        },
+        {
+          "inequality_id": "3b637a00a6891bb01b5d111c512cc7eff2d1287702b5cfa7590f83b9f7f7d0b9",
+          "permutation": 2536
+        },
+        {
+          "inequality_id": "3b637a00a6891bb01b5d111c512cc7eff2d1287702b5cfa7590f83b9f7f7d0b9",
+          "permutation": 2592
+        },
+        {
+          "inequality_id": "3b637a00a6891bb01b5d111c512cc7eff2d1287702b5cfa7590f83b9f7f7d0b9",
+          "permutation": 2593
+        },
+        {
+          "inequality_id": "15fc0410c11b778371287aecd5131b33c0775abc79d2986b449520c13461e463",
+          "permutation": 8
+        },
+        {
+          "inequality_id": "15fc0410c11b778371287aecd5131b33c0775abc79d2986b449520c13461e463",
+          "permutation": 9
+        },
+        {
+          "inequality_id": "15fc0410c11b778371287aecd5131b33c0775abc79d2986b449520c13461e463",
+          "permutation": 48
+        },
+        {
+          "inequality_id": "15fc0410c11b778371287aecd5131b33c0775abc79d2986b449520c13461e463",
+          "permutation": 51
+        },
+        {
+          "inequality_id": "15fc0410c11b778371287aecd5131b33c0775abc79d2986b449520c13461e463",
+          "permutation": 60
+        },
+        {
+          "inequality_id": "15fc0410c11b778371287aecd5131b33c0775abc79d2986b449520c13461e463",
+          "permutation": 360
+        },
+        {
+          "inequality_id": "15fc0410c11b778371287aecd5131b33c0775abc79d2986b449520c13461e463",
+          "permutation": 362
+        },
+        {
+          "inequality_id": "15fc0410c11b778371287aecd5131b33c0775abc79d2986b449520c13461e463",
+          "permutation": 373
+        },
+        {
+          "inequality_id": "15fc0410c11b778371287aecd5131b33c0775abc79d2986b449520c13461e463",
+          "permutation": 436
+        },
+        {
+          "inequality_id": "15fc0410c11b778371287aecd5131b33c0775abc79d2986b449520c13461e463",
+          "permutation": 450
+        },
+        {
+          "inequality_id": "15fc0410c11b778371287aecd5131b33c0775abc79d2986b449520c13461e463",
+          "permutation": 2917
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 0
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 120
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 144
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 150
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 152
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 153
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1440
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1464
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1470
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1472
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1473
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1680
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1686
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1688
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1689
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1728
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1730
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1731
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1740
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1741
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1744
+        }
+      ],
+      "minimality_status": "certified_minimal",
+      "catalogue_index": 6136,
+      "ray_index_sha256": "a43949bcbfde142d0ba16edfeb2b189b9d9fb91740d073e7ab23a17c920ced47",
+      "graph_sha256": "93a7f4e80cc1dadcd1d63068b2cf55edebccd63c159a0501bf2915500fa851f4"
+    },
+    {
+      "key": "11094326",
+      "ray": [
+        2,
+        3,
+        3,
+        3,
+        3,
+        5,
+        5,
+        5,
+        5,
+        5,
+        7,
+        6,
+        6,
+        6,
+        8,
+        6,
+        6,
+        8,
+        6,
+        8,
+        8,
+        8,
+        8,
+        8,
+        10,
+        8,
+        8,
+        10,
+        8,
+        10,
+        10,
+        9,
+        9,
+        9,
+        9,
+        9,
+        11,
+        9,
+        11,
+        9,
+        11,
+        7,
+        11,
+        11,
+        11,
+        11,
+        9,
+        11,
+        9,
+        11,
+        9,
+        12,
+        10,
+        10,
+        10,
+        10,
+        10,
+        8,
+        8,
+        8,
+        8,
+        7,
+        5
+      ],
+      "total_vertices": 16,
+      "edge_count": 30,
+      "entropy_scale": "1",
+      "orbit_size": 2520,
+      "minimum_total_vertices": 16,
+      "lower_bound": 16,
+      "exclusion": {
+        "exact_total_vertices": 15,
+        "status": "UNSAT",
+        "target_sha256": "f1e62af0ca4869133b6c5fd5bd5e13ed8451b16404bb4254b149d4200bccce1f",
+        "result_sha256": "09bc2481c37f172f776faa379a46a1ce78ef5523916722aec569b311a6e76031"
+      },
+      "tight_facet_basis": [
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 0
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 6
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 24
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 27
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 36
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 38
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 48
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 51
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 60
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 94
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 240
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 242
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 253
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 255
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 301
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 315
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 324
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 360
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 362
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 373
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 420
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 435
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 444
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 503
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 530
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 541
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 720
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 726
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 744
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 782
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 812
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 840
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 846
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 888
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 1095
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 2880
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 3685
+        },
+        {
+          "inequality_id": "5964bd2b003ad429a303d74ab9a4075ed7fb12649fc732fb99e152e79378a77b",
+          "permutation": 870
+        },
+        {
+          "inequality_id": "5964bd2b003ad429a303d74ab9a4075ed7fb12649fc732fb99e152e79378a77b",
+          "permutation": 1171
+        },
+        {
+          "inequality_id": "5964bd2b003ad429a303d74ab9a4075ed7fb12649fc732fb99e152e79378a77b",
+          "permutation": 3810
+        },
+        {
+          "inequality_id": "347a4a92f81552f3455b53401de6c0dcf476c912eafc5bae043ea64b17b77560",
+          "permutation": 4055
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 0
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 120
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 144
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 150
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 152
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 153
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1440
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1464
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1470
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1472
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1473
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1680
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1686
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1688
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1689
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1728
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1730
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1731
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1740
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1741
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1744
+        }
+      ],
+      "minimality_status": "certified_minimal",
+      "source_graph_model": {
+        "catalogue": "data/n=6/facet-witnesses.json",
+        "model": "11094326fe5284372c1a04871800f6b013acb7702fb7b213633cf80a65584f43",
+        "terminal_labels": "ADBCEOF",
+        "capacity_divisor": 2
+      },
+      "catalogue_index": 108981,
+      "ray_index_sha256": "a43949bcbfde142d0ba16edfeb2b189b9d9fb91740d073e7ab23a17c920ced47",
+      "graph_sha256": "6c3621877b8a82687a119e80139f1c54f3fa5465d0d040187ce0aed33ab9632f"
+    },
+    {
+      "key": "6fdf352c",
+      "ray": [
+        2,
+        2,
+        2,
+        2,
+        3,
+        3,
+        4,
+        4,
+        4,
+        5,
+        5,
+        4,
+        4,
+        5,
+        5,
+        4,
+        5,
+        5,
+        5,
+        5,
+        6,
+        6,
+        6,
+        5,
+        7,
+        6,
+        7,
+        5,
+        7,
+        7,
+        8,
+        6,
+        7,
+        7,
+        7,
+        7,
+        8,
+        7,
+        7,
+        8,
+        6,
+        8,
+        7,
+        7,
+        7,
+        7,
+        6,
+        7,
+        7,
+        8,
+        8,
+        9,
+        9,
+        8,
+        8,
+        6,
+        7,
+        7,
+        6,
+        6,
+        6,
+        6,
+        4
+      ],
+      "total_vertices": 13,
+      "edge_count": 21,
+      "entropy_scale": "1",
+      "orbit_size": 5040,
+      "minimum_total_vertices": 13,
+      "lower_bound": 13,
+      "exclusion": {
+        "exact_total_vertices": 12,
+        "status": "UNSAT",
+        "target_sha256": "20244473882fcc2ccc2125468384231ee6b94d178de30a5f254f6fbec9d5c695",
+        "result_sha256": "44bd60fc9b3a8423ba7e6139530070d1238c9cc63a37646500c53e612a6a3d26"
+      },
+      "tight_facet_basis": [
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 3
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 33
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 56
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 57
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 80
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 290
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 366
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 369
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 375
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 408
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 433
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 435
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 450
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 480
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 486
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 556
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 720
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 723
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 744
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 746
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 750
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 752
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 753
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 759
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 761
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 770
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 800
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 802
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 842
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 890
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 1080
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 2886
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 2940
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 2965
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 3014
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 3606
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 3795
+        },
+        {
+          "inequality_id": "5964bd2b003ad429a303d74ab9a4075ed7fb12649fc732fb99e152e79378a77b",
+          "permutation": 73
+        },
+        {
+          "inequality_id": "5964bd2b003ad429a303d74ab9a4075ed7fb12649fc732fb99e152e79378a77b",
+          "permutation": 726
+        },
+        {
+          "inequality_id": "5964bd2b003ad429a303d74ab9a4075ed7fb12649fc732fb99e152e79378a77b",
+          "permutation": 1141
+        },
+        {
+          "inequality_id": "6b7f4c2e8882080ab4ee11702bdbd8d3298bf6fd8a7bf8d1139be29e8a57171e",
+          "permutation": 1000
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 0
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 120
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 144
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 150
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 152
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 153
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1440
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1464
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1470
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1472
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1473
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1680
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1686
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1688
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1689
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1728
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1730
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1731
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1740
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1741
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1744
+        }
+      ],
+      "catalogue_index": 30968,
+      "ray_index_sha256": "a43949bcbfde142d0ba16edfeb2b189b9d9fb91740d073e7ab23a17c920ced47",
+      "graph_sha256": "97b71e30fc6e9a335df11dd2a3509a78334730c82d9a9ecd9cefaf04cd1cd7c1",
+      "minimality_status": "certified_minimal"
+    },
+    {
+      "key": "75742e5f",
+      "ray": [
+        1,
+        2,
+        2,
+        2,
+        3,
+        3,
+        3,
+        3,
+        3,
+        4,
+        4,
+        4,
+        4,
+        5,
+        5,
+        4,
+        5,
+        5,
+        5,
+        5,
+        6,
+        5,
+        5,
+        4,
+        6,
+        5,
+        6,
+        6,
+        6,
+        6,
+        7,
+        6,
+        7,
+        5,
+        7,
+        7,
+        6,
+        7,
+        7,
+        8,
+        6,
+        7,
+        6,
+        6,
+        6,
+        6,
+        5,
+        6,
+        8,
+        7,
+        7,
+        7,
+        7,
+        6,
+        6,
+        6,
+        6,
+        6,
+        5,
+        5,
+        5,
+        4,
+        3
+      ],
+      "total_vertices": 12,
+      "edge_count": 18,
+      "entropy_scale": "1",
+      "orbit_size": 5040,
+      "minimum_total_vertices": 12,
+      "lower_bound": 12,
+      "exclusion": {
+        "exact_total_vertices": 11,
+        "status": "UNSAT",
+        "target_sha256": "a4e9bede182f5f331e5276bbdd5ece81ef4e04f48d010ca1e47c2ee08e2c875d",
+        "result_sha256": "92cdf09495c7cfb9e1f0ddf8f35a0ec385f5d6a9b49418a460aabf2ba1521ec3"
+      },
+      "tight_facet_basis": [
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 3
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 9
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 15
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 16
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 26
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 32
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 33
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 39
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 50
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 57
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 65
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 74
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 76
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 290
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 366
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 369
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 372
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 377
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 408
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 410
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 433
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 436
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 451
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 485
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 486
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 492
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 553
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 570
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 723
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 729
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 737
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 761
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 800
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 802
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 842
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 857
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 1094
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 1201
+        },
+        {
+          "inequality_id": "f45ac7d1b2432647b848e3e91a7be06871487f5183652e6b9c52336ddbe5094a",
+          "permutation": 2886
+        },
+        {
+          "inequality_id": "5964bd2b003ad429a303d74ab9a4075ed7fb12649fc732fb99e152e79378a77b",
+          "permutation": 6
+        },
+        {
+          "inequality_id": "5964bd2b003ad429a303d74ab9a4075ed7fb12649fc732fb99e152e79378a77b",
+          "permutation": 1044
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 0
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 120
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 144
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 150
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 152
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 153
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1440
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1464
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1470
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1472
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1473
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1680
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1686
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1688
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1689
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1728
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1730
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1731
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1740
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1741
+        },
+        {
+          "inequality_id": "9f003b8924212c180ec45e2959951ffeca3a98d57be6a9ac1e9ecf6e835701eb",
+          "permutation": 1744
+        }
+      ],
+      "catalogue_index": 6309,
+      "ray_index_sha256": "a43949bcbfde142d0ba16edfeb2b189b9d9fb91740d073e7ab23a17c920ced47",
+      "graph_sha256": "6fb0d2d9d8d48b8faeede8edd011697648d6cd3cf908f07808e1be604f67f9a1",
+      "minimality_status": "certified_minimal"
+    }
+  ]
+}
