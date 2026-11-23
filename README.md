@@ -599,6 +599,297 @@ The [ARM waves 363, 364, and 366 ledger](research/ray-graph-minimal-15-vertex-re
 adds 21 ray/graph pairs with exact 15-vertex realizations and exhaustive
 14-vertex exclusions.
 
+The [six-hour extension ledger](research/ray-graph-minimal-15-vertex-realizations-six-hour-extension-first-batch.json)
+adds six ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [recovered ARM ledger](research/ray-graph-minimal-15-vertex-realizations-six-hour-extension-recovered-arm.json)
+adds 28 ray/graph pairs from four previously completed search waves. Each
+has an exact 15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [next extension ARM ledger](research/ray-graph-minimal-15-vertex-realizations-six-hour-extension-next-arm.json)
+adds eight ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [ARM and replayed AMD ledger](research/ray-graph-minimal-15-vertex-realizations-six-hour-extension-arm-and-replayed-amd.json)
+adds ten ARM64 ray/graph pairs and two independently replayed AMD64 witnesses
+from an interrupted search. Each has an exact 15-vertex realization and an
+exhaustive 14-vertex exclusion.
+
+The [ARM wave 377 ledger](research/ray-graph-minimal-15-vertex-realizations-six-hour-extension-arm-wave-377.json)
+adds five ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [ARM wave 381 ledger](research/ray-graph-minimal-15-vertex-realizations-six-hour-extension-arm-wave-381.json)
+adds eleven ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [ARM wave 376 and native ledger](research/ray-graph-minimal-15-vertex-realizations-six-hour-extension-arm-wave-376.json)
+adds six ARM64 ray/graph pairs and one from the native queue. Each has an
+exact 15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [ARM extension wave 501 ledger](research/ray-graph-minimal-15-vertex-realizations-six-hour-extension-wave-501.json)
+adds five ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [ARM extension wave 505 ledger](research/ray-graph-minimal-15-vertex-realizations-six-hour-extension-wave-505.json)
+adds three ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [renewed native search ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-native-intake.json)
+adds three ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [renewed wave 509 and native ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-509.json)
+adds three ARM64 ray/graph pairs and one from the native queue. Each has an
+exact 15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [AMD residual wave 401 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-amd-wave-401.json)
+adds one ray/graph pair with an exact 15-vertex realization and an exhaustive
+14-vertex exclusion.
+
+The [renewed wave 513 and native ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-513.json)
+adds four ARM64 ray/graph pairs and one from the native queue. Each has an
+exact 15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [latest native intake ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-latest-intake.json)
+adds one ray/graph pair with an exact 15-vertex realization and an exhaustive
+14-vertex exclusion.
+
+The [AMD residual wave 402 and native ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-amd-wave-402.json)
+adds three AMD64 ray/graph pairs and one from the native queue. Each has an
+exact 15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [compact live-row wave 601 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-compact-wave-601.json)
+adds two ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [renewed ARM wave 521 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-521.json)
+adds two ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [renewed ARM wave 525 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-525.json)
+adds six ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [AMD residual wave 403 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-amd-wave-403.json)
+adds two ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [renewed ARM wave 529 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-529.json)
+adds two ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [renewed Mistral ARM wave 371 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-371.json)
+adds ten ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [AMD wave 404, ARM wave 533, and native ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-amd404-arm533.json)
+adds two AMD64 ray/graph pairs, one ARM64 pair, and one from the native queue.
+Each has an exact 15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [renewed ARM wave 537 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-537.json)
+adds three ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [renewed ARM wave 541 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-541.json)
+adds four ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [AMD residual wave 405 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-amd-wave-405.json)
+adds one ray/graph pair with an exact 15-vertex realization and an exhaustive
+14-vertex exclusion.
+
+The [renewed ARM wave 545 and native ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-545.json)
+adds four ARM64 ray/graph pairs and one from the native queue. Each has an
+exact 15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [renewed ARM wave 549 and native ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-549.json)
+adds four ARM64 ray/graph pairs and two from the native queue. Each has an
+exact 15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [renewed Mistral ARM wave 375 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-375.json)
+adds seven ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [renewed ARM wave 553 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-553.json)
+adds three ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [renewed ARM wave 557 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-557.json)
+adds five ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [renewed ARM wave 561 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-561.json)
+adds four ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [Mistral wave 379 and AMD wave 407 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-379.json)
+adds eight ARM64 ray/graph pairs and one AMD64 pair. Each has an exact
+15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [compact live-row wave 606 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-compact-wave-606.json)
+adds one ray/graph pair with an exact 15-vertex realization and an exhaustive
+14-vertex exclusion.
+
+The [renewed ARM wave 565 and native ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-565.json)
+adds two ARM64 ray/graph pairs and one from the native queue. Each has an
+exact 15-vertex realization and an exhaustive 14-vertex exclusion.
+
+The [AMD residual wave 408 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-amd-wave-408.json)
+adds one ray/graph pair with an exact 15-vertex realization and an exhaustive
+14-vertex exclusion.
+
+The [renewed DEV ARM wave 569 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-569.json)
+adds four ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [compact comparison wave 607 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-compact-wave-607.json)
+adds three ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [DEV ARM handoff wave 502 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-502.json)
+adds one ray/graph pair with an exact 15-vertex realization and an exhaustive
+14-vertex exclusion.
+
+The [DEV ARM handoff wave 506 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-506.json)
+adds one ray/graph pair with an exact 15-vertex realization and an exhaustive
+14-vertex exclusion.
+
+The [DEV ARM handoff wave 510 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-510.json)
+adds two ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [compact comparison wave 608 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-compact-wave-608.json)
+adds one ray/graph pair with an exact 15-vertex realization and an exhaustive
+14-vertex exclusion.
+
+The [DEV ARM handoff wave 514 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-514.json)
+adds three ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [DEV ARM handoff wave 518 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-518.json)
+adds three ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [native intake after wave 518 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-intake-after-518.json)
+adds one ray/graph pair with an exact 15-vertex realization and an exhaustive
+14-vertex exclusion.
+
+The [DEV ARM handoff wave 522 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-522.json)
+adds two ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [compact comparison wave 609 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-compact-wave-609.json)
+adds three ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [DEV ARM handoff wave 526 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-526.json)
+adds three ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [Mistral ARM wave 383 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-383.json)
+adds four ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [native intake after wave 383 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-intake-after-383.json)
+adds one ray/graph pair with an exact 15-vertex realization and an exhaustive
+14-vertex exclusion.
+
+The [DEV ARM handoff wave 534 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-534.json)
+adds one ray/graph pair with an exact 15-vertex realization and an exhaustive
+14-vertex exclusion.
+
+The [recovered waves 538 and 610 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-recovered-waves-538-610.json)
+adds four ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions: two from DEV ARM wave 538 and two from AMD64 comparison
+wave 610.
+
+The [DEV ARM handoff wave 542 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-542.json)
+adds one ray/graph pair with an exact 15-vertex realization and an exhaustive
+14-vertex exclusion.
+
+The [DEV ARM handoff wave 546 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-546.json)
+adds one ray/graph pair with an exact 15-vertex realization and an exhaustive
+14-vertex exclusion.
+
+The [compact comparison wave 611 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-compact-wave-611.json)
+adds one ray/graph pair with an exact 15-vertex realization and an exhaustive
+14-vertex exclusion.
+
+The [DEV ARM handoff wave 550 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-550.json)
+adds two ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [DEV ARM handoff wave 554 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-554.json)
+adds two ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [Mistral ARM wave 503 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-503.json)
+adds three ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [wave 612 and native intake ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-compact-wave-612.json)
+adds three ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions: two from AMD64 comparison wave 612 and one from the
+native solver.
+
+The [DEV ARM handoff wave 562 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-562.json)
+adds one ray/graph pair with an exact 15-vertex realization and an exhaustive
+14-vertex exclusion.
+
+The [wave 566 and native intake ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-566.json)
+adds two ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions: one from DEV ARM wave 566 and one from the native solver.
+
+The [DEV ARM handoff wave 570 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-570.json)
+adds one ray/graph pair with an exact 15-vertex realization and an exhaustive
+14-vertex exclusion.
+
+The [DEV ARM handoff wave 511 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-511.json)
+adds two ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [DEV ARM handoff wave 515 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-515.json)
+adds two ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [DEV ARM handoff wave 519 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-519.json)
+adds three ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [DEV ARM handoff wave 523 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-523.json)
+adds three ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [wave 527 and native intake ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-527.json)
+adds three ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions: two from DEV ARM wave 527 and one from the native solver.
+
+The [DEV ARM handoff wave 531 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-531.json)
+adds two ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [DEV ARM handoff wave 539 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-539.json)
+adds two ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [DEV ARM handoff wave 543 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-543.json)
+adds five ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
+The [wave 547 and native intake ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-547.json)
+adds four ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions: two from DEV ARM wave 547 and two from the native solver.
+
+The [native intake after wave 547 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-intake-after-547.json)
+adds one ray/graph pair with an exact 15-vertex realization and an exhaustive
+14-vertex exclusion.
+
+The [Mistral ARM wave 374 ledger](research/ray-graph-minimal-15-vertex-realizations-renewed-six-hour-wave-374.json)
+adds five ray/graph pairs with exact 15-vertex realizations and exhaustive
+14-vertex exclusions.
+
 Across all party counts, **87,250 full-map proofs** occupy **85 proof shards**
 totalling **192,258,450 bytes**. Git LFS is not required.
 
@@ -673,7 +964,7 @@ proof coverage does not mean the six-party cone is fully known.
 | 3 | 2 | 7 | 2 | 7 | 2 | complete |
 | 4 | 2 | 20 | 3 | 20 | 2 | complete |
 | 5 | 8 | 372 | 19 | 2,267 | 8 | complete |
-| 6 | 87,236 | 433,075,118 | 3,805,873 | 19,018,800,748 | 87,236 | partial |
+| 6 | 87,236 | 433,075,118 | 3,806,142 | 19,020,153,988 | 87,236 | partial |
 
 CI recomputes this table and the proof-storage totals from the data; stale
 README counts fail the tests. These documentation checks do not replace
