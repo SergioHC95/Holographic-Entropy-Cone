@@ -87,6 +87,10 @@ The [post-#364 minimum-15 ledger](research/ray-graph-minimal-15-vertex-realizati
 adds 67 six-party ray/graph pairs, each with an exact 15-vertex graph and an
 exhaustive 14-vertex exclusion.
 
+The [post-#372 minimum-15 ledger](research/ray-graph-minimal-15-vertex-realizations-post-372.json)
+adds 13 six-party ray/graph pairs, each with an exact 15-vertex graph and an
+exhaustive 14-vertex exclusion.
+
 The [second minimal 15-vertex ledger](research/ray-graph-minimal-15-vertex-realizations-followup.json)
 records 19,066 six-party ray/graph pairs with exact 15-vertex minimality evidence.
 
@@ -974,7 +978,7 @@ proof coverage does not mean the six-party cone is fully known.
 | 3 | 2 | 7 | 2 | 7 | 2 | complete |
 | 4 | 2 | 20 | 3 | 20 | 2 | complete |
 | 5 | 8 | 372 | 19 | 2,267 | 8 | complete |
-| 6 | 87,771 | 435,745,058 | 3,806,645 | 19,022,674,492 | 87,771 | partial |
+| 6 | 87,771 | 435,745,058 | 3,806,658 | 19,022,740,012 | 87,771 | partial |
 
 CI recomputes this table and the proof-storage totals from the data; stale
 README counts fail the tests. These documentation checks do not replace
